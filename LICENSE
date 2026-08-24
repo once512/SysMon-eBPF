@@ -1,0 +1,4 @@
+This project is dual-licensed.
+
+- The eBPF kernel space programs (e.g., files in /bpf directory) are licensed under the GPL v2 License. See LICENSE-GPL for details.
+- The user space programs and other utilities are licensed under the MIT License. See LICENSE-MIT for details.
