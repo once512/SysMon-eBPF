@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: MIT
 """Temporary-process helpers shared by privileged fanotify experiments."""
 import subprocess
+import tempfile
+import json
+import select
 import time
 
 def start(binary, path, decision, output, errors, seconds=20, extra=()):
@@ -45,4 +48,55 @@ def stop(process):
             process.kill()
             process.wait(timeout=5)
             raise
+
+
+class GateRun:
+    def __init__(self, binary, path, decision, extra, seconds=20):
+        self.output = tempfile.TemporaryFile(mode='w+')
+        self.errors = tempfile.TemporaryFile(mode='w+')
+        try:
+            self.process = start(binary, path, decision, self.output, self.errors,
+                                 seconds=seconds, extra=extra)
+        except BaseException:
+            self.output.close()
+            self.errors.close()
+            raise
+
+    def finish(self):
+        try:
+            stop(self.process)
+            self.errors.seek(0)
+            assert self.process.returncode == 0, self.errors.read()
+            self.output.seek(0)
+            return json.load(self.output)
+        finally:
+            self.output.close()
+            self.errors.close()
+
+
+def begin_open(path):
+    code = '''import errno, os, sys
+print('ready', flush=True)
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY)
+    os.close(fd)
+except OSError as error:
+    print(error.errno, flush=True)
+else:
+    print(0, flush=True)
+'''
+    process = subprocess.Popen(['python3', '-c', code, str(path)], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    readable, _, _ = select.select([process.stdout], [], [], 5)
+    if not readable or process.stdout.readline().strip() != 'ready':
+        process.kill()
+        process.wait(timeout=5)
+        raise RuntimeError('opener did not become ready')
+    return process
+
+
+def finish_open(process):
+    output, error = process.communicate(timeout=5)
+    assert process.returncode == 0, error
+    return int(output)
 
