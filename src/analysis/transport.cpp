@@ -9,6 +9,10 @@
 namespace analysis {
 Packet receive_packet(int channel, void *data, std::size_t capacity)
 {
+    // Allocate ownership storage before recvmsg installs any FDs in this process.
+    // Once descriptors arrive, taking ownership must not allocate/throw.
+    Packet packet{Io::ready, 0, {}};
+    packet.fds.reserve(8);
     alignas(cmsghdr) char control[CMSG_SPACE(sizeof(int) * 8)]{};
     iovec vector{data, capacity};
     msghdr message{};
@@ -23,7 +27,8 @@ Packet receive_packet(int channel, void *data, std::size_t capacity)
         if (errno == EAGAIN || errno == EWOULDBLOCK) return {Io::would_block, 0, {}};
         throw std::system_error(errno, std::generic_category(), "analysis recvmsg");
     }
-    Packet packet{count ? Io::ready : Io::closed, static_cast<std::size_t>(count), {}};
+    packet.status = count ? Io::ready : Io::closed;
+    packet.size = static_cast<std::size_t>(count);
     bool unexpected = false;
     for (auto *item = CMSG_FIRSTHDR(&message); item; item = CMSG_NXTHDR(&message, item)) {
         if (item->cmsg_level != SOL_SOCKET || item->cmsg_type != SCM_RIGHTS) {
