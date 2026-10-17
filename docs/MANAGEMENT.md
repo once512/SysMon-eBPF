@@ -119,3 +119,7 @@ sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
 管理 v3 在 v2 末尾追加两个 uint32：`writer_paths` 和必须为零的保留字段，总大小 296 字节。BPF 状态 JSON 的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不应用 writer，JSON 不提供此字段。
 
 旧管理端仍可查询已有字段，但看不到新授权条数；新 CLI 遇到旧服务/旧响应会拒绝，不静默丢失这项信息。配置 v3、管理 v3、分析 v3 各自独立版本化，数字相同没有联动语义。
+
+## 传输与调用边界
+
+服务端生命周期位于 `src/control.h/.cpp`，客户端请求位于 `src/control_client.h/.cpp`；地址、对端身份及严格无 FD 接收规则共用 `src/management/channel.h/.cpp`。消息布局和字段校验继续由 protocol 模块负责。职责与资源所有权分析见 [架构整理](ARCHITECTURE_REVIEW.md)。

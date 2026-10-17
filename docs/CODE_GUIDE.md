@@ -1,6 +1,6 @@
 # 代码导读
 
-建议先阅读 README 的运行边界，再按下面的顺序研究代码。当前代码围绕三个能力组织：执行与凭证审计、指定文件只读保护、进程自保护。
+架构、面向对象与资源所有权的评估见 [结构整理说明](ARCHITECTURE_REVIEW.md)。建议先阅读 README 的运行边界，再按下面的顺序研究代码。当前代码围绕三个能力组织：执行与凭证审计、指定文件只读保护、进程自保护。
 
 ## 宿主程序：从参数到事件
 
@@ -12,7 +12,9 @@
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
 | `src/policy_config.h` / `src/policy_config.cpp` | 有界版本配置读取与解析 | root 文件权限、严格格式、运行 revision 与格式 version 分开 |
 | `src/file_policy.h` / `src/file_policy.cpp` | 固定文件对象并完整切换 Map 策略 | 候选 HASH 填满后切换外层 Map 引用；失败保留旧策略与 inode FD；退出时当前句柄比链接活得更久 |
-| `src/control.h` / `src/control.cpp` | root 管理 socket | 私有目录 FD 固定创建与清理位置；`SO_PEERCRED` 验证身份；完整 `stop` / `reload` 消息；操作完成后确认 |
+| `src/control.h` / `src/control.cpp` | root 管理服务端 | 私有目录 FD 固定创建与清理位置；`SO_PEERCRED` 验证身份；完整 `stop` / `reload` 消息；操作完成后确认 |
+
+`src/control_client.h/.cpp` 单独提供管理客户端；`src/management/channel.h/.cpp` 共用地址、对端身份和无附件接收规则。`src/fanotify/gate_stats.h` 是不依赖权限门实现的统计模型。
 
 头文件暴露接口与资源所有权，系统调用和协议细节放在对应 `.cpp`。`main.cpp` 通过这些接口协调运行，避免再次把各个功能实现堆回入口。
 
