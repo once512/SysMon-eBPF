@@ -80,3 +80,36 @@ sudo python3 tests/run_privileged.py --build-dir build --only management-live ma
 管理 v2 还包含扫描原因计数、最近扫描错误与 errno，以及后端故障回退请求数。具体枚举、有效组合和计数守恒关系见 [分析器 v3](ANALYSIS_WORKER.md)。这与重载结果 code/last_code 是两类独立错误，不能把单文件扫描失败解释成配置重载失败。
 
 管理服务接收命令采用非阻塞推进：最多保留一个尚未发送消息的连接，空闲约 100ms 后在后续循环中回收；不在权限事件循环内 poll 等待客户端。正常连接可以稍后提交报文。到期回收受宿主循环调度影响，不是绝对墙钟期限；root 控制专题用独立 helper 验证静默连接不会令 dispatch 阻塞，真实服务验证静默连接期间仍可裁决、查询并回收 FD。
+
+## 双后端活动来源核对
+
+新增只读工具：
+
+```bash
+sudo ./build/secmon-policyctl --bpf-socket /run/secmon/bpf.sock \
+    --fanotify-socket /run/secmon/fanotify.sock --expect-revision 7
+```
+
+工具不读候选文件，也不发送 reload。按 BPF₁ → fanotify₁ → BPF₂ → fanotify₂ 查询，分别检查两次间 pid/instance/revision/source_sha256/成功重载数是否稳定。若稳定，两段观测区间在 fanotify₁..BPF₂ 相交，再比较共同来源；拒绝次数和业务计数变化不算策略变化。
+
+| code | 含义 |
+| --- | --- |
+| consistent | 活动版本和原始配置字节相同，且满足可选预期版本 |
+| revision_mismatch | 两后端活动版本不同 |
+| source_mismatch | 版本相同但原始配置摘要不同，包括注释/空白差异 |
+| unstable | 采样期间有成功提交、实例或活动来源变化，应重试查询 |
+| unconfigured | 至少一端是命令行模式，没有共同配置来源可核对 |
+| unexpected_revision | 两端来源一致，但不是指定的预期版本 |
+| wrong_backend | socket 指向的服务类型与参数角色不符 |
+| query_failed | 服务返回了非 ok 状态 |
+| transport_error | 连接/身份/帧校验或等待失败，不能确认完整状态 |
+
+输出的 scope 固定为 active_configuration_bytes，附带后两次有效状态；传输错误只有 code/scope。退出码 0 表示 consistent，1 表示分歧/不稳定/查询失败，2 表示参数错误。当前客户端要求管理 v2；旧服务不会被静默当作一致。
+
+这是只读来源核对，不是原子发布、签名验证、分析器健康检查、内核 Map 外部修改检测或路径对象一致性证明。即使 consistent，也只说明观测到的活动配置字节；要判断运行健康还需检查附带状态。跨命名空间管理坐标仍按项目已有边界处理。
+
+`src/management/consistency.h/.cpp` 是纯快照判定，入口 `src/management/main.cpp` 只负责参数与采集；确定性测试覆盖采样不稳定，真实双后端专题覆盖版本/摘要分歧、预期版本、端点反置和只读资源回收。
+
+```bash
+sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
+```

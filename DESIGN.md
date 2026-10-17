@@ -453,3 +453,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 两次私有 PID/mount namespace 的 init 都报告局部 PID/proc PID=1、PPID=0；宿主通过 unshare children/NSpid 找到不同全局 PID。
 - 核对对应 cred_map 的全局 TGID/TID/start_boottime 键、子进程自报 UID/EUID/caps 和 exec_success，退出后两次基线均删除。专题通过，无需修改 pid_max 或宿主 proc 挂载。
 - 增补 BPF 身份读取处的中文注释：helper 与 task 原始字段使用初始 PID namespace 编号，不能与容器内 getpid 直接比较。本验证不是实际宿主 PID 回绕/复用、user namespace 或完整容器/跨 namespace 管理支持。
+
+### 2026-10-17：只读双后端来源一致性工具
+
+- 新增正式产物 secmon-policyctl，按 B1→F1→B2→F2 双采集，分别确认实例/成功提交/活动版本和摘要稳定，在重叠观测区间核对来源；不读候选文件、不重载、不声明原子事务或完整运行健康。
+- 明确返回版本分歧、同版本不同来源摘要、采样不稳定、未配置、预期版本不符、后端角色错误及查询/传输失败；附带后两次状态，退出码供自动化使用。
+- 判定逻辑与采集入口分开，纯快照测试覆盖变化/重启及错误码，真实两端验证候选未应用、独立提交、同 revision 不同原始字节、端点接反、预期版本和只读 FD 回收。
+- 20 项 CTest、19 个权限专题与七项各 10 秒负载共 26 项统一回归通过，生产构建四个程序通过；Python 语法、文档链接和 diff 检查通过。

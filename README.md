@@ -22,6 +22,7 @@
 - 凭证与基线不一致时设置事件 `flags` 的位 0，仅审计，不阻断。合法提交也可能来自攻击，基线不等同于可信授权。
 - 每 10 秒及退出时向标准错误输出丢失事件和基线更新失败计数。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
+- `secmon-policyctl` 只读核对两个后端的活动版本与配置摘要，并报告分歧或采样不稳定。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
 - `--policy FILE` 加载有版本的文件策略，`--reload SOCKET` 在线完整替换；v2 配置也供 secmon-fanotify 使用，支持空闲时更新裁决设置，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
 - `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。

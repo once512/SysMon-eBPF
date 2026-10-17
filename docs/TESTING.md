@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 17 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 20 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -37,6 +37,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | fanotify-analysis | `fanotify_analysis.py` | 独立进程内容扫描、传递 FD、无递归、降权与故障回退 |
 | fanotify-events | `fanotify_events.py` | 普通读取、mmap 边界、ELF/脚本直接执行与解释读取区别 |
 | fanotify-policy | `fanotify_policy.py` | 共用 v2 配置、静态与扫描模式、空闲切换/忙队列拒绝、固定后端、配置自阻塞防护、FD 稳定 |
+| policy-consistency | `policy_consistency.py` | 真实两端活动来源、版本/摘要分歧、预期版本、端点角色与只读 FD 回收 |
 | management-live | `management_live.py` | 活动内存查询、稳定重载错误、独立版本、忙请求、权限与 FD 稳定 |
 | management-faults | `management_faults.py` | 伪服务错误帧/身份/附带 FD 的客户端拒绝 |
 | control-loop | `control_loop.py` / `control_nonblocking.cpp` | 静默连接无阻塞推进与稍后发送，root 身份，不加载内核策略 |

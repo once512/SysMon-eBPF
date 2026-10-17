@@ -103,3 +103,5 @@ sudo python3 tests/self_protection.py --build-dir build
 `src/content_digest.h/.cpp` 通过系统 OpenSSL EVP 为原始配置字节计算 SHA-256，活动状态复制已提交的摘要。配置、摘要、版本和管理协议编入纯用户态公共静态库 `secmon-policy`，不包含 BPF/fanotify 挂载动作。
 
 `src/fanotify/stats.h/.cpp` 统一输出累计裁决统计及原因拆分，`analysis::ScanError` 在分析协议中定义。管理状态复用同一份 GateStats，避免末次日志与实时查询出现两套计数口径。
+
+新增 `secmon-policyctl`：`src/management/main.cpp` 顺序采集两轮状态，`consistency.h/.cpp` 纯函数判断稳定来源与分歧。这里核对的是活动配置字节，不会将其等同于完整健康或跨后端事务。
