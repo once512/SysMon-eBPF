@@ -58,6 +58,12 @@ if(BUILD_TESTING)
     target_include_directories(secmon-decision-tests PRIVATE src)
     target_compile_options(secmon-decision-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME fanotify-decisions COMMAND secmon-decision-tests)
+    add_executable(secmon-lifecycle-scenario tests/lifecycle_scenario.cpp)
+    add_test(NAME scenario-lifecycle COMMAND ${CMAKE_COMMAND}
+        -DSCENARIO=$<TARGET_FILE:secmon-lifecycle-scenario>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/lifecycle_smoke.cmake)
+    target_link_libraries(secmon-lifecycle-scenario PRIVATE Threads::Threads)
+    target_compile_options(secmon-lifecycle-scenario PRIVATE -Wall -Wextra -Werror)
     add_executable(secmon-scenarios tests/scenarios.cpp)
     target_link_libraries(secmon-scenarios PRIVATE Threads::Threads)
     target_compile_options(secmon-scenarios PRIVATE -Wall -Wextra -Werror)
