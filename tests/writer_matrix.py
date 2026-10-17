@@ -20,10 +20,13 @@ OPERATIONS = ('open-write', 'write', 'truncate', 'unlink', 'rename', 'link', 'se
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--build-dir', default='build')
-    parser.add_argument('--iterations', type=int, default=40)
+    parser.add_argument('--iterations', type=int, default=40, help='1..1000; service lifetime scales with iteration count')
     parser.add_argument('--seed', type=int, default=0x53434D)
     args = parser.parse_args()
-    assert os.geteuid() == 0 and 1 <= args.iterations <= 10000
+    if not 1 <= args.iterations <= 1000:
+        parser.error('iterations must be 1..1000')
+    if os.geteuid() != 0:
+        parser.error('requires root/BPF permissions')
     rng = random.Random(args.seed)
     build = Path(args.build_dir).resolve()
     with tempfile.TemporaryDirectory(prefix='secmon-writer-matrix-') as temporary:
@@ -76,7 +79,8 @@ def main():
 
         publish(1, initial)
         before = policy_outer_ids()
-        with MonitorRun(build / 'secmon', ['--policy', str(config), '--self-protect', str(control)], seconds=180) as monitor:
+        with MonitorRun(build / 'secmon', ['--policy', str(config), '--self-protect', str(control)], # 默认 40 次仍给 180 秒；较长研究运行保留余量，总时长仍在主服务 3600 秒上限内。
+                        seconds=max(180, args.iterations * 3 + 60)) as monitor:
             try:
                 created = policy_outer_ids() - before
                 assert len(created) == 1, 'ambiguous creation; refusing to inspect unrelated Map'
