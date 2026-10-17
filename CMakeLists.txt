@@ -145,3 +145,17 @@ if(BUILD_TESTING)
     add_test(NAME scenario-thread-exec COMMAND secmon-scenarios thread-exec)
     add_test(NAME scenario-threads COMMAND secmon-scenarios threads)
 endif()
+
+# 可选纯解析模糊测试，与特权服务构建无关；单独编译被测源以确保覆盖率和 sanitizer 真正插桩。
+option(SECMON_BUILD_FUZZERS "Build Clang libFuzzer policy parser target" OFF)
+if(SECMON_BUILD_FUZZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "SECMON_BUILD_FUZZERS requires Clang; configure a separate build with clang++")
+    endif()
+    add_executable(secmon-policy-fuzzer tests/fuzz_policy.cpp src/policy_config.cpp
+        src/policy/fanotify_fields.cpp src/policy/writer_fields.cpp)
+    target_include_directories(secmon-policy-fuzzer PRIVATE src include)
+    target_compile_options(secmon-policy-fuzzer PRIVATE -Wall -Wextra -Werror -g -O1
+        -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined)
+    target_link_options(secmon-policy-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
