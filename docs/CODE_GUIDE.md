@@ -79,3 +79,5 @@ sudo python3 tests/self_protection.py --build-dir build
 研究独立分析组件时，可以先按 `protocol.h` 的 ID 与 Ready 约束追踪一次请求，再看 `client.cpp` 如何把后端故障与权限拒绝分开，最后运行 `analysis_protocol.py` 和 `fanotify_analysis_faults.py` 对照异常分支。`analysis_allocation.cpp` 的分配故障钩子只存在于独立测试程序，适合研究系统调用取得资源后 C++ 异常安全的要求；不要把它加入正式程序。
 
 文件策略的配置格式、切换顺序和资源所有权详见 [策略配置导读](POLICY_CONFIG.md)。
+
+`src/fanotify/policy.h/.cpp` 负责共享 v2 格式到 fanotify 运行类型的转换，及不能在线变更的 mark/分析器身份比较。共享的 `policy_config` 与 `control` 模块同时编入两个宿主；fanotify 的 reconfigure 仅在已交付请求队列与分析器空闲时生效。

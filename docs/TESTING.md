@@ -36,6 +36,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | analysis-faults | `fanotify_analysis_faults.py` | 错误/重复/迟到回复、FD 超额、请求取消及后端隔离 |
 | fanotify-analysis | `fanotify_analysis.py` | 独立进程内容扫描、传递 FD、无递归、降权与故障回退 |
 | fanotify-events | `fanotify_events.py` | 普通读取、mmap 边界、ELF/脚本直接执行与解释读取区别 |
+| fanotify-policy | `fanotify_policy.py` | 共用 v2 配置、静态与扫描模式、空闲切换/忙队列拒绝、固定后端、配置自阻塞防护、FD 稳定 |
 | policy-reload | `policy_reload.py` | 真实 BPF 完整切换、版本拒绝、准备失败保留旧保护、配置权限、root 控制与重复切换 FD 回收 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |
 | baseline-lifecycle | `baseline_lifecycle.py` | 活线程 Map key/value、join 删除、合法降权、非主线程 exec 与最终删除 |

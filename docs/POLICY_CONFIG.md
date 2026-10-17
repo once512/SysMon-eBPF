@@ -1,6 +1,6 @@
 # 文件策略配置与在线切换
 
-本模块把 BPF 文件只读策略从命令行参数扩展成有格式版本、运行版本和在线替换的配置。fanotify 的事件类型、扫描器与回退设置仍使用其独立命令行，尚未进入统一配置。
+本模块把 BPF 文件只读策略从命令行参数扩展成有格式版本、运行版本和在线替换的配置。格式 v2 进一步支持 fanotify 的事件类型、扫描器与裁决设置；两个宿主共用配置解析和 root 管理协议，各自应用自己负责的策略。
 
 ## 运行示例
 
@@ -29,7 +29,7 @@ protect "/absolute/path/file with spaces"
 protect "/another/file"
 ```
 
-- `version` 是格式版本，目前只接受恰好一次 `version 1`。
+- `version` 是格式版本，接受恰好一次 `version 1` 或 `version 2`；fanotify 字段要求 v2。
 - `revision` 是非零 uint64 十进制数，恰好一次；在线更新必须严格大于当前运行版本。允许不包含 `protect` 的配置，表示解除全部文件保护。
 - `protect` 必须使用双引号和绝对路径。采用 C++ `std::quoted` 的转义规则：`\"` 表示双引号，`\\` 表示反斜杠；它不是 JSON，`\n` 不表示换行。不支持行尾注释、未知键、重复路径、NUL 或跨行字符串。
 - 最多 256 条路径，单条最长 4095 字节；配置最多 64 KiB。硬链接别名可占多条路径，内核只保留一个 inode 键；容量按路径条数计算。
@@ -77,3 +77,51 @@ sudo python3 tests/run_privileged.py --build-dir build --only policy-reload
 ```
 
 解析测试覆盖格式、数值溢出、重复与容量边界。真实 BPF 测试验证增加/移除、整份清空、拒绝旧版本、候选准备失败保留旧保护、配置权限、symlink 与 FIFO 拒绝、自保护服务的管理命令、反复切换时共同保护对象持续拒绝，已有写入 FD 在保护解除前后的变化、256 文件实际容量，以及 FD 数量回归。并发探测是回归证据，不是所有调度时序的形式证明。
+
+
+## v2：共用配置与 fanotify 重载
+
+[共用配置示例](../examples/unified-policy.conf) 包含 `protect` 和 `fanotify-*`。启动两个进程使用不同的管理 socket：
+
+```bash
+sudo ./build/secmon --policy /run/secmon/policy.conf --self-protect /run/secmon/bpf.sock
+sudo ./build/secmon-fanotify --policy /run/secmon/policy.conf --run-for 3600 --control /run/secmon/fanotify.sock
+# 发布新文件并递增 revision 后，分别更新：
+sudo ./build/secmon --reload /run/secmon/bpf.sock
+sudo ./build/secmon-fanotify --reload /run/secmon/fanotify.sock
+# 结束 fanotify 服务：
+sudo ./build/secmon-fanotify --stop /run/secmon/fanotify.sock
+```
+
+`secmon` 只应用 `protect`；`secmon-fanotify` 只应用 `fanotify-*`。两者都完整校验文件格式。这里只统一配置源和管理协议，没有跨进程提交事务：一个服务更新成功、另一个拒绝时，可能分别运行不同 revision，需查看各自 stderr 的活动版本。两种命令使用同一管理协议，socket 路径决定目标服务。
+
+fanotify 使用 `--policy` 后，只能额外指定 `--run-for` 和可选的 `--control`，不能混入原有策略命令行。`--control` 仅提供 root 管理，不启用 BPF 任务自保护；可在原有命令行模式使用管理停止，但重载要求启动时指定配置。
+
+| 字段 | 默认/约束 | 在线更新 |
+| --- | --- | --- |
+| `fanotify-file` | 必填，双引号绝对路径，现有普通文件 | 需重启 |
+| `fanotify-event` | open；可选 open/access/exec | 需重启 |
+| `fanotify-decision` | 静态模式必填 allow/deny；分析模式禁用 | 静态模式可更新 |
+| `fanotify-analyzer` | 分析模式的双引号绝对程序路径 | 需重启；不能在线切换模式 |
+| `fanotify-marker` | 分析模式必填，双引号 1..256 字节 | 需重启 |
+| `fanotify-scan-limit-bytes` | 分析模式 65536，范围 1..1048576 | 需重启 |
+| `fanotify-delay-ms` | 静态模式 0，范围 0..60000；分析模式禁用 | 可更新 |
+| `fanotify-timeout-ms` | 250，范围 1..60000 | 可更新 |
+| `fanotify-max-pending` | 64，范围 1..4096 | 可更新 |
+| `fanotify-timeout-decision` | deny，可选 allow/deny | 可更新 |
+| `fanotify-overload-decision` | deny，可选 allow/deny | 可更新 |
+| `fanotify-error-decision` | 分析模式 deny，可选 allow/deny；静态模式禁用 | 可更新 |
+
+每个 fanotify 字段最多一次。只有 `fanotify-file` 而没有静态裁决或完整分析设置会被拒绝；没有任何 fanotify 字段的 v2 配置可供 BPF 使用，但不能启动 fanotify 服务。保留原有 v1 文件保护格式。
+
+fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已交付请求队列或分析器仍有活动请求时拒绝重载，并保留原 revision，待请求处理完可重试同一候选版本。检查和切换发生在同一事件循环中。尚在内核队列中、切换后才读取的事件使用新设置；这不是按系统调用开始时间划分版本。
+
+改变目标路径字符串、事件类型、后端模式、扫描器程序、标记或扫描上限需要重启，即使两个路径恰好指向同一 inode 也拒绝。保留的 mark 始终跟随原先固定的对象，不重新解析目标路径。后端离线后仍可更新错误回退，但不会借此自动重启分析器。
+
+配置文件不能与 fanotify 目标是同一 inode，包括硬链接别名。启动在 mark 前比较身份；重载先以 O_PATH 固定配置，再检查与目标 inode 是否相同，通过后才通过 `/proc/self/fd` 打开所固定对象读取，防止路径替换绕过检查并产生自阻塞。O_PATH 不产生当前三类权限事件。其他服务监控该配置文件等跨服务依赖仍需由部署者避免。
+
+## 新增学习入口与验证
+
+`src/fanotify/policy.h/.cpp` 将共享格式转换成运行类型并校验不可在线变更的后端身份；`PendingDecisions::reconfigure` 只在队列为空时替换规则，避免改变旧请求合同；`PermissionGate::reconfigure` 同时检查分析器活动请求。
+
+`fanotify-policy` 权限专题验证两个服务读取同一文件、BPF 拒绝不被 fanotify 更新解除、静态裁决切换、忙队列拒绝后重试、固定后端变更拒绝、配置硬链接避免自阻塞、重复更新 FD 稳定，以及真实扫描器故障后的错误回退更新。原有无特权时钟测试验证被拒绝更新的请求仍按原时间与裁决处理。
