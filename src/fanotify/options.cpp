@@ -29,6 +29,11 @@ bool allow(std::string_view option, std::string_view text)
 
 bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
 {
+    if (argc == 3 && (std::string_view(argv[1]) == "--stop" || std::string_view(argv[1]) == "--reload")) {
+        options.action = std::string_view(argv[1]) == "--stop" ? FanotifyOptions::Action::stop : FanotifyOptions::Action::reload;
+        options.control_path = argv[2];
+        return true;
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
         std::cout << "Usage: secmon-fanotify --file PATH --run-for SECONDS [--decision allow|deny |\n"
                      "       --analyzer ABSOLUTE_PATH --deny-marker TEXT]\n"
@@ -41,6 +46,8 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
                      "  --max-pending 1..4096            (default 64; delivered events only)\n"
                      "  --timeout-decision allow|deny    (default deny)\n"
                      "  --overload-decision allow|deny   (default deny)\n"
+                     "Or: --policy ABSOLUTE_FILE --run-for SECONDS [--control SOCKET]\n"
+                     "Management: secmon-fanotify --reload SOCKET | --stop SOCKET\n"
                      "Single-inode permission experiment; requires CAP_SYS_ADMIN.\n"
                      "SECONDS: 1..3600. Closing/crashing releases unread/pending requests.\n";
         return false;
@@ -51,7 +58,9 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
         if (!seen.insert(arg).second) throw std::invalid_argument("Duplicate option: " + std::string(arg));
         if (i + 1 >= argc) throw std::invalid_argument("Missing value: " + std::string(arg));
         const std::string_view value(argv[++i]);
-        if (arg == "--file") options.path = value;
+        if (arg == "--policy") options.policy_path = value;
+        else if (arg == "--control") options.control_path = value;
+        else if (arg == "--file") options.path = value;
         else if (arg == "--analyzer") options.analyzer.executable = value;
         else if (arg == "--deny-marker") options.analyzer.marker = value;
         else if (arg == "--scan-limit-bytes") options.analyzer.scan_limit = number(arg, value, 1, 1048576);
@@ -67,6 +76,16 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
         else if (arg == "--timeout-decision") options.decision.timeout_allow = allow(arg, value);
         else if (arg == "--overload-decision") options.decision.overload_allow = allow(arg, value);
         else throw std::invalid_argument("Unknown option: " + std::string(arg));
+    }
+    if (seen.count("--control") && (options.control_path.empty() || options.control_path.front() != '/'))
+        throw std::invalid_argument("--control requires an absolute socket path");
+    if (seen.count("--policy")) {
+        if (options.policy_path.empty() || options.policy_path.front() != '/' || !options.seconds)
+            throw std::invalid_argument("--policy requires an absolute file and --run-for");
+        for (const auto option : seen)
+            if (option != "--policy" && option != "--run-for" && option != "--control")
+                throw std::invalid_argument("--policy cannot be mixed with fanotify policy flags");
+        return true;
     }
     if (options.path.empty() || !options.seconds)
         throw std::invalid_argument("Require --file and --run-for; use --help");

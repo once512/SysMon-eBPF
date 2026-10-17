@@ -49,6 +49,7 @@ target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF)
 
 add_executable(secmon-fanotify src/fanotify/main.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
+    src/fanotify/policy.cpp src/policy_config.cpp src/control.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
 target_include_directories(secmon-fanotify PRIVATE src)
 target_compile_options(secmon-fanotify PRIVATE -Wall -Wextra -Werror)

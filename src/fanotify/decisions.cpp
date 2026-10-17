@@ -12,6 +12,14 @@ PendingDecisions::PendingDecisions(DecisionConfig config, Reply reply)
         throw std::invalid_argument("Invalid pending decision configuration");
 }
 
+void PendingDecisions::reconfigure(DecisionConfig config)
+{
+    if (!pending_.empty()) throw std::runtime_error("Policy reload requires an empty delivered-request queue; retry later");
+    if (config.delay.count() < 0 || config.timeout.count() <= 0 || !config.max_pending || config.external != config_.external)
+        throw std::invalid_argument("Invalid decision reconfiguration");
+    config_ = config;
+}
+
 void PendingDecisions::submit(OwnedFd fd, Clock::time_point now)
 {
     if (fd.get() < 0) throw std::invalid_argument("Cannot submit an invalid event FD");

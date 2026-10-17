@@ -45,6 +45,7 @@ int main(int argc, char **argv)
         PolicyConfig active;
         active.paths = options.paths;
         if (!options.policy_path.empty()) active = load_policy(options.policy_path);
+        if (active.fanotify) std::cerr << "secmon applies only protect entries; run secmon-fanotify separately for fanotify directives\n";
         utsname info{};
         if (uname(&info)) throw std::runtime_error("uname failed");
         const auto lsm = read_file("/sys/kernel/security/lsm");

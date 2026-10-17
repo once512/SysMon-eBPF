@@ -43,10 +43,18 @@ int create_group()
 }
 
 PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event,
-                               const AnalyzerConfig &analyzer)
+                               const AnalyzerConfig &analyzer, const std::string &policy_path)
     : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
       pending_(config, [this](int fd, Verdict verdict) { respond(fd, verdict); })
 {
+    if (!policy_path.empty()) {
+        OwnedFd policy(open(policy_path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
+        struct stat source{}, target{};
+        if (policy.get() < 0 || fstat(policy.get(), &source) || fstat(target_.get(), &target))
+            throw std::runtime_error("Cannot inspect fanotify policy identity");
+        if (source.st_dev == target.st_dev && source.st_ino == target.st_ino)
+            throw std::runtime_error("Fanotify policy file cannot be the marked inode");
+    }
     // Follow the pinned FD rather than resolving the user's path a second time.
     const auto pinned = "/proc/self/fd/" + std::to_string(target_.get());
     if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_,
@@ -159,4 +167,12 @@ void PermissionGate::service_analysis()
             }
         }
     }
+}
+
+void PermissionGate::reconfigure(DecisionConfig config)
+{
+    // Do not service/expire old requests as a side effect of a rejected update.
+    if (analyzer_ && analyzer_->active())
+        throw std::runtime_error("Policy reload requires an idle analyzer; retry later");
+    pending_.reconfigure(config);
 }

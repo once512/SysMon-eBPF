@@ -21,7 +21,7 @@ struct GateStats {
     std::size_t peak_pending = 0;
 };
 
-// A single inode mark with bounded deferred decisions; no content scanning.
+// A single inode mark with bounded decisions and an optional external scanner.
 class PermissionGate {
     std::unique_ptr<AnalysisClient> analyzer_; // Destroy only after group closure.
     OwnedFd target_; // Pin before marking; release after the fanotify group.
@@ -34,14 +34,16 @@ class PermissionGate {
 public:
     PermissionGate(const std::string &path, DecisionConfig config,
                    PermissionEvent event = PermissionEvent::open,
-                   const AnalyzerConfig &analyzer = {});
+                   const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {});
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     PermissionGate(PermissionGate &&) = delete; // The reply callback captures this.
     PermissionGate &operator=(PermissionGate &&) = delete;
     // Process at most one incoming event. False means poll timed out or was interrupted.
     bool poll_once(int timeout_ms);
+    void reconfigure(DecisionConfig config);
     void shutdown() { pending_.shutdown(); if (analyzer_) analyzer_->stop(); }
+    int target_fd() const { return target_.get(); } // Borrowed; never close or read.
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
     const GateStats &stats() const { return stats_; }
 };

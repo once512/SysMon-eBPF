@@ -13,12 +13,14 @@
 
 namespace {
 constexpr std::size_t max_bytes = 65536;
-[[noreturn]] void invalid() { throw std::runtime_error("Invalid policy: expected version 1, positive revision, and up to 256 quoted absolute protect paths"); }
+[[noreturn]] void invalid() { throw std::runtime_error("Invalid policy: expected version 1 or 2, positive revision, and valid bounded policy directives"); }
 }
 PolicyConfig parse_policy(std::istream &input)
 {
     PolicyConfig result;
-    bool version = false;
+    unsigned int version = 0;
+    FanotifyPolicy gate;
+    std::set<std::string> gate_keys;
     std::set<std::string> unique;
     std::size_t bytes = 0;
     std::string line;
@@ -34,9 +36,47 @@ PolicyConfig parse_policy(std::istream &input)
                 value.empty() || value.front() != '/' || value.size() > 4095 ||
                 !unique.insert(value).second || result.paths.size() == 256) invalid();
             result.paths.push_back(value);
+        } else if (key.compare(0, 9, "fanotify-") == 0) {
+            if (!gate_keys.insert(key).second) invalid();
+            if (key == "fanotify-file" || key == "fanotify-analyzer" || key == "fanotify-marker") {
+                fields >> std::ws;
+                if (fields.peek() != '"' || !(fields >> std::quoted(value))) invalid();
+                if (key == "fanotify-marker") {
+                    if (value.empty() || value.size() > 256) invalid();
+                    gate.marker = value;
+                } else {
+                    if (value.empty() || value.front() != '/' || value.size() > 4095) invalid();
+                    (key == "fanotify-file" ? gate.path : gate.analyzer) = value;
+                }
+            } else {
+                if (!(fields >> value)) invalid();
+                auto numeric = [&](unsigned int minimum, unsigned int maximum) {
+                    unsigned int number = 0;
+                    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+                    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+                        number < minimum || number > maximum) invalid();
+                    return number;
+                };
+                auto allow = [&]() {
+                    if (value != "allow" && value != "deny") invalid();
+                    return value == "allow";
+                };
+                if (key == "fanotify-event") {
+                    if (value != "open" && value != "access" && value != "exec") invalid();
+                    gate.event = value;
+                } else if (key == "fanotify-decision") { (void)allow(); gate.decision = value; }
+                else if (key == "fanotify-delay-ms") gate.delay_ms = numeric(0, 60000);
+                else if (key == "fanotify-timeout-ms") gate.timeout_ms = numeric(1, 60000);
+                else if (key == "fanotify-max-pending") gate.max_pending = numeric(1, 4096);
+                else if (key == "fanotify-scan-limit-bytes") gate.scan_limit = numeric(1, 1048576);
+                else if (key == "fanotify-timeout-decision") gate.timeout_allow = allow();
+                else if (key == "fanotify-overload-decision") gate.overload_allow = allow();
+                else if (key == "fanotify-error-decision") gate.analyzer_error_allow = allow();
+                else invalid();
+            }
         } else {
             if (!(fields >> value)) invalid();
-            if (key == "version" && !version && value == "1") version = true;
+            if (key == "version" && !version && (value == "1" || value == "2")) version = value == "1" ? 1 : 2;
             else if (key == "revision" && !result.revision) {
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result.revision);
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !result.revision) invalid();
@@ -45,16 +85,34 @@ PolicyConfig parse_policy(std::istream &input)
         if (fields >> extra) invalid();
     }
     if (input.bad() || !version || !result.revision) invalid();
+    if (!gate_keys.empty()) {
+        if (version != 2 || gate.path.empty()) invalid();
+        if (gate.analyzer.empty()) {
+            if (gate.decision.empty() || gate_keys.count("fanotify-marker") ||
+                gate_keys.count("fanotify-scan-limit-bytes") || gate_keys.count("fanotify-error-decision")) invalid();
+        } else if (gate.marker.empty() || !gate.decision.empty() || gate_keys.count("fanotify-delay-ms")) invalid();
+        result.fanotify = std::move(gate);
+    }
     return result;
 }
-PolicyConfig load_policy(const std::string &path)
+PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
 {
     if (path.empty() || path.front() != '/') throw std::runtime_error("Policy file must be absolute");
-    OwnedFd fd(open(path.c_str(), O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
+    OwnedFd pinned(open(path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
     struct stat before{}, after{};
-    if (fd.get() < 0 || fstat(fd.get(), &before) || !S_ISREG(before.st_mode) ||
+    if (pinned.get() < 0 || fstat(pinned.get(), &before) || !S_ISREG(before.st_mode) ||
         before.st_uid != 0 || (before.st_mode & 022) || before.st_size > static_cast<off_t>(max_bytes))
         throw std::runtime_error("Policy must be a root-owned regular file, not writable by group/others, at most 64 KiB");
+    if (forbidden_inode_fd >= 0) {
+        struct stat forbidden{};
+        if (fstat(forbidden_inode_fd, &forbidden)) throw std::runtime_error("Cannot inspect excluded policy inode");
+        if (before.st_dev == forbidden.st_dev && before.st_ino == forbidden.st_ino)
+            throw std::runtime_error("Fanotify policy file cannot be the marked inode (including hard links)");
+    }
+    // Reopen the pinned object, not the mutable pathname. O_PATH above emits no permission event.
+    const auto reference = "/proc/self/fd/" + std::to_string(pinned.get());
+    OwnedFd fd(open(reference.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC));
+    if (fd.get() < 0) throw std::runtime_error("Cannot open pinned policy for reading");
     std::string contents;
     char chunk[4096];
     for (;;) {

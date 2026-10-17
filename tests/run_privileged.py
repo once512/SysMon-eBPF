@@ -19,6 +19,7 @@ TESTS = (
     ('analysis-faults', 'fanotify_analysis_faults.py'),
     ('policy-layers', 'policy_composition.py'),
     ('policy-reload', 'policy_reload.py'),
+    ('fanotify-policy', 'fanotify_policy.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
     ('baseline-mismatch', 'baseline_mismatch.py'),

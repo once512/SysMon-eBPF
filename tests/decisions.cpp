@@ -165,6 +165,26 @@ int main()
             require(queue.size() == 0 && !replies.back().verdict.allow &&
                     replies.back().verdict.reason == DecisionReason::analyzer_error, "Backend failure applies explicit fallback");
         }
+        replies.clear();
+        {
+            DecisionConfig old;
+            old.allow = true; old.delay = 10ms; old.timeout = 20ms;
+            PendingDecisions queue(old, reply);
+            queue.submit(descriptor(), start);
+            DecisionConfig next = old; next.allow = false; next.delay = 0ms;
+            bool busy = false;
+            try { queue.reconfigure(next); } catch (const std::runtime_error &) { busy = true; }
+            require(busy && queue.size() == 1 && replies.empty(), "Busy reload preserves pending contract");
+            queue.process_due(start + 10ms);
+            require(replies.size() == 1 && replies.back().verdict.allow, "Old request keeps old verdict and delay");
+            queue.reconfigure(next);
+            queue.submit(descriptor(), start + 11ms);
+            require(replies.size() == 2 && !replies.back().verdict.allow, "New request uses new policy");
+            next.external = true;
+            bool backend = false;
+            try { queue.reconfigure(next); } catch (const std::invalid_argument &) { backend = true; }
+            require(backend, "Queue cannot change backend mode");
+        }
         config.max_pending = 0;
         bool rejected = false;
         try { PendingDecisions queue(config, reply); }

@@ -44,6 +44,8 @@ public:
     PendingDecisions(DecisionConfig config, Reply reply);
     PendingDecisions(const PendingDecisions &) = delete;
     PendingDecisions &operator=(const PendingDecisions &) = delete;
+    // Reject busy queues so already-delivered requests retain their original contract.
+    void reconfigure(DecisionConfig config);
     void submit(OwnedFd fd, Clock::time_point now);
     struct ReadyRequest { std::uint64_t id; int fd; };
     std::optional<ReadyRequest> next_request() const;

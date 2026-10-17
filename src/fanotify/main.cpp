@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "gate.h"
 #include "options.h"
+#include "policy.h"
+#include "control.h"
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -22,19 +24,49 @@ int main(int argc, char **argv)
     }
     GateStats stats;
     try {
+        if (options.action == FanotifyOptions::Action::stop) { request_stop(options.control_path); return 0; }
+        if (options.action == FanotifyOptions::Action::reload) { request_reload(options.control_path); return 0; }
+        PolicyConfig active;
+        if (!options.policy_path.empty()) {
+            active = load_policy(options.policy_path);
+            apply_fanotify_policy(active, options);
+        }
+        std::unique_ptr<ControlServer> control;
+        if (!options.control_path.empty()) control = std::make_unique<ControlServer>(options.control_path);
         struct sigaction action{};
         action.sa_handler = stop;
         sigemptyset(&action.sa_mask);
         if (sigaction(SIGINT, &action, nullptr) || sigaction(SIGTERM, &action, nullptr))
             throw std::runtime_error("Cannot install signal handlers");
         {
-            PermissionGate gate(options.path, options.decision, options.event, options.analyzer);
+            PermissionGate gate(options.path, options.decision, options.event, options.analyzer, options.policy_path);
             std::cerr << "Fanotify active; decision=" << (options.decision.external ? "analysis" : (options.decision.allow ? "allow" : "deny"))
                       << " analyzer_pid=" << gate.analyzer_pid() << " event=" << permission_name(options.event) << '\n';
+            if (active.revision) std::cerr << "Fanotify policy active revision=" << active.revision << '\n';
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(options.seconds);
             try {
-                while (!stopping && std::chrono::steady_clock::now() < deadline)
-                    gate.poll_once(100);
+                while (!stopping && std::chrono::steady_clock::now() < deadline) {
+                    if (control) control->dispatch([&](ControlCommand command) {
+                        if (command == ControlCommand::stop) { stopping = 1; return; }
+                        try {
+                            if (options.policy_path.empty()) throw std::runtime_error("Reload requires --policy at startup");
+                            auto candidate = load_policy(options.policy_path, gate.target_fd());
+                            if (candidate.revision <= active.revision) throw std::runtime_error("Policy revision must increase");
+                            auto next = options;
+                            apply_fanotify_policy(candidate, next);
+                            if (!same_fanotify_backend(options, next))
+                                throw std::runtime_error("Changing fanotify target, event or analyzer requires restart");
+                            gate.reconfigure(next.decision);
+                            options = std::move(next);
+                            active = std::move(candidate);
+                            std::cerr << "Fanotify policy active revision=" << active.revision << '\n';
+                        } catch (const std::exception &error) {
+                            std::cerr << "Fanotify policy reload rejected: " << error.what() << '\n';
+                            throw;
+                        }
+                    });
+                    if (!stopping) gate.poll_once(100);
+                }
                 gate.shutdown();
             } catch (...) { stats = gate.stats(); throw; }
             stats = gate.stats();
