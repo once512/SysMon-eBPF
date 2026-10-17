@@ -38,7 +38,7 @@ int main()
                 server.dispatch(handler);
                 elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - before);
                 // 同一连接稍后发送；服务器不得因为第一次无数据就提前丢弃合法客户端。
-                if (send(client.get(), "status-v2", 9, MSG_NOSIGNAL) != 9) throw std::runtime_error("send failed");
+                if (send(client.get(), "status-v3", 9, MSG_NOSIGNAL) != 9) throw std::runtime_error("send failed");
                 server.dispatch(handler);
                 management::Reply reply;
                 if (recv(client.get(), &reply, sizeof(reply), MSG_DONTWAIT) != sizeof(reply))

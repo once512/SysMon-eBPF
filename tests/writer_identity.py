@@ -7,6 +7,8 @@ import errno
 import os
 from pathlib import Path
 import shutil
+import socket
+import struct
 import subprocess
 import tempfile
 from monitor_harness import MonitorRun
@@ -79,7 +81,17 @@ def main():
                 run(trusted, expected=errno.EACCES)
                 moved = root / 'moved' / 'trusted'
                 run(moved)
-                assert call(binary, 'status', control)['revision'] == 1
+                initial_status = call(binary, 'status', control)
+                assert initial_status['revision'] == 1 and initial_status['writer_paths'] == 1
+                for abi, size in ((1, 200), (2, 288)):
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as legacy:
+                        legacy.settimeout(5)
+                        legacy.connect(str(control))
+                        legacy.sendall(f'status-v{abi}'.encode())
+                        prefix = legacy.recv(512)
+                        assert len(prefix) == size and struct.unpack_from('<IHH', prefix) == (0x53434D43, abi, size)
+                        assert struct.unpack_from('<Q', prefix, 24)[0] == 1
+                        assert struct.unpack_from('<I', prefix, 116)[0] == 1
                 # 缺失/非普通/末尾 symlink/不安全权限，以及一个 inode 的冲突 UID 都必须保留旧版。
                 unsafe = root / 'unsafe'
                 shutil.copyfile(other, unsafe)
@@ -102,7 +114,7 @@ def main():
                 run(other, 'uid-write', extra=[65534], expected=errno.EACCES)
                 assert live_trusted.request() == errno.EACCES
                 publish(3, [])
-                call(binary, 'reload', control)
+                assert call(binary, 'reload', control)['writer_paths'] == 0
                 run(moved, 'uid-write', extra=[65534], expected=errno.EACCES)
                 assert live_trusted.request() == errno.EACCES and live_other.request() == errno.EACCES
                 # 授权撤销也释放程序自动保护；目标的普通 protect 仍然有效。

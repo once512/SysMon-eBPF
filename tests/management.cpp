@@ -47,6 +47,11 @@ int main()
     reject([](Reply &x) { x.pid = 0; });
     reject([](Reply &x) { x.instance_ns = 0; });
     reject([](Reply &x) { x.reserved = 1; });
+    reject([](Reply &x) { x.writer_paths = 65; });
+    reject([](Reply &x) { x.reserved_v3 = 1; });
+    r.writer_paths = 64;
+    require(reply_json(r).find("\"writer_paths\":64") != std::string::npos);
+    r.writer_paths = 0;
     reject([](Reply &x) { x.last_scan_error = static_cast<analysis::ScanError>(99); });
     reject([](Reply &x) { x.last_scan_errno = -1; });
     reject([](Reply &x) { x.backend_error_requests = 1; });

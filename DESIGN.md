@@ -479,3 +479,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 新增宿主 writer_identity 模块固定 root 所有、不可由组/其他用户写的可执行普通文件；BPF writer_identity 模块在每次敏感操作重新判断。目标与授权合入一份最多 320 项的候选 Map，一次切换；程序自身 inode 自动只读且不适用 writer 例外。
 - 20 项 CTest 与四程序生产构建通过；真实 writer-identity 专题先后验证普通调用和始终存活/预先持有写 FD 的进程，包含 EUID、fork/exec、硬链接、路径替换、程序属性/删除/重命名保护、错误候选回滚、撤销及 FD 回收。整套回归正在单独收尾。
 - 授权是当前策略所有普通 protect 对象的修改例外，不是内容签名、加载链认证或完整可信应用。解释器、动态库、注入、共享映射撤销、首次 attach 竞态和宿主 root 均有边界，详见 docs/WRITER_IDENTITY.md；管理 v2 仍只展示显式 protect 条数。
+
+### 2026-10-17：管理 v3 的活动授权条数
+
+- 管理 v3 在 v2 的 288 字节末尾追加 writer_paths 与保留字段，总长 296 字节；旧 v1/v2 的布局和响应长度保留。当前 CLI 请求 *-v3，拒绝旧版本响应而不静默丢失授权信息。
+- BPF 状态显示活动 allow-writer 路径条数，显式 protect 条数口径保持不变；不把条数解释为不同 inode 数或内容可信证明。新字段范围与保留位均校验。
+- 20 项 CTest 通过，writer-identity、management-live、management-faults、control-loop、policy-consistency 五个权限专题通过；测试包含新服务旧前缀、错误条数/保留字段与旧 v2 响应拒绝。
+- 管理 v3 之前的阶段代码已完成 20 个权限专题与七项各 10 秒负载，共 27 项通过；该回归不作为 v3 协议代码完整重跑的证据，后续另记。

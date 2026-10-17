@@ -9,7 +9,7 @@
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 2;
+constexpr std::uint16_t version = 3;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 enum class Code : std::uint32_t {
     ok = 0, no_policy = 1, not_newer = 2, invalid_policy = 3,
@@ -57,9 +57,13 @@ struct Reply {
     std::int32_t last_scan_errno = 0;
     std::uint64_t backend_error_requests = 0;
     std::array<std::uint64_t, analysis::scan_error_count> scan_errors{};
+    // v3 追加显式 writer 路径数，不把路径条数误当不同 inode 数；旧前缀保持逐字节布局。
+    std::uint32_t writer_paths = 0;
+    std::uint32_t reserved_v3 = 0;
 };
-static_assert(sizeof(Reply) == 288);
+static_assert(sizeof(Reply) == 296);
 static_assert(offsetof(Reply, last_scan_error) == 200);
+static_assert(offsetof(Reply, writer_paths) == 288);
 class Error : public std::runtime_error {
     Code code_;
 public:

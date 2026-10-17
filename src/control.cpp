@@ -133,10 +133,11 @@ void ControlServer::dispatch(const std::function<management::Reply(ControlComman
     std::optional<ControlCommand> command;
     const bool v1 = text == "stop-v1" || text == "reload-v1" || text == "status-v1";
     const bool v2 = text == "stop-v2" || text == "reload-v2" || text == "status-v2";
-    const bool structured = v1 || v2;
-    if (text == "stop" || text == "stop-v1" || text == "stop-v2") command = ControlCommand::stop;
-    if (text == "reload" || text == "reload-v1" || text == "reload-v2") command = ControlCommand::reload;
-    if (text == "status-v1" || text == "status-v2") command = ControlCommand::status;
+    const bool v3 = text == "stop-v3" || text == "reload-v3" || text == "status-v3";
+    const bool structured = v1 || v2 || v3;
+    if (text == "stop" || text == "stop-v1" || text == "stop-v2" || text == "stop-v3") command = ControlCommand::stop;
+    if (text == "reload" || text == "reload-v1" || text == "reload-v2" || text == "reload-v3") command = ControlCommand::reload;
+    if (text == "status-v1" || text == "status-v2" || text == "status-v3") command = ControlCommand::status;
     if (!command) return;
     try {
         auto reply = handler(*command);
@@ -144,6 +145,7 @@ void ControlServer::dispatch(const std::function<management::Reply(ControlComman
         management::validate_reply(reply, *command);
         if (structured) {
             if (v1) { reply.abi = 1; reply.size = 200; }
+            if (v2) { reply.abi = 2; reply.size = 288; }
             send(client.get(), &reply, reply.size, MSG_NOSIGNAL | MSG_DONTWAIT);
         }
         else if (reply.code == management::Code::ok) send(client.get(), "ok", 2, MSG_NOSIGNAL);
@@ -178,7 +180,7 @@ static management::Reply query(const std::string &path, management::Command comm
     const auto address = unix_address(path);
     if (connection.get() < 0 || connect(connection.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) ||
         !root_peer(connection.get())) throw std::runtime_error("Cannot connect to root control service");
-    const std::string message = std::string(management::command_name(command)) + "-v2";
+    const std::string message = std::string(management::command_name(command)) + "-v3";
     if (send(connection.get(), message.data(), message.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(message.size()))
         throw std::runtime_error("Cannot send management request");
     pollfd incoming{connection.get(), POLLIN, 0};

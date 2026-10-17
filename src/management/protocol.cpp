@@ -31,7 +31,7 @@ void validate_reply(const Reply &r, Command expected)
 {
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
-        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 ||
+        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 || r.writer_paths > 64 || r.reserved_v3 ||
         r.pending > 4096 || r.peak_pending > 4096 || r.event > 3 || r.mode > 3 ||
         !analysis::valid_scan_error(r.last_scan_error, r.last_scan_errno) ||
         (r.backend != Backend::bpf && r.backend != Backend::fanotify))
@@ -64,7 +64,7 @@ std::string reply_json(const Reply &r)
     else out << "null";
     if (r.backend == Backend::bpf)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")
-            << ",\"protected_paths\":" << r.protected_paths;
+            << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths;
     else {
         const char *events[] = {"none", "open", "access", "exec"};
         const char *modes[] = {"none", "allow", "deny", "analysis"};

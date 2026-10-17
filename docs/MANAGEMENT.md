@@ -50,12 +50,12 @@ fanotify 另返回当前事件、裁决模式、延迟/超时/容量、三种回
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 288 字节 v2 响应（保留 200 字节 v1 前缀）、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
+- `src/management/protocol.h/.cpp`：本机同架构的 296 字节 v3 响应（保留 200 字节 v1、288 字节 v2 前缀）、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析/校验版本，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。
 
-当前结构化命令正文为 `status-v2`、`reload-v2`、`stop-v2`。CLI 的 status/reload 使用 v2，stop 保留原管理行为；新服务仍可向 `*-v1` 客户端返回 200 字节的 v1 前缀响应。旧的 `stop`/`reload` 继续得到 `ok`/`error`，新 CLI 不向旧服务静默回退。客户端先检查完整长度、magic、ABI、命令、枚举/边界、保留字段与服务端 PID，再渲染 JSON。双方都拒绝意外的 SCM_RIGHTS，并关闭已收到的 FD，包含辅助数据截断的情形。
+当前结构化命令正文为 `status-v3`、`reload-v3`、`stop-v3`。CLI 的 status/reload 使用 v3，stop 保留原管理行为；新服务仍可向 `*-v1`/`*-v2` 客户端分别返回 200/288 字节的前缀响应。旧的 `stop`/`reload` 继续得到 `ok`/`error`，新 CLI 不向旧服务静默回退。客户端先检查完整长度、magic、ABI、命令、枚举/边界、保留字段与服务端 PID，再渲染 JSON。双方都拒绝意外的 SCM_RIGHTS，并关闭已收到的 FD，包含辅助数据截断的情形。
 
 固定响应不含路径、异常文本和指针，减少转义与信任边界。该接口不用于跨机器通信，不接受请求提供的目标 PID、配置路径或业务进程操作。
 
@@ -104,7 +104,7 @@ sudo ./build/secmon-policyctl --bpf-socket /run/secmon/bpf.sock \
 | query_failed | 服务返回了非 ok 状态 |
 | transport_error | 连接/身份/帧校验或等待失败，不能确认完整状态 |
 
-输出的 scope 固定为 active_configuration_bytes，附带后两次有效状态；传输错误只有 code/scope。退出码 0 表示 consistent，1 表示分歧/不稳定/查询失败，2 表示参数错误。当前客户端要求管理 v2；旧服务不会被静默当作一致。
+输出的 scope 固定为 active_configuration_bytes，附带后两次有效状态；传输错误只有 code/scope。退出码 0 表示 consistent，1 表示分歧/不稳定/查询失败，2 表示参数错误。当前客户端要求管理 v3；旧服务不会被静默当作一致。
 
 这是只读来源核对，不是原子发布、签名验证、分析器健康检查、内核 Map 外部修改检测或路径对象一致性证明。即使 consistent，也只说明观测到的活动配置字节；要判断运行健康还需检查附带状态。跨命名空间管理坐标仍按项目已有边界处理。
 
@@ -113,3 +113,9 @@ sudo ./build/secmon-policyctl --bpf-socket /run/secmon/bpf.sock \
 ```bash
 sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
 ```
+
+## v3：授权条数
+
+管理 v3 在 v2 末尾追加两个 uint32：`writer_paths` 和必须为零的保留字段，总大小 296 字节。BPF 状态 JSON 的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不应用 writer，JSON 不提供此字段。
+
+旧管理端仍可查询已有字段，但看不到新授权条数；新 CLI 遇到旧服务/旧响应会拒绝，不静默丢失这项信息。配置 v3、管理 v3、分析 v3 各自独立版本化，数字相同没有联动语义。

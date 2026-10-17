@@ -21,7 +21,7 @@ class Reply(ctypes.Structure):
                   'delay_ms', 'timeout_ms', 'max_pending', 'fallbacks')], ('worker_pid', ctypes.c_int32),
                 ('scan_limit', ctypes.c_uint32), ('last_code', ctypes.c_uint32), ('reserved', ctypes.c_uint32), ('source_digest', ctypes.c_uint8 * 32), ('last_scan_error', ctypes.c_uint32),
                 ('last_scan_errno', ctypes.c_int32), ('backend_error_requests', ctypes.c_uint64),
-                ('scan_errors', ctypes.c_uint64 * 9)]
+                ('scan_errors', ctypes.c_uint64 * 9), ('writer_paths', ctypes.c_uint32), ('reserved_v3', ctypes.c_uint32)]
 
 
 def main():
@@ -30,13 +30,13 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root to emulate a root control peer')
-    assert ctypes.sizeof(Reply) == 288
+    assert ctypes.sizeof(Reply) == 296
     binary = Path(args.build_dir).resolve() / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-fault-') as temporary:
         path = Path(temporary) / 'fake.sock'
         cases = ['valid', 'magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                  'pid', 'instance_ns', 'event', 'mode', 'fallbacks', 'reserved', 'scan-reason', 'scan-errno',
-                 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
+                 'writer-count', 'reserved-v3', 'old-v2', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
         held = os.open('/dev/null', os.O_RDONLY | os.O_CLOEXEC)
         try:
             for case in cases:
@@ -49,22 +49,27 @@ def main():
                     try:
                         with server.accept()[0] as connection:
                             connection.settimeout(5)
-                            assert connection.recv(32) == b'status-v2'
+                            assert connection.recv(32) == b'status-v3'
                             reply = Reply()
-                            reply.magic, reply.abi, reply.size = 0x53434D43, 2, 288
+                            reply.magic, reply.abi, reply.size = 0x53434D43, 3, 296
                             reply.command, reply.backend, reply.pid, reply.instance_ns = 3, 1, os.getpid(), 123
                             reply.worker_pid = -1
                             if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                                         'instance_ns', 'event', 'mode', 'fallbacks', 'reserved'):
-                                setattr(reply, case, {'abi': 3, 'size': 287, 'command': 2, 'flags': 16,
+                                setattr(reply, case, {'abi': 4, 'size': 295, 'command': 2, 'flags': 16,
                                                      'instance_ns': 0, 'event': 4, 'mode': 4,
                                                      'fallbacks': 8, 'reserved': 1}.get(case, 99))
+                            if case == 'writer-count': reply.writer_paths = 65
+                            if case == 'reserved-v3': reply.reserved_v3 = 1
                             if case == 'scan-reason': reply.last_scan_error = 99
                             if case == 'scan-errno': reply.last_scan_errno = -1
                             if case == 'error-accounting': reply.backend_error_requests = 1
                             if case == 'pid':
                                 reply.pid += 1
                             payload = bytes(reply)
+                            if case == 'old-v2':
+                                reply.abi, reply.size = 2, 288
+                                payload = bytes(reply)[:288]
                             if case == 'short':
                                 payload = payload[:-1]
                             if case == 'long':

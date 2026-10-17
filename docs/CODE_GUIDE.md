@@ -112,7 +112,7 @@ sudo python3 tests/self_protection.py --build-dir build
 | --- | --- | --- |
 | 配置 `version` | 3，保留格式 1/2 | 定义配置可使用哪些字段 |
 | 配置 `revision` | 管理者指定的正 uint64 | 当前实例内成功重载必须递增，不是 ABI 版本 |
-| 管理协议 | v2，提供 v1 响应前缀 | 状态、重载结果和诊断的本地报文布局 |
+| 管理协议 | v3，提供 v1/v2 响应前缀 | 状态、重载结果和诊断的本地报文布局 |
 | 分析器协议 | v3 | 请求/Ready/扫描响应，工作进程必须匹配 |
 | BPF 事件 ABI | v4 | 内核 ring buffer 与宿主事件解析布局 |
 

@@ -125,6 +125,7 @@ int main(int argc, char **argv)
                 }
                 auto reply = runtime.snapshot(management::Backend::bpf);
                 reply.protected_paths = active.paths.size();
+                reply.writer_paths = active.writers.size();
                 reply.flags |= management::self_protected;
                 reply.code = code;
                 return reply;

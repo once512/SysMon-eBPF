@@ -144,6 +144,8 @@ def main():
                         os.chmod(root, 0o700)
                     old_status = raw(gate_socket, b'status-v1')
                     assert len(old_status) == 200 and struct.unpack_from('<IHH', old_status) == (0x53434D43, 1, 200)
+                    v2_status = raw(gate_socket, b'status-v2')
+                    assert len(v2_status) == 288 and struct.unpack_from('<IHH', v2_status) == (0x53434D43, 2, 288)
                     assert raw(gate_socket, b'reload') == b'error'  # 旧协议兼容。
                     for _ in range(8):
                         snapshot = call(fan, 'status', gate_socket)

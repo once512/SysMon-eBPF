@@ -40,7 +40,7 @@ allow-writer "/opt/secmon-demo/writer" 65534
 
 移除 writer 后，它的自动身份保护一起解除；若同一 inode 还在 `protect` 中，则继续按普通只读对象保护。已有打开的写 FD 仍经过普通 `file_permission` 检查。授权期间已建立的共享可写映射无法靠撤销这条规则追回，已覆盖钩子以外的异步/文件系统专用写路径也未完整验证。
 
-管理 v2 的 `protected_paths` 只计算显式 `protect` 路径，不包含 writer 自动保护的对象；活动版本与配置摘要能核对配置来源，尚不能列出当前内核对象授权表。
+管理 v3 的 `writer_paths` 显示已提交的 allow-writer 路径条数；`protected_paths` 只计算显式 `protect` 路径，不包含 writer 自动保护的对象。条数不是不同 inode 数；活动版本与配置摘要能核对配置来源，尚不能列出当前内核对象授权表。旧 v1/v2 客户端继续收到原长度前缀，但没有 writer 条数字段。
 
 ## 可信边界
 
