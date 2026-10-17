@@ -385,3 +385,12 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 检查 SCM_RIGHTS 接收路径时修正所有权异常安全：先为最多八个 FD 预留 RAII 容器，再执行 recvmsg，避免已安装 FD 后 vector 分配失败留下未接管的引用。
 - 新增隔离的 `analysis_allocation.cpp` 可执行测试，仅在测试程序中覆盖一次 operator new 故障；证明接收路径分配失败时消息仍在 socket 中，下一次读取可得到原 ID 和恰好一个有效 FD。测试钩子不进入正式程序。
 - 构建与 14 项 CTest 全部通过；内容/协议故障及两种分析权限入口的定向负载回归另行收尾。本修正不改变正常报文格式与策略结果。
+
+
+### 2026-10-17：本轮独立分析组件最终回归
+
+- v2/显式清空 capabilities 版本先完成 `--soak-duration 30 --analysis-soak-duration 90` 的 15 项统一回归。真实分析 open/access 各处理 136810/136518 次请求；access 有 1 次单文件分析错误并按 deny 回退，后端未离线。阶段结果不扩大解释为没有任何分析错误。
+- FD 预分配修正（代码 `8a64998`）后，14 项 CTest 全部通过，内容与协议故障专题加两项各 30 秒真实分析定向回归全部通过。open/access 分别处理 45655/45566 次请求，FD 基线 7、峰值均 11，pending 峰值均 4；分析错误、后端故障、超时和溢出均为 0，回复与客户端结果完全一致。
+- 最新代码再运行 `sudo python3 tests/run_privileged.py --build-dir build --soak-duration 10 --analysis-soak-duration 10`，11 个专题与四项负载共 15 项全部通过，汇总 JSON `passed=true`。真实分析 open/access 分别 15201/15198 次请求；静态 policy/timeout 分别 7741/7750 次。各负载对账、队列和 FD 预算通过。
+- 最新 BUILD_TESTING=OFF 构建通过，正式产物为 secmon、secmon-fanotify、secmon-analyzer；Python 测试语法、README/docs 本地链接与 git diff 检查通过。无特权协议测试、真实权限测试、分阶段长期负载和最终回归的范围分别保留，不将较早版本结果全部归给最新代码。
+- 后续优先补分析错误的结构化原因、策略配置与版本/动态更新，以及真实内核队列溢出和容器隔离实验。字节标记扫描不等于恶意内容识别，独立降权进程不等于完整沙箱，统一策略和反勒索仍未实现。

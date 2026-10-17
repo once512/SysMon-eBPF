@@ -73,3 +73,6 @@ sudo python3 tests/self_protection.py --build-dir build
 建议每次只改变一个实验参数，先使用测试自建的临时文件和内部期限。观察结论写在自己的笔记里；不要把本机一次通过扩大成所有文件系统、容器或攻击场景的保证。
 
 独立内容分析的协议、降权和 FD 生命周期见 [分析组件导读](ANALYSIS_WORKER.md)。先比较静态队列与外部分析模式，再研究超时后的子进程终止。
+
+
+研究独立分析组件时，可以先按 `protocol.h` 的 ID 与 Ready 约束追踪一次请求，再看 `client.cpp` 如何把后端故障与权限拒绝分开，最后运行 `analysis_protocol.py` 和 `fanotify_analysis_faults.py` 对照异常分支。`analysis_allocation.cpp` 的分配故障钩子只存在于独立测试程序，适合研究系统调用取得资源后 C++ 异常安全的要求；不要把它加入正式程序。
