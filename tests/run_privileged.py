@@ -22,6 +22,7 @@ TESTS = (
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
     ('writer-scope', 'writer_scope.py'),
+    ('writer-matrix', 'writer_matrix.py'),
     ('writer-capacity', 'writer_capacity.py'),
     ('writer-layers', 'writer_layers.py'),
     ('fanotify-policy', 'fanotify_policy.py'),
@@ -47,6 +48,7 @@ def main():
                         help='add both policy/timeout workloads, 0 disables (default)')
     parser.add_argument('--analysis-soak-duration', type=int, default=0)
     parser.add_argument('--management-soak-duration', type=int, default=0)
+    parser.add_argument('--combined-soak-duration', type=int, default=0, help='add same-process scoped-writer static/analysis management loads')
     parser.add_argument('--writer-soak-duration', type=int, default=0)
     parser.add_argument('--only', choices=[name for name, _ in TESTS], nargs='+')
     args = parser.parse_args()
@@ -56,6 +58,8 @@ def main():
         parser.error('run without Python optimization; test assertions must remain enabled')
     if not 0 <= args.soak_duration <= 1800 or not 0 <= args.analysis_soak_duration <= 1800 or not 0 <= args.management_soak_duration <= 1800:
         parser.error('soak-duration must be 0..1800 seconds')
+    if not (args.combined_soak_duration == 0 or 5 <= args.combined_soak_duration <= 1800):
+        parser.error('combined-soak-duration must be 0 or 5..1800 seconds')
     if not (args.writer_soak_duration == 0 or 5 <= args.writer_soak_duration <= 1800):
         parser.error('writer-soak-duration must be 0 or 5..1800 seconds')
     root = Path(__file__).resolve().parent
@@ -75,6 +79,11 @@ def main():
             parser.error('management-soak-duration must be 0 or 5..1800 seconds')
         commands += [(f'management-soak-{backend}-{event}', [sys.executable, str(root / 'management_soak.py'),
                       '--build-dir', str(build), '--duration', str(args.management_soak_duration),
+                      '--backend', backend, '--event', event])
+                     for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
+    if args.combined_soak_duration:
+        commands += [(f'combined-soak-{backend}-{event}', [sys.executable, str(root / 'management_soak.py'),
+                      '--build-dir', str(build), '--duration', str(args.combined_soak_duration), '--combined', '--verify-audit-output',
                       '--backend', backend, '--event', event])
                      for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
     if args.writer_soak_duration:

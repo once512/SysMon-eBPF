@@ -29,8 +29,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
-| audit-backpressure | `audit_backpressure.py` | stdout 背压/断开/持续洪流下的裁决、重载与停止 |
-| shutdown-order | `shutdown_order.py` | stderr 堵塞时先关闭权限监听组，不留下未处理等待 |
+| shutdown-order | `shutdown_order.py` | 填满 stderr 后停止仍先关闭权限组，不留下无人处理的打开请求 |
+| audit-backpressure | `audit_backpressure.py` | 审计 stdout 堵塞/恢复/断开/持续洪流时的裁决、重载与停止；用户态丢失可诊断 |
 | audit-file | `integration.py` | 执行/凭证事件、旧 TID、文件只读的 13 类拒绝、读取与私有映射、退出解除 |
 | self-protection | `self_protection.py` | 信号、ptrace 类检查、管理端身份、授权停止、期限及 socket 清理 |
 | fanotify-open | `fanotify.py` | 单文件打开裁决、硬链接/重命名、已有 FD、崩溃释放 |
@@ -46,6 +46,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | control-loop | `control_loop.py` / `control_nonblocking.cpp` | 静默连接无阻塞推进与稍后发送，root 身份，不加载内核策略 |
 | pid-namespace | `pid_namespace.py` | 局部 PID=1 与宿主 BPF 身份、真实凭证和退出基线删除；非真实宿主 PID 复用 |
 | namespace-policy | `namespace_policy.py` | 私有 bind 别名与私有 tmpfs 的跨挂载对象策略、两层独立清理 |
+| writer-matrix | `writer_matrix.py` | 固定随机种子的独立 Python 规则模型、真实 Map 全字段、新写操作及候选失败回滚 |
 | writer-scope | `writer_scope.py` | 每目标/操作授权、已有 FD、新打开、别名位合并、重命名双操作数、规则重排与撤销 |
 | writer-capacity | `writer_capacity.py` | 256+64 不同 inode、完整候选失败回滚、重合标志、旧 Map 快照/回收与按路径 FD 回收 |
 | writer-layers | `writer_layers.py` | 共用来源、BPF 授权与 fanotify 独立裁决、既有 FD 与撤销 |
@@ -99,4 +100,19 @@ writer-soak-duration 默认 0（禁用），可选 5..1800 秒。常驻程序分
 
 机制专题的 harness 使用同一个 secmon 可执行文件加 --bpf-only/--fanotify-only，仅为独立观察裁决层。unified-service 与 policy-consistency 使用默认联合入口和一个管理 socket。
 
-审计出口的队列、线程与失败边界见 [有界审计出口](AUDIT_OUTPUT.md)。
+## 同进程联合持续负载
+
+```bash
+sudo python3 tests/run_privileged.py --build-dir build --only writer-scope unified-service \
+    --combined-soak-duration 30
+```
+
+此选项依次增加静态 open、分析 open、分析 access 三项，每项运行指定秒数（0 禁用，5..1800 秒）。同一主服务同时运行 BPF 与 fanotify，联合更新静态裁决/扫描内容及一条按目标的写授权。原生探针在监听前保留 FD，每次确认后验证授权目标、未授权目标、未授权程序的已有 FD 和新打开。业务回复全部对账，联合模式还检查审计队列/内核丢失与基线更新失败计数；闲置 FD 按当前规则数回归，峰值含已交付请求与临时连接；不把闲置采样称为准备阶段的全资源峰值。
+
+`writer-matrix` 使用固定种子独立生成按目标/操作的规则模型，比较真实 HASH value 的 flags、UID、主体规则位和八类目标位，再核对每次成功后的实际写打开/写入。它也验证字段乱序、别名、同 inode UID 冲突和规则位重排。可单独指定 --seed/--iterations 复现；随机覆盖不能代替所有内核入口的覆盖证明。
+
+纯解析的 sanitizer/libFuzzer 入口另见 [配置模糊测试](POLICY_FUZZING.md)。
+
+审计出口的队列边界、线程分工、输出失败行为及诊断限制见 [有界审计出口](AUDIT_OUTPUT.md)。
+
+单独运行 management_soak.py 时可用 --combined --verify-audit-output 开启当前审计出口健康检查；该模式要求所有相应字段存在且错误/丢弃为零，不把旧字段缺失当作通过。

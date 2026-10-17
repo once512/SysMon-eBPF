@@ -3,10 +3,12 @@
 # 持续业务负载中查询状态并在线重载；阶段排空后切换，让回复对账和旧请求合同都可确定验证。
 import argparse
 import concurrent.futures
+from contextlib import ExitStack
 import errno
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -14,6 +16,7 @@ import threading
 import time
 from fanotify_harness import stop
 from management_harness import call
+from scoped_writer_probe import ScopedWriterProbe
 
 
 def main():
@@ -21,23 +24,30 @@ def main():
     parser.add_argument('--build-dir', default='build')
     parser.add_argument('--duration', type=int, default=30)
     parser.add_argument('--backend', choices=('static', 'analysis'), default='static')
+    parser.add_argument('--verify-audit-output', action='store_true', help='require healthy current audit queue and kernel counters throughout the load')
+    parser.add_argument('--combined', action='store_true', help='run both modules with scoped native writer probes')
     parser.add_argument('--event', choices=('open', 'access'), default='open')
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root/fanotify permissions')
+    if args.verify_audit_output and not args.combined:
+        parser.error('--verify-audit-output requires --combined')
     if not 5 <= args.duration <= 1800:
         parser.error('duration must be 5..1800 seconds')
     build = Path(args.build_dir).resolve()
     binary = build / 'secmon'
-    with tempfile.TemporaryDirectory(prefix='secmon-management-soak-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='secmon-management-soak-') as temporary, ExitStack() as stack:
         root = Path(temporary)
         target, config, control = [root / name for name in ('target', 'policy', 'control')]
         target.write_bytes(b'clean'.ljust(32, b'.'))
         writer = os.open(target, os.O_RDWR | os.O_CLOEXEC)
         revision = 1
+        probe = ScopedWriterProbe(build, root, stack) if args.combined else None
 
         def publish():
             text = f'revision {revision}\nfanotify-file "{target}"\nfanotify-event {args.event}\n'
+            if probe:
+                text += probe.policy(revision)
             if args.backend == 'analysis':
                 text += f'fanotify-analyzer "{build / "secmon-analyzer"}"\nfanotify-marker "BLOCK"\n'
             else:
@@ -49,7 +59,7 @@ def main():
             stage.replace(config)
         publish()
         with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
-            process = subprocess.Popen([str(binary), '--fanotify-only', '--policy', str(config), '--control', str(control),
+            process = subprocess.Popen([str(binary), *([] if args.combined else ['--fanotify-only']), '--policy', str(config), '--control', str(control),
                                         '--run-for', str(args.duration + 30)], stdout=output, stderr=errors)
             halt = threading.Event()
             condition = threading.Condition()
@@ -62,13 +72,16 @@ def main():
                 deadline = time.monotonic() + 5
                 while True:
                     errors.seek(0)
-                    if 'Fanotify active;' in errors.read():
+                    if 'Service active;' in errors.read():
                         break
                     assert process.poll() is None and time.monotonic() < deadline
                     time.sleep(0.01)
                 base = len(list(Path(f'/proc/{process.pid}/fd').iterdir()))
                 peak = base
                 initial = call(binary, 'status', control)
+                if probe:
+                    assert initial['backend'] == 'combined' and initial['pid'] == process.pid
+                    probe.check(revision)
                 max_latency = 0.0
                 queries = 1
                 updates = 0
@@ -121,6 +134,9 @@ def main():
                     assert snapshot['revision'] == revision and snapshot['instance_ns'] == initial['instance_ns']
                     assert snapshot['pending'] <= 4 and snapshot['peak_pending'] <= 4
                     assert snapshot['analyzer_failures'] == 0 and snapshot['overflow'] == 0
+                    if args.verify_audit_output:
+                        assert snapshot['audit_invalid'] == snapshot['audit_dropped'] == snapshot['audit_errno'] == 0, snapshot
+                        assert snapshot['audit_queued'] <= 1024, snapshot
                     current = len(list(Path(f'/proc/{process.pid}/fd').iterdir()))
                     peak = max(peak, current)
                     # 四个 pending FD、一个正在接管的事件 FD、一个临时管理连接的保守总预算。
@@ -144,7 +160,10 @@ def main():
                         # 同版本错误也必须有状态，且不能影响下一次合法重载。
                         refused = call(binary, 'reload', control, 'not_newer')
                         assert refused['revision'] == revision and refused['rejections'] == updates
-                        assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base
+                        if probe:
+                            probe.check(revision)
+                            assert updated['writer_paths'] == revision % 2 and updated['protected_paths'] == 2
+                        assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base - (int(args.combined) if revision % 2 == 0 else 0)
                         with condition:
                             paused = False
                             condition.notify_all()
@@ -165,8 +184,8 @@ def main():
                 final = call(binary, 'status', control)
                 assert final['pending'] == 0 and final['reloads'] == updates and final['rejections'] == updates
                 assert final['allowed'] == counts[0] and final['denied'] == counts[1], (final, counts)
-                assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base
-                print(json.dumps({'backend': args.backend, 'event': args.event, 'seconds': args.duration,
+                assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base - (int(args.combined) if revision % 2 == 0 else 0)
+                print(json.dumps({'combined': args.combined, 'backend': args.backend, 'event': args.event, 'seconds': args.duration,
                                   'requests': sum(counts), 'queries': queries, 'updates': updates,
                                   'base_fds': base, 'peak_fds': peak,
                                   'max_query_ms': round(max_latency * 1000, 3), 'status': final}), flush=True)
@@ -175,17 +194,34 @@ def main():
                 with condition:
                     paused = False
                     condition.notify_all()
+                if args.combined and process.poll() is None:
+                    call(binary, 'stop', control)
+                    process.wait(timeout=10)
                 stop(process)  # 先关闭 group，再 join，确保失败路径也解除业务等待。
                 if pool:
                     pool.shutdown(wait=True)
                 os.close(writer)
             errors.seek(0)
             assert process.returncode == 0, errors.read()
-            output.seek(0)
-            stats = json.load(output)
+            if args.combined:
+                errors.seek(0)
+                reports = [json.loads(line) for line in errors.read().splitlines() if line.startswith('{')]
+                stats = next(report for report in reports if 'shutdown_denied' in report)
+            else:
+                output.seek(0)
+                stats = json.load(output)
             assert stats['allowed'] == counts[0] and stats['denied'] == counts[1]
             assert stats['shutdown_denied'] == stats['overflow'] == stats['analyzer_failures'] == 0
             assert stats['allowed'] > 0 and stats['denied'] > 0
+            if args.verify_audit_output:
+                errors.seek(0)
+                diagnostics = errors.read()
+                health = {}
+                for name in ('ringbuf_dropped', 'baseline_update_failed', 'audit_dropped', 'audit_invalid', 'audit_queued', 'audit_errno'):
+                    values = re.findall(r'\b' + name + r'=(\d+)', diagnostics)
+                    assert values and int(values[-1]) == 0, (name, values)
+                    health[name] = int(values[-1])
+                print(json.dumps({'event': 'output-health', 'backend': args.backend, 'permission_event': args.event, **health}), flush=True)
             print('PASS management under load, repeated revision commits, idle FD recovery and response accounting', flush=True)
 
 

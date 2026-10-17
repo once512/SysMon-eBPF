@@ -136,6 +136,17 @@ def main():
             # 规则重排后位编号变化，旧授权不能误落到新目标；撤销不移除普通 protect。
             publish([grant(b, 'write'), grant(a, 'open-write')])
             assert live_b.request('w') == 0 and live_a.request('w') == errno.EACCES
+            # 64 条规则都属于同一执行 inode：最高位与全部位合并必须有效，而不是只保留最后一条。
+            maximum_targets = [root / f'maximum-{i}' for i in range(64)]
+            for path in maximum_targets:
+                path.write_bytes(b'data')
+            publish([grant(path, 'open-write,write') for path in maximum_targets], paths=maximum_targets)
+            for path in maximum_targets:
+                attempt('write', path)
+                attempt('write', path, expected=errno.EACCES, program=outsider)
+            publish([grant(path, 'open-write,write') for path in maximum_targets if path != maximum_targets[32]], paths=maximum_targets)
+            attempt('write', maximum_targets[32], expected=errno.EACCES)
+            attempt('write', maximum_targets[63])
             publish([])
             assert live_a.request('w') == live_b.request('w') == errno.EACCES
             assert len(list(Path(f'/proc/{monitor.process.pid}/fd').iterdir())) == baseline - 2

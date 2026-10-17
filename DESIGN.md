@@ -562,3 +562,9 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 正常停止显式回复已交付请求并关闭 fanotify group，再停止分析器/卸载 BPF和写结束统计，不再等对象析构才释放内核未读等待。填满 stderr 的权限专题确认即使结束统计被堵住，也不会让新的打开操作无限等候。
 - 最终固定产物 build/audit-shutdown-final 的完整 38 项权限/负载回归通过（27 核心专题与 11 项各 10 秒负载），普通/标准库调试构建各 21 项 CTest、三个生产程序构建和头文件独立编译通过。队列真实管道/socket/文件/四生产者测试在 ThreadSanitizer、AddressSanitizer/UndefinedBehaviorSanitizer 下通过；生产源 Clang 静态分析及随后更新的生命周期单元均无诊断。这些检查不等同于完整安全审计或无数据竞争证明。
 - 较早的授权/审计快照与最终快照的持续负载仍分别运行，待完成后按各自 SHA-256/范围记录；不把旧快照的长测冒充最新退出/输出修正后的长测。
+
+### 2026-10-18：独立授权矩阵与同进程健康负载工具
+
+- writer-matrix 使用固定随机种子的独立 Python 模型逐项核对真实 Map 的 flags、UID、主体位和八类操作位，并验证每次成功后实际新写操作；默认 40 次提交、6 次冲突 UID 候选拒绝通过。writer-scope 增加同一执行 inode 合并 64 条规则、最高位、删除中间规则后重新编号的边界。
+- management-soak 增加 --combined，同一个服务中同时运行 BPF/fanotify 并切换按目标写授权，专用原生探针验证选择目标/未选目标/未授权程序的已有 FD 和新打开。root runner 的 --combined-soak-duration 依次运行静态 open、分析 open/access。
+- 当前健康检查模式显式要求 audit 字段存在、错误/丢弃为零，并核对结束诊断的内核 ringbuf_dropped、baseline_update_failed 及用户态出口计数；不自动把旧响应缺字段当作成功。最新固定产物的关闭时序加三种各 10 秒健康负载全部通过。较长负载仍按快照独立运行，完成数字在收尾记录中给出。
