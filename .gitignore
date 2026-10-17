@@ -1,1 +1,4 @@
 /build/
+
+# Local Qt Creator configuration
+/CMakeLists.txt.user

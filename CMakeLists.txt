@@ -35,7 +35,13 @@ add_custom_command(OUTPUT "${BPF_SKEL}"
         -DINPUT=${BPF_OBJ} -DOUTPUT=${BPF_SKEL}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Bpftool.cmake
     DEPENDS "${BPF_OBJ}" cmake/Bpftool.cmake VERBATIM)
-add_executable(secmon main.cpp "${BPF_SKEL}")
+add_executable(secmon
+    src/main.cpp
+    src/options.cpp
+    src/events.cpp
+    src/control.cpp
+    src/file_policy.cpp
+    "${BPF_SKEL}")
 target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF)
 target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF)
@@ -47,6 +53,8 @@ if(BUILD_TESTING)
     target_link_libraries(secmon-scenarios PRIVATE Threads::Threads)
     target_compile_options(secmon-scenarios PRIVATE -Wall -Wextra -Werror)
     add_test(NAME cli-help COMMAND secmon --help)
+    add_test(NAME cli-validation COMMAND ${CMAKE_COMMAND}
+        -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli.cmake)
     add_test(NAME scenario-exec COMMAND secmon-scenarios exec)
     add_test(NAME scenario-thread-exec COMMAND secmon-scenarios thread-exec)
     add_test(NAME scenario-threads COMMAND secmon-scenarios threads)
