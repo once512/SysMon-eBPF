@@ -97,3 +97,7 @@ sudo python3 tests/self_protection.py --build-dir build
 注释会明确区分“收到日志”和“作出拒绝”、“观察到凭证变化”和“授权凭证变化”，以及“用户态队列满”和“内核事件丢失”。这些差异直接决定监控结果能说明什么。
 
 `eBPF/vmlinux.h` 和 `eBPF/secmon.skel.h` 是仓库中保留的生成文件，本轮不逐项手工注释。当前构建实际从本机 BTF 和新编译的 ELF 在 `build/` 生成对应文件，并优先包含该目录。前者可查结构体布局，后者可查生成的程序/Map 管理接口；生成原理见 [CMake](../CMakeLists.txt) 和 [bpftool 包装](../cmake/Bpftool.cmake)。第三方 libbpf 实现也保持原样。
+
+活动状态与重载结果现在由 `src/policy_runtime.h/.cpp` 统一管理，管理响应 ABI/JSON 在 `src/management/protocol.h/.cpp`，fanotify 的快照适配在 `src/fanotify/status.h/.cpp`。详见 [管理接口](MANAGEMENT.md)，查询与事件处理在同一循环中串行运行。
+
+`src/content_digest.h/.cpp` 通过系统 OpenSSL EVP 为原始配置字节计算 SHA-256，活动状态复制已提交的摘要。配置、摘要、版本和管理协议编入纯用户态公共静态库 `secmon-policy`，不包含 BPF/fanotify 挂载动作。

@@ -17,7 +17,7 @@ sudo ./build/secmon --stop /run/secmon/control.sock
 
 `--policy` 与 `--protect-file` 互斥。没有 `--self-protect` 时也能加载配置，但没有管理 socket，不能在线重载。`--reload` 只发送命令，服务始终重新读取启动时指定的配置路径；客户端不能指定另一个配置文件。
 
-服务只有完成切换才回复 `ok`。拒绝时回复 `error`，客户端非零退出，详细原因写服务的 stderr。连接中断或客户端等待超时不代表切换一定没有发生，应检查服务的 `Policy active revision=N` 记录。重试相同版本会被拒绝。
+服务只有完成切换才回复 `ok`。旧管理报文拒绝时回复 `error`；当前 CLI 使用版本化响应，输出带稳定错误码的 JSON 并非零退出，详细原因写服务的 stderr。连接中断或客户端等待超时不代表切换一定没有发生，应检查服务的 `Policy active revision=N` 记录。重试相同版本会被拒绝。
 
 ## 格式
 
@@ -93,7 +93,7 @@ sudo ./build/secmon-fanotify --reload /run/secmon/fanotify.sock
 sudo ./build/secmon-fanotify --stop /run/secmon/fanotify.sock
 ```
 
-`secmon` 只应用 `protect`；`secmon-fanotify` 只应用 `fanotify-*`。两者都完整校验文件格式。这里只统一配置源和管理协议，没有跨进程提交事务：一个服务更新成功、另一个拒绝时，可能分别运行不同 revision，需查看各自 stderr 的活动版本。两种命令使用同一管理协议，socket 路径决定目标服务。
+`secmon` 只应用 `protect`；`secmon-fanotify` 只应用 `fanotify-*`。两者都完整校验文件格式。这里只统一配置源和管理协议，没有跨进程提交事务：一个服务更新成功、另一个拒绝时，可能分别运行不同 revision，可通过各自 `--status SOCKET` 查询活动版本与最近重载结果（详见 [管理接口](MANAGEMENT.md)）。两种命令使用同一管理协议，socket 路径决定目标服务。
 
 fanotify 使用 `--policy` 后，只能额外指定 `--run-for` 和可选的 `--control`，不能混入原有策略命令行。`--control` 仅提供 root 管理，不启用 BPF 任务自保护；可在原有命令行模式使用管理停止，但重载要求启动时指定配置。
 
