@@ -311,3 +311,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - `tests/fanotify_soak.py --duration 300 --mode policy` 通过：231241 次打开，allowed=57826、denied=173415；denied 全部来自容量回退。用户态待裁决峰值 4，进程 FD 基线 5、峰值 10；overflow、timed_out、shutdown_denied 均为 0，最终回复数与客户端结果逐项对账一致。
 - 新增 `tests/policy_composition.py` 与独立宿主测试辅助模块，在当前内核验证 BPF 拒绝不被 fanotify allow 覆盖、关闭任一层不解除另一层，以及只剩 fanotify 时已有写 FD 恢复可写。文件身份与宿主失败计数校验通过。
 - 实验不证明所有内核与操作入口的统一检查顺序，不把两个独立程序包装为完整保险箱。状态矩阵见 `docs/POLICY_LAYERS.md`。
+
+
+### 2026-10-17：直接检查凭证 Map 生命周期
+
+- 新增独立交互场景程序、只查询指定宿主 Map 的辅助模块及 `tests/baseline_lifecycle.py`。按受控阶段直接验证存活线程的 key 与 UID/EUID/caps、join 后删除、主动降权后的基线刷新、非主线程 exec 后 key 集合和 old_tid 关联、最终退出删除。
+- 20 轮交替 root 与 UID/GID 65534 场景通过；9 项 CTest 通过。场景可执行文件复制到可遍历临时目录，解决当前用户主目录 0700 导致降权后无法访问构建目录的问题，不修改主目录权限。
+- Map 遍历并非原子快照，只对测试线程组作有界查询；不声称覆盖所有任务、真实 PID 复用、命名空间或真实提权攻击。详细步骤见 `docs/CREDENTIAL_LIFECYCLE.md`。

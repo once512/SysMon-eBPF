@@ -127,3 +127,12 @@ sudo python3 tests/fanotify_soak.py --build-dir build --duration 30 --mode polic
 ```bash
 sudo python3 tests/policy_composition.py --build-dir build
 ```
+
+
+直接观察凭证 Map 的线程生命周期与降权基线：
+
+```bash
+sudo python3 tests/baseline_lifecycle.py --build-dir build --rounds 20
+```
+
+阅读步骤与边界见 [凭证生命周期实验](docs/CREDENTIAL_LIFECYCLE.md)。它补充了测试线程组实际 Map key/value 的检查，不代表真实提权攻击验证。
