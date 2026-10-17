@@ -304,3 +304,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 新增 `event_kind.h/.cpp`，通过 `--event open|access|exec` 每次选择一种权限事件，默认 open，避免把不同事件入口解释为相同的防护范围；成功统计新增 `permission_event`。
 - 新增特权测试 `tests/fanotify_events.py`，已验证 access 对新增及启动前 FD 的普通读取允许/拒绝，而仅 open、写入及 mmap 访问不受该事件限制；exec 对临时 ELF 和脚本的直接执行允许/拒绝，普通读取和 `/bin/sh script.sh` 解释读取仍可进行。
 - 构建、8 项 CTest 与新事件入口特权测试均通过。另已回归原宿主文件保护与进程自保护，两项既有特权集成测试通过，补充确认 FD 所有权移动扩展未破坏已有路径。
+
+
+### 2026-10-17：持续负载与策略组合验证
+
+- `tests/fanotify_soak.py --duration 300 --mode policy` 通过：231241 次打开，allowed=57826、denied=173415；denied 全部来自容量回退。用户态待裁决峰值 4，进程 FD 基线 5、峰值 10；overflow、timed_out、shutdown_denied 均为 0，最终回复数与客户端结果逐项对账一致。
+- 新增 `tests/policy_composition.py` 与独立宿主测试辅助模块，在当前内核验证 BPF 拒绝不被 fanotify allow 覆盖、关闭任一层不解除另一层，以及只剩 fanotify 时已有写 FD 恢复可写。文件身份与宿主失败计数校验通过。
+- 实验不证明所有内核与操作入口的统一检查顺序，不把两个独立程序包装为完整保险箱。状态矩阵见 `docs/POLICY_LAYERS.md`。

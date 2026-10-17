@@ -120,3 +120,10 @@ sudo python3 tests/fanotify.py --build-dir build
 sudo python3 tests/fanotify_deferred.py --build-dir build
 sudo python3 tests/fanotify_soak.py --build-dir build --duration 30 --mode policy
 ```
+
+
+两层策略组合与停止行为见 [策略组合实验](docs/POLICY_LAYERS.md)：
+
+```bash
+sudo python3 tests/policy_composition.py --build-dir build
+```
