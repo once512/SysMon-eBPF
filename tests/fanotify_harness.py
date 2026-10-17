@@ -7,8 +7,10 @@ import select
 import time
 
 def start(binary, path, decision, output, errors, seconds=20, extra=()):
-    process = subprocess.Popen([str(binary), '--file', str(path), '--decision', decision,
-                                '--run-for', str(seconds), *extra], stdout=output, stderr=errors)
+    command = [str(binary), '--file', str(path), '--run-for', str(seconds), *extra]
+    if decision is not None:
+        command += ['--decision', decision]
+    process = subprocess.Popen(command, stdout=output, stderr=errors)
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         errors.flush()

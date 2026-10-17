@@ -28,9 +28,9 @@ int main(int argc, char **argv)
         if (sigaction(SIGINT, &action, nullptr) || sigaction(SIGTERM, &action, nullptr))
             throw std::runtime_error("Cannot install signal handlers");
         {
-            PermissionGate gate(options.path, options.decision, options.event);
-            std::cerr << "Fanotify active; decision=" << (options.decision.allow ? "allow" : "deny")
-                      << " event=" << permission_name(options.event) << '\n';
+            PermissionGate gate(options.path, options.decision, options.event, options.analyzer);
+            std::cerr << "Fanotify active; decision=" << (options.decision.external ? "analysis" : (options.decision.allow ? "allow" : "deny"))
+                      << " analyzer_pid=" << gate.analyzer_pid() << " event=" << permission_name(options.event) << '\n';
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(options.seconds);
             try {
                 while (!stopping && std::chrono::steady_clock::now() < deadline)
@@ -50,6 +50,9 @@ int main(int argc, char **argv)
               << ",\"overflow\":" << stats.overflow << ",\"timed_out\":" << stats.timed_out
               << ",\"overloaded\":" << stats.overloaded
               << ",\"shutdown_denied\":" << stats.shutdown_denied
+              << ",\"analysis_denied\":" << stats.analysis_denied
+              << ",\"analyzed\":" << stats.analyzed << ",\"analyzer_error\":" << stats.analyzer_error
+              << ",\"analyzer_failures\":" << stats.analyzer_failures
               << ",\"peak_pending\":" << stats.peak_pending << "}\n";
     return std::cout ? 0 : 1;
 }

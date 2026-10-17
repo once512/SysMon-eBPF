@@ -15,6 +15,7 @@ TESTS = (
     ('fanotify-open', 'fanotify.py'),
     ('fanotify-deferred', 'fanotify_deferred.py'),
     ('fanotify-events', 'fanotify_events.py'),
+    ('fanotify-analysis', 'fanotify_analysis.py'),
     ('policy-layers', 'policy_composition.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
@@ -27,13 +28,14 @@ def main():
     parser.add_argument('--build-dir', default='build')
     parser.add_argument('--soak-duration', type=int, default=0,
                         help='add both policy/timeout workloads, 0 disables (default)')
+    parser.add_argument('--analysis-soak-duration', type=int, default=0)
     parser.add_argument('--only', choices=[name for name, _ in TESTS], nargs='+')
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('run with sudo; tests temporarily load BPF and fanotify policies')
     if sys.flags.optimize or os.environ.get('PYTHONOPTIMIZE'):
         parser.error('run without Python optimization; test assertions must remain enabled')
-    if not 0 <= args.soak_duration <= 1800:
+    if not 0 <= args.soak_duration <= 1800 or not 0 <= args.analysis_soak_duration <= 1800:
         parser.error('soak-duration must be 0..1800 seconds')
     root = Path(__file__).resolve().parent
     build = Path(args.build_dir).resolve()
@@ -43,6 +45,10 @@ def main():
         commands += [(f'soak-{mode}', [sys.executable, str(root / 'fanotify_soak.py'),
                       '--build-dir', str(build), '--duration', str(args.soak_duration), '--mode', mode])
                      for mode in ('policy', 'timeout')]
+    if args.analysis_soak_duration:
+        commands += [(f'analysis-soak-{event}', [sys.executable, str(root / 'fanotify_soak.py'),
+                      '--build-dir', str(build), '--duration', str(args.analysis_soak_duration),
+                      '--backend', 'analysis', '--event', event]) for event in ('open', 'access')]
     results = []
     for name, command in commands:
         print(f'RUN {name}', flush=True)

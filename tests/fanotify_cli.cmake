@@ -31,3 +31,13 @@ expect_invalid(${base} --overload-decision unknown)
 
 expect_invalid(${base} --event unknown)
 expect_invalid(${base} --event open --event exec)
+
+expect_invalid(${base} --analyzer /unused --deny-marker marker)
+expect_invalid(--file /unused --run-for 1 --analyzer relative --deny-marker marker)
+expect_invalid(--file /unused --run-for 1 --analyzer /unused)
+expect_invalid(--file /unused --run-for 1 --analyzer /unused --deny-marker marker --decision-delay-ms 0)
+expect_invalid(${base} --deny-marker marker)
+expect_invalid(${base} --scan-limit-bytes 1)
+expect_invalid(${base} --analyzer-error-decision deny)
+expect_invalid(--file /unused --run-for 1 --analyzer /unused --deny-marker marker --scan-limit-bytes 0)
+expect_invalid(--file /unused --run-for 1 --analyzer /unused --deny-marker marker --scan-limit-bytes 1048577)

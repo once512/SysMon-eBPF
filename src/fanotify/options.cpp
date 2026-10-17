@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "options.h"
 #include <charconv>
+#include <filesystem>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -29,7 +30,10 @@ bool allow(std::string_view option, std::string_view text)
 bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
 {
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
-        std::cout << "Usage: secmon-fanotify --file PATH --decision allow|deny --run-for SECONDS\n"
+        std::cout << "Usage: secmon-fanotify --file PATH --run-for SECONDS [--decision allow|deny |\n"
+                     "       --analyzer ABSOLUTE_PATH --deny-marker TEXT]\n"
+                     "  --scan-limit-bytes 1..1048576      (default 65536; oversized files return error)\n"
+                     "  --analyzer-error-decision allow|deny (default deny)\n"
                      "  --event open|access|exec          (default open; one event type)\n"
                      "Optional deferred-decision experiment:\n"
                      "  --decision-delay-ms 0..60000     (default 0; synthetic analysis delay)\n"
@@ -48,6 +52,10 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
         if (i + 1 >= argc) throw std::invalid_argument("Missing value: " + std::string(arg));
         const std::string_view value(argv[++i]);
         if (arg == "--file") options.path = value;
+        else if (arg == "--analyzer") options.analyzer.executable = value;
+        else if (arg == "--deny-marker") options.analyzer.marker = value;
+        else if (arg == "--scan-limit-bytes") options.analyzer.scan_limit = number(arg, value, 1, 1048576);
+        else if (arg == "--analyzer-error-decision") options.decision.analyzer_error_allow = allow(arg, value);
         else if (arg == "--event") options.event = parse_permission_event(value);
         else if (arg == "--decision") options.decision.allow = allow(arg, value);
         else if (arg == "--run-for") options.seconds = number(arg, value, 1, 3600);
@@ -60,7 +68,16 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
         else if (arg == "--overload-decision") options.decision.overload_allow = allow(arg, value);
         else throw std::invalid_argument("Unknown option: " + std::string(arg));
     }
-    if (options.path.empty() || !seen.count("--decision") || !options.seconds)
-        throw std::invalid_argument("Require --file, --decision allow|deny and --run-for; use --help");
+    if (options.path.empty() || !options.seconds)
+        throw std::invalid_argument("Require --file and --run-for; use --help");
+    options.decision.external = seen.count("--analyzer");
+    if (options.decision.external) {
+        if (!std::filesystem::path(options.analyzer.executable).is_absolute() ||
+            options.analyzer.marker.empty() || options.analyzer.marker.size() > 256 ||
+            seen.count("--decision") || seen.count("--decision-delay-ms"))
+            throw std::invalid_argument("Analyzer requires an absolute executable and a 1..256 byte marker, without static decision/delay");
+    } else if (!seen.count("--decision") || seen.count("--deny-marker") ||
+               seen.count("--scan-limit-bytes") || seen.count("--analyzer-error-decision"))
+        throw std::invalid_argument("Require a static decision or analyzer configuration; use --help");
     return true;
 }

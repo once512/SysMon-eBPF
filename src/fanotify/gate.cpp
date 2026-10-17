@@ -42,8 +42,9 @@ int create_group()
 }
 }
 
-PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event)
-    : target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
+PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event,
+                               const AnalyzerConfig &analyzer)
+    : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
       pending_(config, [this](int fd, Verdict verdict) { respond(fd, verdict); })
 {
     // Follow the pinned FD rather than resolving the user's path a second time.
@@ -54,20 +55,22 @@ PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, P
 
 bool PermissionGate::poll_once(int timeout_ms)
 {
-    pending_.process_due(PendingDecisions::Clock::now());
-    pollfd ready{group_.get(), POLLIN, 0};
+    service_analysis();
+    pollfd ready[] = {{group_.get(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
     const int wait_ms = pending_.poll_timeout(timeout_ms, PendingDecisions::Clock::now());
-    const int result = poll(&ready, 1, wait_ms);
+    const int result = poll(ready, 2, wait_ms);
     if (result < 0) {
         if (errno == EINTR) return false;
         fail("fanotify poll");
     }
     if (!result) {
-        pending_.process_due(PendingDecisions::Clock::now());
+        service_analysis();
         return false;
     }
-    if (ready.revents & (POLLERR | POLLHUP | POLLNVAL))
+    service_analysis();
+    if (ready[0].revents & (POLLERR | POLLHUP | POLLNVAL))
         throw std::runtime_error("fanotify poll reported an unusable group");
+    if (!(ready[0].revents & POLLIN)) return false;
     // No FAN_REPORT_* flags: the kernel returns fixed-size metadata records.
     // Read one record so an exception cannot strand FDs from an unread batch.
     fanotify_event_metadata event{};
@@ -90,6 +93,7 @@ bool PermissionGate::poll_once(int timeout_ms)
         throw std::runtime_error("Unexpected fanotify permission event");
     pending_.submit(std::move(event_fd), PendingDecisions::Clock::now());
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());
+    service_analysis();
     return true;
 }
 
@@ -108,5 +112,51 @@ void PermissionGate::respond(int fd, Verdict verdict)
     case DecisionReason::capacity: ++stats_.overloaded; break;
     case DecisionReason::shutdown: ++stats_.shutdown_denied; break;
     case DecisionReason::policy: break;
+    case DecisionReason::analysis:
+        ++stats_.analyzed;
+        if (!verdict.allow) ++stats_.analysis_denied;
+        break;
+    case DecisionReason::analyzer_error: ++stats_.analyzer_error; break;
+    }
+}
+
+void PermissionGate::service_analysis()
+{
+    pending_.process_due(PendingDecisions::Clock::now());
+    if (!analyzer_) return;
+    if (!analyzer_->online()) {
+        analyzer_->receive(); // Reap a previously killed child without blocking.
+        pending_.fail_analysis();
+        return;
+    }
+    // Timeouts win over a late reply, and the worker's duplicate FD must not
+    // survive indefinitely after the parent releases the original event FD.
+    if (analyzer_->active() && !pending_.contains(analyzer_->active())) {
+        analyzer_->stop();
+        ++stats_.analyzer_failures;
+        pending_.fail_analysis();
+        return;
+    }
+    std::optional<analysis::Response> response;
+    try { response = analyzer_->receive(); }
+    catch (const std::exception &) {
+        analyzer_->stop();
+        ++stats_.analyzer_failures;
+        pending_.fail_analysis();
+        return;
+    }
+    if (response)
+        pending_.complete(response->id, response->result == analysis::Result::allow,
+                          response->result == analysis::Result::error, PendingDecisions::Clock::now());
+    if (!analyzer_->active()) {
+        auto request = pending_.next_request();
+        if (request) {
+            try { analyzer_->submit(request->id, request->fd); }
+            catch (const std::exception &) {
+                analyzer_->stop();
+                ++stats_.analyzer_failures;
+                pending_.fail_analysis();
+            }
+        }
     }
 }

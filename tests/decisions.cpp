@@ -141,6 +141,30 @@ int main()
             OwnedFd transferred(std::move(original));
             require(original.get() == -1 && transferred.get() == second, "Move constructor transfers FD");
         }
+        replies.clear();
+        config.external = true;
+        config.max_pending = 2;
+        config.timeout = 20ms;
+        config.delay = 0ms;
+        {
+            PendingDecisions queue(config, reply);
+            queue.submit(descriptor(), start);
+            auto first = queue.next_request();
+            require(first.has_value() && replies.empty(), "External analysis must not use static delay/policy");
+            queue.submit(descriptor(), start + 1ms);
+            require(queue.complete(first->id, true, false, start + 10ms), "Accept current response ID");
+            require(replies.back().verdict.reason == DecisionReason::analysis && replies.back().verdict.allow,
+                    "External verdict controls policy response");
+            require(!queue.complete(first->id, false, false, start + 10ms), "Duplicate reply must not affect next request");
+            auto second = queue.next_request();
+            require(second && second->id != first->id, "Request IDs remain distinct");
+            require(!queue.complete(second->id, true, false, start + 21ms), "Expired external verdict must lose to timeout");
+            require(replies.back().verdict.reason == DecisionReason::timeout, "Timeout reason is preserved");
+            queue.submit(descriptor(), start + 22ms);
+            queue.fail_analysis();
+            require(queue.size() == 0 && !replies.back().verdict.allow &&
+                    replies.back().verdict.reason == DecisionReason::analyzer_error, "Backend failure applies explicit fallback");
+        }
         config.max_pending = 0;
         bool rejected = false;
         try { PendingDecisions queue(config, reply); }
