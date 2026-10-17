@@ -60,3 +60,14 @@ sudo python3 tests/self_protection.py --build-dir build
 研究凭证基线时，可参照 [凭证生命周期实验](CREDENTIAL_LIFECYCLE.md)，在受控阶段直接观察 Map 中的线程身份与凭证值。
 
 完整检查可以通过 [测试矩阵](TESTING.md) 中的统一入口运行，按专题选择实验。
+
+
+## 建议的研究练习
+
+1. **先预测，再看事件。** 阅读 `tests/credential_transitions.py` 的普通/setuid/file-capability 三种设置，分别写下检查点和完成点应有的 UID、EUID 与 caps；运行后与实际报告对照。特别观察为什么检查点的 `target_euid` 不适合作为最终权限预测。
+2. **跟踪一个线程的 key。** 阅读 `tests/lifecycle_scenario.cpp` 的四个等待线程，再沿 `upchk.bpf.c` 的 fork、exit、prepare_exec 和完成路径追踪 key。用 `baseline_lifecycle.py` 观察 join 与非主线程 exec 前后的实际集合，区分旧 TID、线程组 PID 和启动时间。
+3. **手算一次截止时间。** 对一个接收于 0 ms 的请求，分别设置 delay/timeout 为 10/20、20/20、30/20 ms，再考虑循环直到 25 ms 才被调度的情况。对照 `tests/decisions.cpp`，检查为何迟到时超时优先，poll 为何对不足 1 ms 的剩余时间向上取整。
+4. **画出资源释放顺序。** 从 `PermissionGate` 的成员声明与 `OwnedFd` 移动操作出发，检查待裁决 FD、组 FD、固定 inode FD 谁先关闭。再看回复失败时异常展开如何释放资源，以及为什么“关闭事件 FD”不能代替向内核回复权限决定。
+5. **区分几个容易混淆的覆盖面。** 对照 `fanotify_events.py` 预测 open、read、mmap、直接执行和解释器读取的结果，再看 `policy_composition.py` 中停止一层后的已有 FD 写入。把“操作被拦截”“任务被隔离”和“内容能恢复”分开列证据。
+
+建议每次只改变一个实验参数，先使用测试自建的临时文件和内部期限。观察结论写在自己的笔记里；不要把本机一次通过扩大成所有文件系统、容器或攻击场景的保证。

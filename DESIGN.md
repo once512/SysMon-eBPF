@@ -335,3 +335,12 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 共享生命周期握手与临时可执行文件布置迁入 `tests/lifecycle_harness.py`，原生命周期测试复用该辅助模块。
 - 新增 `tests/run_privileged.py`，顺序运行 9 个特权专题，支持按名称选择和可选的两种模式持续负载；失败即停止并给出 JSON 结果，不把合成 Map 不一致当作真实攻击验证。
 - 10 项 CTest、独立合成不一致测试、关闭 BUILD_TESTING 后的正式程序构建及 README/docs 本地链接检查通过。统一回归最终结果在下一条记录汇总。
+
+
+### 2026-10-17：本轮最终统一回归
+
+- 对最终代码运行 `sudo python3 tests/run_privileged.py --build-dir build --soak-duration 90`，9 个专题与两项持续负载共 11 项全部通过，最终 JSON `passed=true`。专题包括旧审计/文件保护、自保护、fanotify 三组实验、两层组合、Map 生命周期、合法权限转换及合成不一致。
+- 最终 policy 负载 90 秒：69416 次打开，allowed=17374、denied/overloaded=52042，timed_out=0；pending 峰值 4，FD 基线 5/峰值 10。
+- 最终 timeout 负载 90 秒：69670 次打开，全部 denied，其中 timed_out=11739、overloaded=57931；pending 峰值 4，FD 基线 5/峰值 9。两轮 overflow 与 shutdown_denied 都为 0，客户端与回复计数完全一致。
+- 已完成默认构建与 10 项 CTest，以及 BUILD_TESTING=OFF 的独立构建。除缺失 libasan 导致未能链接的 ASan 尝试外，没有将未执行或失败的验证算作通过；libstdc++ debug 的队列/FD 测试通过。
+- 研究入口为 `docs/CODE_GUIDE.md`，专题矩阵为 `docs/TESTING.md`。后续优先考虑真实内核队列溢出的隔离实验、独立分析组件的协议与超时、容器/命名空间与真实 PID 复用，仍不将当前静态延迟裁决原型称为完整保险箱。
