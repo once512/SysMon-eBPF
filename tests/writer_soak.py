@@ -40,7 +40,7 @@ def main():
         config, control = private / 'policy', private / 'control'
 
         def publish(revision, uid, broken=False):
-            text = f'version 3\nrevision {revision}\nprotect "{target}"\n'
+            text = f'revision {revision}\nprotect "{target}"\n'
             if uid is not None:
                 text += f'allow-writer "{trusted}" {uid}\n'
             if broken:

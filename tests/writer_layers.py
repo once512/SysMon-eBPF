@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# 同一 v3 配置的真实两层裁决：writer 例外不能覆盖 fanotify deny，fanotify allow 也不能覆盖撤销后的 BPF。
+# 同一配置的真实两层裁决：writer 例外不能覆盖 fanotify deny，fanotify allow 也不能覆盖撤销后的 BPF。
 # 特别区分新 open 和预先存在的 FD：open 权限门不撤销已有写 FD，BPF file_permission 才执行普通写检查。
 import argparse
 import errno
@@ -34,7 +34,7 @@ def main():
 
         def publish(revision, decision, writer):
             stage = root / 'staging'
-            stage.write_text(f'version 3\nrevision {revision}\nprotect "{target}"\n' +
+            stage.write_text(f'revision {revision}\nprotect "{target}"\n' +
                              (f'allow-writer "{trusted}" 0\n' if writer else '') +
                              f'fanotify-file "{target}"\nfanotify-decision {decision}\n')
             stage.chmod(0o600)
@@ -82,7 +82,7 @@ def main():
                     subprocess.run([str(build / 'secmon'), '--stop', str(bpf_socket)], check=True,
                                    capture_output=True, timeout=5)
                     monitor.process.wait(timeout=5)
-        print('PASS v3 shared config, independent BPF/fanotify decisions, revoke, consistency and existing-FD boundary')
+        print('PASS shared config, independent BPF/fanotify decisions, revoke, consistency and existing-FD boundary')
 
 
 if __name__ == '__main__':

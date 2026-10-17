@@ -33,7 +33,7 @@ void validate_reply(const Reply &r, Command expected)
     // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
-        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 || r.writer_paths > 64 || r.reserved_v3 ||
+        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 || r.writer_paths > 64 || r.reserved_tail ||
         r.pending > 4096 || r.peak_pending > 4096 || r.event > 3 || r.mode > 3 ||
         !analysis::valid_scan_error(r.last_scan_error, r.last_scan_errno) ||
         (r.backend != Backend::bpf && r.backend != Backend::fanotify))

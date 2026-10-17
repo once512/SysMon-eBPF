@@ -15,12 +15,11 @@
 
 namespace {
 constexpr std::size_t max_bytes = 65536;
-[[noreturn]] void invalid() { throw std::runtime_error("Invalid policy: expected version 1, 2 or 3, positive revision, and valid bounded policy directives"); }
+[[noreturn]] void invalid() { throw std::runtime_error("Invalid policy: expected positive revision and valid bounded policy directives"); }
 }
 PolicyConfig parse_policy(std::istream &input)
 {
     PolicyConfig result;
-    unsigned int version = 0;
     FanotifyPolicy gate;
     std::set<std::string> gate_keys;
     std::set<std::string> unique;
@@ -96,8 +95,7 @@ PolicyConfig parse_policy(std::istream &input)
             }
         } else {
             if (!(fields >> value)) invalid();
-            if (key == "version" && !version && (value == "1" || value == "2" || value == "3")) version = value[0] - '0';
-            else if (key == "revision" && !result.revision) {
+            if (key == "revision" && !result.revision) {
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result.revision);
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !result.revision) invalid();
             } else invalid();
@@ -106,13 +104,12 @@ PolicyConfig parse_policy(std::istream &input)
         // 多余参数或行尾注释都拒绝，避免不同读取者产生不同解释。
         if (fields >> extra) invalid();
     }
-    if (input.bad() || !version || !result.revision) invalid();
-    if (!result.writers.empty() && version != 3) invalid();
+    if (input.bad() || !result.revision) invalid();
     // 字段逐条解析后再校验整体约束，允许字段换序，但禁止混用静态决策与分析器专属字段。
     // 整体约束在读完后统一检查，故字段可换序；
     // 静态模式和分析模式的互斥不能只靠单行语法决定。
     if (!gate_keys.empty()) {
-        if (version < 2 || gate.path.empty()) invalid();
+        if (gate.path.empty()) invalid();
         if (gate.analyzer.empty()) {
             if (gate.decision.empty() || gate_keys.count("fanotify-marker") ||
                 gate_keys.count("fanotify-scan-limit-bytes") || gate_keys.count("fanotify-error-decision")) invalid();

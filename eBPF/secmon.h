@@ -2,6 +2,7 @@
 // 每条事件携带 version/size，宿主校验后才解读；这里不是磁盘格式或跨架构网络协议。
 #ifndef SECMON_H
 #define SECMON_H
+/* 当前唯一事件布局标识，供宿主检错；不存在历史事件解码或兼容分支。 */
 #define SECMON_ABI_VERSION 4
 #define SECMON_COMM_LEN 16
 #define SECMON_PATH_LEN 256

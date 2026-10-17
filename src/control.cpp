@@ -81,15 +81,10 @@ void ControlServer::dispatch(const std::function<management::Reply(ControlComman
     catch (const std::exception &) { return; } // 单个异常连接不能终止监控服务。
     const std::string_view text(message, static_cast<std::size_t>(count));
     std::optional<ControlCommand> command;
-    const bool v1 = text == "stop-v1" || text == "reload-v1" || text == "status-v1";
-    const bool v2 = text == "stop-v2" || text == "reload-v2" || text == "status-v2";
-    const bool v3 = text == "stop-v3" || text == "reload-v3" || text == "status-v3";
-    // 旧命令返回 ok/error，版本化命令返回定长结构；
-    // 只按完整字符串匹配，不接受前缀或尾随垃圾。
-    const bool structured = v1 || v2 || v3;
-    if (text == "stop" || text == "stop-v1" || text == "stop-v2" || text == "stop-v3") command = ControlCommand::stop;
-    if (text == "reload" || text == "reload-v1" || text == "reload-v2" || text == "reload-v3") command = ControlCommand::reload;
-    if (text == "status-v1" || text == "status-v2" || text == "status-v3") command = ControlCommand::status;
+    // 同包部署只识别一套命令，不协商历史版本；所有命令都返回当前完整结构。
+    if (text == "stop") command = ControlCommand::stop;
+    else if (text == "reload") command = ControlCommand::reload;
+    else if (text == "status") command = ControlCommand::status;
     if (!command) return;
     try {
         // 回调与后端事件循环串行执行；
@@ -97,17 +92,8 @@ void ControlServer::dispatch(const std::function<management::Reply(ControlComman
         auto reply = handler(*command);
         reply.command = *command;
         management::validate_reply(reply, *command);
-        if (structured) {
-            // 旧版本只发送布局未变的前缀；
-            // 先按当前完整结构验证，再调整头中的 ABI/长度。
-            if (v1) { reply.abi = 1; reply.size = 200; }
-            if (v2) { reply.abi = 2; reply.size = 288; }
-            send(client.get(), &reply, reply.size, MSG_NOSIGNAL | MSG_DONTWAIT);
-        }
-        else if (reply.code == management::Code::ok) send(client.get(), "ok", 2, MSG_NOSIGNAL);
-        else send(client.get(), "error", 5, MSG_NOSIGNAL);
+        send(client.get(), &reply, sizeof(reply), MSG_NOSIGNAL | MSG_DONTWAIT);
     } catch (const std::exception &) {
-        // 未预期的服务内部异常不能伪装成成功；结构化客户端会拒绝这个非协议响应。
-        send(client.get(), "error", 5, MSG_NOSIGNAL);
+        // 非预期异常关闭连接，客户端报告传输/校验失败；不伪造成功，也不切回另一种响应格式。
     }
 }

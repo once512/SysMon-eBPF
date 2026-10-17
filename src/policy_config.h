@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// 共用配置模型：version 是文本语法版本，revision 是进程内单调递增的运行策略版本。
+// 共用单一配置模型：revision 是进程内单调递增的运行策略编号，不做历史格式兼容。
 // 同一文件可供两个宿主读取；BPF 应用 protect/allow-writer，fanotify 应用可选的 fanotify 配置，分别提交。
 #pragma once
 #include "content_digest.h"
@@ -32,11 +32,11 @@ struct PolicyConfig {
     // 这里保存显式 protect 的路径文本；
     // 安装后真正匹配 inode，运行时路径被替换不会使策略自动迁移。
     std::vector<std::string> paths;
-    // v3：当前 mm->exe_file 的对象身份 + 初始 user namespace 的有效 UID，不按进程名/PID 授权。
+    // 当前 mm->exe_file 的对象身份 + 初始 user namespace 的有效 UID，不按进程名/PID 授权。
     struct Writer { std::string path; std::uint32_t euid; };
     std::vector<Writer> writers;
 };
-// Versioned, bounded text format. Parsing performs no filesystem changes.
+// 有界单一文本格式；解析不访问文件系统，旧 version 指令按未知字段拒绝。
 // 返回经过文本与字段组合校验的值对象；
 // 不会验证目标存在、所有者权限，也不会生成来源摘要。
 PolicyConfig parse_policy(std::istream &input);

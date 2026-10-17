@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 共用配置的真实双后端回归：确认空闲更新、忙时保留旧规则、固定后端、错误回退和配置自阻塞防护。
 # SPDX-License-Identifier: MIT
-"""Shared v2 configuration and non-disruptive fanotify policy reload."""
+"""Shared configuration and non-disruptive fanotify policy reload."""
 import argparse
 from contextlib import contextmanager
 import errno
@@ -60,7 +60,7 @@ def main():
 
         def publish(revision, extra, file=target):
             stage = root / 'staging'
-            stage.write_text(f'version 2\nrevision {revision}\nprotect "{protected}"\n'
+            stage.write_text(f'revision {revision}\nprotect "{protected}"\n'
                              f'fanotify-file "{file}"\n' + extra + '\n')
             os.chmod(stage, 0o600)
             stage.replace(config)

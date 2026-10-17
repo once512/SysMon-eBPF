@@ -37,7 +37,7 @@ def main():
         revision = 1
 
         def publish():
-            text = f'version 2\nrevision {revision}\nfanotify-file "{target}"\nfanotify-event {args.event}\n'
+            text = f'revision {revision}\nfanotify-file "{target}"\nfanotify-event {args.event}\n'
             if args.backend == 'analysis':
                 text += f'fanotify-analyzer "{build / "secmon-analyzer"}"\nfanotify-marker "BLOCK"\n'
             else:

@@ -8,6 +8,7 @@
 // Local-only, fixed-width protocol. No pointers, paths, or task authorization.
 namespace analysis {
 constexpr std::uint32_t magic = 0x53434d41;
+// 唯一接受的当前 ABI 标识；不同标识直接拒绝，不选择历史解码器。
 constexpr std::uint16_t version = 3;
 // id=0 留给 Ready 握手，普通请求从非零 ID 开始；正文不包含 FD 数字，FD 通过辅助消息单独传递。
 // id 用于关联本实例内的请求，不是业务 PID；

@@ -48,7 +48,7 @@ int main()
     reject([](Reply &x) { x.instance_ns = 0; });
     reject([](Reply &x) { x.reserved = 1; });
     reject([](Reply &x) { x.writer_paths = 65; });
-    reject([](Reply &x) { x.reserved_v3 = 1; });
+    reject([](Reply &x) { x.reserved_tail = 1; });
     r.writer_paths = 64;
     require(reply_json(r).find("\"writer_paths\":64") != std::string::npos);
     r.writer_paths = 0;

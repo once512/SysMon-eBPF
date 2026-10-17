@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 import socket
 import signal
-import struct
 import subprocess
 import sys
 import tempfile
@@ -46,7 +45,7 @@ def main():
 
         def publish(revision, paths=(a,), decision='allow', delay=0, event='open'):
             stage = root / 'staging'
-            stage.write_text(f'version 2\nrevision {revision}\n' + ''.join(f'protect "{p}"\n' for p in paths) +
+            stage.write_text(f'revision {revision}\n' + ''.join(f'protect "{p}"\n' for p in paths) +
                              f'fanotify-file "{target}"\nfanotify-decision {decision}\nfanotify-event {event}\n'
                              f'fanotify-delay-ms {delay}\nfanotify-timeout-ms 5000\n')
             os.chmod(stage, 0o600)
@@ -115,9 +114,9 @@ def main():
                     base = len(list(Path(f'/proc/{process.pid}/fd').iterdir()))
                     held = os.open('/dev/null', os.O_RDONLY | os.O_CLOEXEC)
                     try:
-                        for message, fds in ((b'unknown', ()), (b'status-v1x', ()),
-                                             (b'status-v1' + b'x' * 64, ()),
-                                             (b'status-v1', (held,)), (b'status-v1', (held,) * 9)):
+                        for message, fds in ((b'unknown', ()), (b'status-extra', ()),
+                                             (b'status' + b'x' * 64, ()),
+                                             (b'status', (held,)), (b'status', (held,) * 9)):
                             assert raw(gate_socket, message, fds) == b''
                             assert call(fan, 'status', gate_socket)['revision'] == 5
                             assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base
@@ -142,11 +141,16 @@ def main():
                     finally:
                         os.chmod(gate_socket, 0o600)
                         os.chmod(root, 0o700)
-                    old_status = raw(gate_socket, b'status-v1')
-                    assert len(old_status) == 200 and struct.unpack_from('<IHH', old_status) == (0x53434D43, 1, 200)
-                    v2_status = raw(gate_socket, b'status-v2')
-                    assert len(v2_status) == 288 and struct.unpack_from('<IHH', v2_status) == (0x53434D43, 2, 288)
-                    assert raw(gate_socket, b'reload') == b'error'  # 旧协议兼容。
+                    # 只支持无后缀的当前命令；已删除的历史命令必须拒绝，不能触发 stop/reload。
+                    before = call(fan, 'status', gate_socket)
+                    for name in ('status', 'reload', 'stop'):
+                        for suffix in ('v1', 'v2', 'v3'):
+                            assert raw(gate_socket, f'{name}-{suffix}'.encode()) == b''
+                    after = call(fan, 'status', gate_socket)
+                    assert after['revision'] == before['revision']
+                    assert after['reloads'] == before['reloads'] and after['rejections'] == before['rejections']
+                    assert process.poll() is None
+                    call(fan, 'reload', gate_socket, 'not_newer')
                     for _ in range(8):
                         snapshot = call(fan, 'status', gate_socket)
                         assert snapshot['instance_ns'] == initial_fan['instance_ns']
@@ -158,7 +162,7 @@ def main():
                     assert snapshot['instance_ns'] == initial_bpf['instance_ns'] and snapshot['revision'] == 3
                     assert snapshot['reloads'] == 1 and snapshot['rejections'] == 3
                     print('PASS status snapshots, independent revisions, structured reload errors and busy-request contract')
-                    print('PASS malformed/FD-bearing management isolation, SO_PEERCRED, legacy compatibility and stable FDs')
+                    print('PASS malformed/FD-bearing management isolation, SO_PEERCRED, single-layout commands and stable FDs')
             finally:
                 subprocess.run([str(bpf), '--stop', str(bpf_socket)], check=True, capture_output=True, timeout=5)
                 monitor.process.wait(timeout=5)
@@ -179,7 +183,7 @@ def main():
                 process.wait(timeout=5)
         print('PASS command-line policy status and no-policy rejection')
         stage = root / 'staging'
-        stage.write_text(f'version 2\nrevision 20\nfanotify-file "{target}"\n'
+        stage.write_text(f'revision 20\nfanotify-file "{target}"\n'
                          f'fanotify-analyzer "{build / "secmon-analyzer"}"\nfanotify-marker "BLOCK"\n'
                          'fanotify-scan-limit-bytes 4\n')
         os.chmod(stage, 0o600)

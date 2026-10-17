@@ -42,7 +42,7 @@ def main():
 
         def publish(revision, paths, identities):
             stage = root / 'staging'
-            stage.write_text(f'version 3\nrevision {revision}\n' +
+            stage.write_text(f'revision {revision}\n' +
                              ''.join(f'protect "{p}"\n' for p in paths) +
                              ''.join(f'allow-writer "{p}" 0\n' for p in identities))
             stage.chmod(0o600)

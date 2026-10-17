@@ -7,8 +7,6 @@ import errno
 import os
 from pathlib import Path
 import shutil
-import socket
-import struct
 import sys
 import subprocess
 import tempfile
@@ -44,7 +42,7 @@ def main():
 
         def publish(revision, writers, paths=None):
             staging = root / 'staging'
-            staging.write_text('version 3\nrevision ' + str(revision) + '\n' +
+            staging.write_text('revision ' + str(revision) + '\n' +
                                ''.join(f'protect "{p}"\n' for p in ([target] if paths is None else paths)) +
                                ''.join(f'allow-writer "{p}" {uid}\n' for p, uid in writers))
             staging.chmod(0o600)
@@ -106,15 +104,6 @@ def main():
                 run(moved)
                 initial_status = call(binary, 'status', control)
                 assert initial_status['revision'] == 1 and initial_status['writer_paths'] == 1
-                for abi, size in ((1, 200), (2, 288)):
-                    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as legacy:
-                        legacy.settimeout(5)
-                        legacy.connect(str(control))
-                        legacy.sendall(f'status-v{abi}'.encode())
-                        prefix = legacy.recv(512)
-                        assert len(prefix) == size and struct.unpack_from('<IHH', prefix) == (0x53434D43, abi, size)
-                        assert struct.unpack_from('<Q', prefix, 24)[0] == 1
-                        assert struct.unpack_from('<I', prefix, 116)[0] == 1
                 # 缺失/非普通/末尾 symlink/不安全权限，以及一个 inode 的冲突 UID 都必须保留旧版。
                 unsafe = root / 'unsafe'
                 shutil.copyfile(other, unsafe)

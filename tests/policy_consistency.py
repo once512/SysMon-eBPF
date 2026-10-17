@@ -29,7 +29,7 @@ def main():
 
         def publish(revision, comment='common'):
             stage = root / 'staging'
-            stage.write_text(f'# {comment}\nversion 2\nrevision {revision}\nprotect "{protected}"\n'
+            stage.write_text(f'# {comment}\nrevision {revision}\nprotect "{protected}"\n'
                              f'fanotify-file "{target}"\nfanotify-decision allow\n')
             os.chmod(stage, 0o600)
             stage.replace(config)

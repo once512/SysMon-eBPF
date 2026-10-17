@@ -40,7 +40,7 @@ def main():
 
         def publish(revision, paths):
             staging = directory / 'staging'
-            staging.write_text('version 1\nrevision ' + str(revision) + '\n' +
+            staging.write_text('revision ' + str(revision) + '\n' +
                                ''.join(f'protect "{path}"\n' for path in paths))
             os.chmod(staging, 0o600)
             staging.replace(config)
