@@ -33,8 +33,19 @@ void validate_reply(const Reply &r, Command expected)
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
         (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 ||
         r.pending > 4096 || r.peak_pending > 4096 || r.event > 3 || r.mode > 3 ||
+        !analysis::valid_scan_error(r.last_scan_error, r.last_scan_errno) ||
         (r.backend != Backend::bpf && r.backend != Backend::fanotify))
         throw std::runtime_error("Invalid management response");
+    // 原因拆分与总错误数保持守恒；用减法边界检查避免恶意计数触发求和溢出。
+    if (r.scan_errors[0] || r.backend_error_requests > r.analysis_errors)
+        throw std::runtime_error("Invalid management error accounting");
+    auto counted = r.backend_error_requests;
+    for (std::size_t i = 1; i < r.scan_errors.size(); ++i) {
+        if (r.scan_errors[i] > r.analysis_errors - counted)
+            throw std::runtime_error("Invalid management error accounting");
+        counted += r.scan_errors[i];
+    }
+    if (counted != r.analysis_errors) throw std::runtime_error("Incomplete management error accounting");
 }
 std::string reply_json(const Reply &r)
 {
@@ -67,7 +78,12 @@ std::string reply_json(const Reply &r)
             << ",\"analyzer_pid\":" << r.worker_pid << ",\"scan_limit_bytes\":" << r.scan_limit
             << ",\"allowed\":" << r.allowed << ",\"denied\":" << r.denied
             << ",\"analyzer_error\":" << r.analysis_errors << ",\"analyzer_failures\":" << r.analysis_failures
-            << ",\"overflow\":" << r.overflow;
+            << ",\"overflow\":" << r.overflow << ",\"backend_error_requests\":" << r.backend_error_requests
+            << ",\"last_scan_error\":\"" << analysis::scan_error_name(r.last_scan_error)
+            << "\",\"last_scan_errno\":" << r.last_scan_errno << ",\"scan_error_counts\":{";
+        for (std::size_t i = 1; i < r.scan_errors.size(); ++i)
+            out << (i == 1 ? "" : ",") << '\"' << analysis::scan_error_name(static_cast<analysis::ScanError>(i)) << "\":" << r.scan_errors[i];
+        out << '}';
     }
     return out.str() + "}";
 }

@@ -8,6 +8,8 @@ import hashlib
 import os
 from pathlib import Path
 import socket
+import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -133,6 +135,8 @@ def main():
                     finally:
                         os.chmod(gate_socket, 0o600)
                         os.chmod(root, 0o700)
+                    old_status = raw(gate_socket, b'status-v1')
+                    assert len(old_status) == 200 and struct.unpack_from('<IHH', old_status) == (0x53434D43, 1, 200)
                     assert raw(gate_socket, b'reload') == b'error'  # 旧协议兼容。
                     for _ in range(8):
                         snapshot = call(fan, 'status', gate_socket)
@@ -165,6 +169,29 @@ def main():
                 subprocess.run([str(fan), '--stop', str(gate_socket)], check=True, capture_output=True, timeout=5)
                 process.wait(timeout=5)
         print('PASS command-line policy status and no-policy rejection')
+        stage = root / 'staging'
+        stage.write_text(f'version 2\nrevision 20\nfanotify-file "{target}"\n'
+                         f'fanotify-analyzer "{build / "secmon-analyzer"}"\nfanotify-marker "BLOCK"\n'
+                         'fanotify-scan-limit-bytes 4\n')
+        os.chmod(stage, 0o600)
+        stage.replace(config)
+        with running(fan, config, gate_socket) as (process, output, errors):
+            assert open_errno(target) == errno.EPERM
+            scanned = call(fan, 'status', gate_socket)
+            assert scanned['last_scan_error'] == 'oversized' and scanned['last_scan_errno'] == 0
+            assert scanned['scan_error_counts']['oversized'] == scanned['analyzer_error'] == 1
+            assert scanned['backend_error_requests'] == 0 and scanned['analyzer_online']
+            owned = os.pidfd_open(scanned['analyzer_pid'])
+            try:
+                signal.pidfd_send_signal(owned, signal.SIGKILL)
+            finally:
+                os.close(owned)
+            assert open_errno(target) == errno.EPERM
+            failed = call(fan, 'status', gate_socket)
+            assert not failed['analyzer_online'] and failed['backend_error_requests'] == 1
+            assert failed['analyzer_error'] == 2 and failed['last_scan_error'] == 'oversized'
+            assert failed['last_code'] == 'ok' and failed['revision'] == 20
+        print('PASS live scan reasons and backend-error accounting preserve policy state')
 
 
 if __name__ == '__main__':

@@ -31,7 +31,7 @@ int main()
         throw std::runtime_error("Bad management response accepted");
     };
     reject([](Reply &x) { x.magic_value = 0; });
-    reject([](Reply &x) { x.abi = 2; });
+    reject([](Reply &x) { ++x.abi; });
     reject([](Reply &x) { --x.size; });
     reject([](Reply &x) { x.command = Command::reload; });
     reject([](Reply &x) { x.code = static_cast<Code>(99); });
@@ -47,9 +47,18 @@ int main()
     reject([](Reply &x) { x.pid = 0; });
     reject([](Reply &x) { x.instance_ns = 0; });
     reject([](Reply &x) { x.reserved = 1; });
+    reject([](Reply &x) { x.last_scan_error = static_cast<analysis::ScanError>(99); });
+    reject([](Reply &x) { x.last_scan_errno = -1; });
+    reject([](Reply &x) { x.backend_error_requests = 1; });
+    reject([](Reply &x) { x.scan_errors[0] = 1; });
+    reject([](Reply &x) { x.scan_errors[5] = 1; });
+    reject([](Reply &x) { x.analysis_errors = UINT64_MAX; x.backend_error_requests = UINT64_MAX; x.scan_errors[5] = 1; });
     r.backend = Backend::fanotify; r.event = 2; r.mode = 3; r.flags |= analyzer | analyzer_online;
     r.pending = 1; r.peak_pending = 3; r.max_pending = 4; r.fallbacks = 5;
     require(reply_json(r).find("\"permission_event\":\"access\"") != std::string::npos);
     require(reply_json(r).find("\"analyzer_online\":true") != std::string::npos);
+    r.analysis_errors = 3; r.backend_error_requests = 1; r.scan_errors[5] = 2;
+    r.last_scan_error = analysis::ScanError::oversized;
+    require(reply_json(r).find("\"oversized\":2") != std::string::npos);
     std::cout << "PASS management framing, status rendering and no-policy reload isolation\n";
 }

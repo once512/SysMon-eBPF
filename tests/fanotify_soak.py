@@ -119,6 +119,8 @@ def main():
             stats = json.load(output)
             assert stats['allowed'] == counts[0] and stats['denied'] == counts[1], (stats, counts)
             assert stats['peak_pending'] <= 4 and stats['overflow'] == 0
+            if 'scan_error_counts' in stats:
+                assert stats['analyzer_error'] == stats['backend_error_requests'] + sum(stats['scan_error_counts'].values())
             assert stats['shutdown_denied'] == 0
             if args.backend == 'static':
                 assert stats['overloaded'] > 0

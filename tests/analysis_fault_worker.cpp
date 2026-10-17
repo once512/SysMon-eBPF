@@ -4,6 +4,7 @@
 #include "analysis/protocol.h"
 #include "analysis/transport.h"
 #include <cstring>
+#include <cerrno>
 #include <poll.h>
 #include <string>
 #include <sys/socket.h>
@@ -16,6 +17,7 @@ int main(int argc, char **argv)
     if (mode == "no-ready") { poll(nullptr, 0, 5000); return 0; }
     analysis::Response initialized;
     initialized.result = analysis::Result::ready;
+    if (mode == "ready-error") initialized.error = analysis::ScanError::changed;
     if (mode == "bad-ready") initialized.id = 42;
     analysis::send_packet(3, &initialized, sizeof(initialized), mode == "ready-fds" ? 0 : -1);
     while (true) {
@@ -37,6 +39,18 @@ int main(int argc, char **argv)
         else if (mode == "wrong-size") ++reply.size;
         else if (mode == "wrong-bytes") reply.bytes_scanned = 2 * 1024 * 1024;
         else if (mode == "wrong-verdict") reply.result = static_cast<analysis::Result>(99);
+        else if (mode == "wrong-error") reply.error = static_cast<analysis::ScanError>(99);
+        else if (mode == "allow-error") reply.error = analysis::ScanError::changed;
+        else if (mode == "error-without-reason") reply.result = analysis::Result::error;
+        else if (mode == "wrong-errno") reply.system_errno = -1;
+        else if (mode == "metadata-no-errno") { reply.result = analysis::Result::error; reply.error = analysis::ScanError::metadata_failed; }
+        else if (mode == "resource-error") {
+            reply.result = analysis::Result::error;
+            reply.error = analysis::ScanError::resource_exhausted;
+            reply.system_errno = ENOMEM;
+            analysis::send_packet(3, &reply, sizeof(reply));
+            continue;
+        }
         else if (mode == "exit") return 7;
         else if (mode == "late") usleep(300000);
         else if (mode == "short") {

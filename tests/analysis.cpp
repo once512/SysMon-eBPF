@@ -40,11 +40,11 @@ int main()
         require(result.result == analysis::Result::allow && result.bytes_scanned == 12 && result.id == 1,
                 "Clean content should be allowed");
         require(lseek(fd.get(), 0, SEEK_CUR) == 0, "Scanner must not change shared FD offset");
-        require(analysis::scan(clean.writer.get(), 2, "DENY", 64).result == analysis::Result::error,
+        require(analysis::scan(clean.writer.get(), 2, "DENY", 64).error == analysis::ScanError::unsupported_descriptor,
                 "Reject writable transferred FD");
-        require(analysis::scan(fd.get(), 2, "DENY", 4).result == analysis::Result::error,
+        require(analysis::scan(fd.get(), 2, "DENY", 4).error == analysis::ScanError::oversized,
                 "Oversized content cannot be declared clean");
-        require(analysis::scan(fd.get(), 2, "", 64).result == analysis::Result::error, "Reject empty marker");
+        require(analysis::scan(fd.get(), 2, "", 64).error == analysis::ScanError::invalid_input, "Reject empty marker");
         TestFile boundary(std::string(4094, 'a') + "DENY" + "rest");
         auto marked = boundary.reader();
         require(analysis::scan(marked.get(), 3, "DENY", 8192).result == analysis::Result::deny,
@@ -54,7 +54,7 @@ int main()
         require(analysis::scan(empty_fd.get(), 4, "DENY", 1).result == analysis::Result::allow,
                 "Empty regular file should be allowed");
         OwnedFd directory(open("/tmp", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
-        require(analysis::scan(directory.get(), 4, "DENY", 64).result == analysis::Result::error,
+        require(analysis::scan(directory.get(), 4, "DENY", 64).error == analysis::ScanError::unsupported_descriptor,
                 "Reject non-regular descriptors");
         int pair[2];
         require(!socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair), "socketpair");

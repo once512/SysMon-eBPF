@@ -57,7 +57,7 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
                 if (packet.status != analysis::Io::ready || packet.size != sizeof(ready) || !packet.fds.empty() ||
                     ready.magic_value != analysis::magic || ready.abi != analysis::version ||
                     ready.size != sizeof(ready) || ready.id || ready.result != analysis::Result::ready ||
-                    ready.bytes_scanned)
+                    ready.bytes_scanned || ready.error != analysis::ScanError::none || ready.system_errno)
                     throw std::runtime_error("Invalid analysis worker readiness handshake");
                 break;
             }
@@ -130,6 +130,8 @@ std::optional<analysis::Response> AnalysisClient::receive()
     if (packet.size != sizeof(response) || !packet.fds.empty() || !active_ || response.id != active_ ||
         response.magic_value != analysis::magic || response.abi != analysis::version ||
         response.size != sizeof(response) || response.bytes_scanned > scan_limit_ + 1 ||
+        !analysis::valid_scan_error(response.error, response.system_errno) ||
+        (response.result == analysis::Result::error ? response.error == analysis::ScanError::none : response.error != analysis::ScanError::none) ||
         (response.result != analysis::Result::allow && response.result != analysis::Result::deny &&
          response.result != analysis::Result::error))
         throw std::runtime_error("Invalid or stale analysis response");

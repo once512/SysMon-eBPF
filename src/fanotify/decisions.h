@@ -3,6 +3,7 @@
 // 静态延迟用于实验；外部模式把实际分析交给独立进程，本队列仍负责截止时间和回退。
 #pragma once
 #include "owned_fd.h"
+#include "analysis/protocol.h"
 #include <chrono>
 #include <cstddef>
 #include <deque>
@@ -24,6 +25,8 @@ enum class DecisionReason { policy, timeout, capacity, shutdown, analysis, analy
 struct Verdict {
     bool allow;
     DecisionReason reason;
+    analysis::ScanError scan_error = analysis::ScanError::none;
+    int scan_errno = 0;
 };
 
 // Owns only events already delivered by the kernel, never the kernel queue.
@@ -52,7 +55,8 @@ public:
     struct ReadyRequest { std::uint64_t id; int fd; };
     std::optional<ReadyRequest> next_request() const;
     bool contains(std::uint64_t id) const;
-    bool complete(std::uint64_t id, bool allow, bool error, Clock::time_point now);
+    bool complete(std::uint64_t id, bool allow, bool error, Clock::time_point now,
+                  analysis::ScanError scan_error = analysis::ScanError::none, int scan_errno = 0);
     void fail_analysis();
     void process_due(Clock::time_point now);
     // Reply deny to delivered requests before a graceful group shutdown.

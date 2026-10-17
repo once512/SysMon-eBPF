@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 只复制宿主已观测状态，保证管理查询和结束统计采用同一组计数与错误口径。
 #include "status.h"
 management::Reply fanotify_status(const PolicyRuntime &runtime, const FanotifyOptions &options,
                                  const PermissionGate &gate)
@@ -8,6 +9,10 @@ management::Reply fanotify_status(const PolicyRuntime &runtime, const FanotifyOp
     reply.allowed = stats.allowed;
     reply.denied = stats.denied;
     reply.analysis_errors = stats.analyzer_error;
+    reply.last_scan_error = stats.last_scan_error;
+    reply.last_scan_errno = stats.last_scan_errno;
+    reply.backend_error_requests = stats.backend_error_requests;
+    reply.scan_errors = stats.scan_errors;
     reply.analysis_failures = stats.analyzer_failures;
     reply.overflow = stats.overflow;
     reply.pending = gate.pending_count();

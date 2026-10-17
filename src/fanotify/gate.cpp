@@ -135,7 +135,15 @@ void PermissionGate::respond(int fd, Verdict verdict)
         ++stats_.analyzed;
         if (!verdict.allow) ++stats_.analysis_denied;
         break;
-    case DecisionReason::analyzer_error: ++stats_.analyzer_error; break;
+    case DecisionReason::analyzer_error:
+        ++stats_.analyzer_error;
+        if (verdict.scan_error == analysis::ScanError::none) ++stats_.backend_error_requests;
+        else {
+            ++stats_.scan_errors[static_cast<std::size_t>(verdict.scan_error)];
+            stats_.last_scan_error = verdict.scan_error;
+            stats_.last_scan_errno = verdict.scan_errno;
+        }
+        break;
     }
 }
 
@@ -168,7 +176,7 @@ void PermissionGate::service_analysis()
     // 队列完成前再次按当前单调时间检查超时，迟到的 allow 不能覆盖已经生效的超时回退。
     if (response)
         pending_.complete(response->id, response->result == analysis::Result::allow,
-                          response->result == analysis::Result::error, PendingDecisions::Clock::now());
+                          response->result == analysis::Result::error, PendingDecisions::Clock::now(), response->error, response->system_errno);
     if (!analyzer_->active()) {
         auto request = pending_.next_request();
         if (request) {

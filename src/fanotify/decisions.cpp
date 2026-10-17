@@ -84,14 +84,15 @@ bool PendingDecisions::contains(std::uint64_t id) const
 {
     return std::any_of(pending_.begin(), pending_.end(), [id](const auto &request) { return request.id == id; });
 }
-bool PendingDecisions::complete(std::uint64_t id, bool allow, bool error, Clock::time_point now)
+bool PendingDecisions::complete(std::uint64_t id, bool allow, bool error, Clock::time_point now,
+                                analysis::ScanError scan_error, int scan_errno)
 {
     process_due(now);
     const auto found = std::find_if(pending_.begin(), pending_.end(),
                                    [id](const auto &request) { return request.id == id; });
     if (found == pending_.end()) return false;
     reply_(found->fd.get(), {error ? config_.analyzer_error_allow : allow,
-                           error ? DecisionReason::analyzer_error : DecisionReason::analysis});
+                           error ? DecisionReason::analyzer_error : DecisionReason::analysis, scan_error, scan_errno});
     pending_.erase(found);
     return true;
 }

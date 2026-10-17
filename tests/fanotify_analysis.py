@@ -101,6 +101,8 @@ def main():
             finally:
                 stats = run.finish()
             assert stats['analyzer_error'] == 1 and stats['analyzed'] == 0
+            assert stats['scan_error_counts']['oversized'] == 1 and stats['backend_error_requests'] == 0
+            assert stats['last_scan_error'] == 'oversized' and stats['last_scan_errno'] == 0
             assert stats['analyzer_failures'] == 0
             print(f'PASS oversized-file analysis error uses {fallback} fallback')
         for fallback in ('deny', 'allow'):
@@ -113,6 +115,7 @@ def main():
             finally:
                 stats = run.finish()
             assert stats['analyzer_failures'] == stats['analyzer_error'] == 1
+            assert stats['backend_error_requests'] == 1 and sum(stats['scan_error_counts'].values()) == 0
             print(f'PASS worker crash: {fallback} fallback while fanotify gate remains active')
         fast_timeout = ['--analyzer', str(build / 'secmon-analyzer'), '--deny-marker', 'SECMON_BLOCK',
                         '--request-timeout-ms', '100']

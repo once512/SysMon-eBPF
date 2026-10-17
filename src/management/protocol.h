@@ -2,13 +2,14 @@
 // root 本地管理协议，与 BPF 事件 ABI/分析器 ABI 分开版本化；不传指针、字符串或 FD。
 #pragma once
 #include "content_digest.h"
+#include "analysis/protocol.h"
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 1;
+constexpr std::uint16_t version = 2;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 enum class Code : std::uint32_t {
     ok = 0, no_policy = 1, not_newer = 2, invalid_policy = 3,
@@ -51,8 +52,14 @@ struct Reply {
     Code last_code = Code::ok;
     std::uint32_t reserved = 0;
     ContentDigest source_digest{};
+    // v1 的前 200 字节保持布局；v2 附加扫描原因，旧客户端可继续请求 v1 前缀。
+    analysis::ScanError last_scan_error = analysis::ScanError::none;
+    std::int32_t last_scan_errno = 0;
+    std::uint64_t backend_error_requests = 0;
+    std::array<std::uint64_t, analysis::scan_error_count> scan_errors{};
 };
-static_assert(sizeof(Reply) == 200);
+static_assert(sizeof(Reply) == 288);
+static_assert(offsetof(Reply, last_scan_error) == 200);
 class Error : public std::runtime_error {
     Code code_;
 public:

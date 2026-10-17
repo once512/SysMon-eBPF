@@ -6,6 +6,7 @@
 #include "policy.h"
 #include "control.h"
 #include "status.h"
+#include "stats.h"
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -89,13 +90,6 @@ int main(int argc, char **argv)
                   << " timed_out=" << stats.timed_out << " overloaded=" << stats.overloaded << '\n';
         return 1;
     }
-    std::cout << "{\"permission_event\":\"" << permission_name(options.event) << "\",\"allowed\":" << stats.allowed << ",\"denied\":" << stats.denied
-              << ",\"overflow\":" << stats.overflow << ",\"timed_out\":" << stats.timed_out
-              << ",\"overloaded\":" << stats.overloaded
-              << ",\"shutdown_denied\":" << stats.shutdown_denied
-              << ",\"analysis_denied\":" << stats.analysis_denied
-              << ",\"analyzed\":" << stats.analyzed << ",\"analyzer_error\":" << stats.analyzer_error
-              << ",\"analyzer_failures\":" << stats.analyzer_failures
-              << ",\"peak_pending\":" << stats.peak_pending << "}\n";
+    write_gate_stats(std::cout, options.event, stats);
     return std::cout ? 0 : 1;
 }

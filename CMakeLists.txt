@@ -61,7 +61,7 @@ target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy)
 
 add_executable(secmon-fanotify src/fanotify/main.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
-    src/fanotify/policy.cpp src/fanotify/status.cpp
+    src/fanotify/policy.cpp src/fanotify/status.cpp src/fanotify/stats.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
 target_include_directories(secmon-fanotify PRIVATE src)
 target_compile_options(secmon-fanotify PRIVATE -Wall -Wextra -Werror)
@@ -100,6 +100,11 @@ if(BUILD_TESTING)
     target_include_directories(secmon-analysis-tests PRIVATE src)
     target_compile_options(secmon-analysis-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME analysis-content-transport COMMAND secmon-analysis-tests)
+    add_executable(secmon-scan-fault-tests tests/analysis_scan_faults.cpp src/analysis/scanner.cpp)
+    target_include_directories(secmon-scan-fault-tests PRIVATE src)
+    target_compile_options(secmon-scan-fault-tests PRIVATE -Wall -Wextra -Werror)
+    target_link_options(secmon-scan-fault-tests PRIVATE -Wl,--wrap=fstat -Wl,--wrap=pread)
+    add_test(NAME analysis-scan-errors COMMAND secmon-scan-fault-tests)
     add_test(NAME analyzer-help COMMAND secmon-analyzer --help)
     add_executable(secmon-decision-tests tests/decisions.cpp src/fanotify/decisions.cpp)
     target_include_directories(secmon-decision-tests PRIVATE src)

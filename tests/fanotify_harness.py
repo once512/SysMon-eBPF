@@ -71,7 +71,10 @@ class GateRun:
             self.errors.seek(0)
             assert self.process.returncode == 0, self.errors.read()
             self.output.seek(0)
-            return json.load(self.output)
+            stats = json.load(self.output)
+            if 'scan_error_counts' in stats:
+                assert stats['analyzer_error'] == stats['backend_error_requests'] + sum(stats['scan_error_counts'].values()), stats
+            return stats
         finally:
             self.output.close()
             self.errors.close()
