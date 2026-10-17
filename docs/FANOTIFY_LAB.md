@@ -90,7 +90,7 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision allow --
 - 检测到 `FAN_Q_OVERFLOW` 时增加计数并以失败退出；ABI、读取或回复异常也报告失败并关闭组。这是可观察的退出策略，不能保证队列满时继续拒绝全部访问。
 - 正常 SIGINT/SIGTERM 或内部期限退出时，先对已投递到用户态队列的请求回复 deny，再关闭组。关闭或崩溃会移除标记，内核尚未投递或故障时尚未回复的请求会放行；不能把正常退出的用户态队列排空理解成全局原子拒绝。故障后没有持久拒绝承诺。
 - 每次 poll 最多等待 100 ms，并受最近请求截止时间约束，循环检查内部期限与退出信号；持续到达事件时也会检查。没有独立 watchdog 或调度暂停期间的截止保证，SIGSTOP 会暂停裁决。
-- 当前没有进程身份授权、内容检测、权限缓存、递归目录保护或应用身份授权规则，也未接入 BPF、自保护和管理 socket。
+- 当前没有进程身份授权、内容检测、权限缓存、递归目录保护，也未接入 BPF、自保护和管理 socket。
 
 权限事件与关闭组的语义参考 [Linux fanotify(7)](https://man7.org/linux/man-pages/man7/fanotify.7.html)，标记接口参考 [fanotify_mark(2)](https://man7.org/linux/man-pages/man2/fanotify_mark.2.html)。
 

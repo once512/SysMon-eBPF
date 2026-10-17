@@ -12,7 +12,7 @@
 
 ## 当前实现
 
-总体方案见 [DESIGN.md](DESIGN.md)，源码阅读顺序与模块职责见 [代码导读](docs/CODE_GUIDE.md)。目前实现执行与凭证审计、指定文件对象的只读保护，以及可选的 secmon 进程自保护；另提供独立的 fanotify 单文件静态裁决实验；尚未接入异步分析裁决、诱饵或完整保险箱。
+总体方案见 [DESIGN.md](DESIGN.md)，源码阅读顺序与模块职责见 [代码导读](docs/CODE_GUIDE.md)，完整验证入口见 [测试矩阵](docs/TESTING.md)。目前实现执行与凭证审计、指定文件对象的只读保护，以及可选的 secmon 进程自保护；另提供独立的 fanotify 单文件静态裁决实验；尚未接入异步分析裁决、诱饵或完整保险箱。
 
 - GNU++17 宿主使用 libbpf skeleton 加载、挂载和消费事件。
 - 在执行安全检查点输出 JSON Lines；这些事件表示执行检查，不表示执行最终成功。
@@ -79,7 +79,7 @@ ptrace 访问检查同时影响部分 `/proc` 查询；这版策略保守地拒�
 
 `uid`、`euid`、`caps` 和 `comm` 反映事件发生时的当前任务状态：检查事件发生在凭证提交前，成功事件发生在执行完成阶段。`exec_check.target_euid` 是该检查点的候选值，可能尚未计算 setuid，不能当作最终 EUID 预测；`exec_success.target_euid` 使用当前任务已提交的 EUID，与该事件的 `euid` 一致。`old_tid` 在成功事件中标识执行前的线程 ID，配合 PID、事件顺序与生命周期信息关联；它不是全局唯一的执行请求 ID。脚本仍可能产生多个检查事件。
 
-当前已在开发机完成 BPF 对象编译、skeleton 生成和 GNU++17 宿主构建，`--check` 与 `--help` 验证通过。用户以管理员权限完成加载、挂载、超时退出及执行事件采集验证，输出包含 `/usr/bin/id` 和 `/usr/bin/true`，提供的样本中 `flags` 均为 0，丢失事件和基线更新失败计数均为 0。凭证切换、线程生命周期、异常检测及压力场景仍待验证。
+当前已在开发机完成 BPF 对象编译、skeleton 生成和 GNU++17 宿主构建，`--check` 与 `--help` 验证通过。用户以管理员权限完成加载、挂载、超时退出及执行事件采集验证，输出包含 `/usr/bin/id` 和 `/usr/bin/true`，提供的样本中 `flags` 均为 0，丢失事件和基线更新失败计数均为 0。后续已补充线程 Map 生命周期、合法 setuid/file capabilities、合成基线不一致和 fanotify 持续负载验证，见下文与测试矩阵；真实提权攻击和其他压力场景仍待专项验证。
 
 ## 验证工具
 
@@ -143,3 +143,12 @@ sudo python3 tests/baseline_lifecycle.py --build-dir build --rounds 20
 ```bash
 sudo python3 tests/credential_transitions.py --build-dir build
 ```
+
+
+完整特权回归可一次运行：
+
+```bash
+sudo python3 tests/run_privileged.py --build-dir build
+```
+
+其中包含仅修改本次测试 Map 的合成基线不一致验证，不修改真实任务凭证。各项范围、依赖与持续负载选项见 [测试矩阵](docs/TESTING.md)。

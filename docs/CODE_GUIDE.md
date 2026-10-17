@@ -58,3 +58,5 @@ sudo python3 tests/self_protection.py --build-dir build
 同时研究两个策略模块时，可参照 [策略组合实验](POLICY_LAYERS.md) 的状态矩阵，区分单层退出与所有防护退出。
 
 研究凭证基线时，可参照 [凭证生命周期实验](CREDENTIAL_LIFECYCLE.md)，在受控阶段直接观察 Map 中的线程身份与凭证值。
+
+完整检查可以通过 [测试矩阵](TESTING.md) 中的统一入口运行，按专题选择实验。

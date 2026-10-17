@@ -45,3 +45,14 @@ sudo python3 tests/credential_transitions.py --build-dir build
 这个实验修正了一个重要的字段解释：`exec_check.target_euid` 只是该检查点的 `bprm->cred` 候选 EUID，尚未必计算 setuid，不能预测最终权限。`exec_success.target_euid` 则读取当前任务已提交的 EUID，与成功事件的 `euid` 相同。
 
 Linux 6.12 在 `search_binary_handler` 中先调用安全检查，随后格式处理器进入 `begin_new_exec` 计算最终文件凭证；提交后 `bprm->cred` 被清空。因此完成事件不能继续从该指针取 EUID。可对照 [Linux v6.12 fs/exec.c](https://github.com/torvalds/linux/blob/v6.12/fs/exec.c) 中这些步骤阅读。
+
+
+## 合成基线不一致
+
+```bash
+sudo python3 tests/baseline_mismatch.py --build-dir build
+```
+
+此测试先运行不修改 Map 的对照进程，再对测试宿主自己的凭证 Map 中、仍在等待指令的测试主线程条目，把记录 UID 改为不同值。使用精确 task key 和 BPF_EXIST，拒绝凭空创建条目。真实任务仍为 UID/EUID 0，随后由主线程 exec，同一次检查输出 flags=1；干净对照的检查 flags=0。exec 提交后，Map 再次与实际凭证一致，进程退出后条目清理。
+
+当前开发机验证通过。它证明已观测基线不一致到事件输出的链路，不证明能够检测真实内核攻击。`exec_success.flags=0` 仍然不表示在完成点重新做过异常检查。这里的 Map 写入仅存在于测试脚本，生产程序没有注入接口。
