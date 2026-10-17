@@ -53,7 +53,7 @@ def main():
         existing = os.open(target, os.O_RDWR | os.O_CLOEXEC)
         try:
             with MonitorRun(build / 'secmon', ['--protect-file', str(target)]) as audit:
-                gate = GateRun(build / 'secmon-fanotify', target, 'allow', [])
+                gate = GateRun(build / 'secmon', target, 'allow', [])
                 try:
                     assert attempt(target, 'read') == 0
                     assert attempt(target, 'write') == errno.EACCES
@@ -67,7 +67,7 @@ def main():
                 assert attempt(target, 'write') == errno.EACCES
                 assert attempt(target, 'read') == 0
                 print('PASS closing fanotify does not remove the BPF policy')
-                gate = GateRun(build / 'secmon-fanotify', target, 'deny', [])
+                gate = GateRun(build / 'secmon', target, 'deny', [])
                 try:
                     assert attempt(target, 'read') == errno.EPERM
                     assert attempt(target, 'write') == errno.EACCES

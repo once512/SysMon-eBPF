@@ -58,7 +58,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root/CAP_SYS_ADMIN')
-    binary = (Path(args.build_dir) / 'secmon-fanotify').resolve()
+    binary = (Path(args.build_dir) / 'secmon').resolve()
     with tempfile.TemporaryDirectory(prefix='secmon-event-kinds-') as temporary:
         directory = Path(temporary)
         target = directory / 'data'

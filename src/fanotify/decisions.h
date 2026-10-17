@@ -52,6 +52,9 @@ public:
     PendingDecisions(const PendingDecisions &) = delete;
     PendingDecisions &operator=(const PendingDecisions &) = delete;
     // Reject busy queues so already-delivered requests retain their original contract.
+    void validate_reconfigure(DecisionConfig config) const;
+    // 仅供协调器在验证后、同一事件循环内调用；纯值赋值，不再检查或分配。
+    void commit_reconfigure(DecisionConfig config) noexcept { config_ = config; }
     void reconfigure(DecisionConfig config);
     void submit(OwnedFd fd, Clock::time_point now);
     struct ReadyRequest { std::uint64_t id; int fd; };

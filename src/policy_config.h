@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 共用单一配置模型：revision 是进程内单调递增的运行策略编号，不做历史格式兼容。
-// 同一文件可供两个宿主读取；BPF 应用 protect/allow-writer，fanotify 应用可选的 fanotify 配置，分别提交。
+// 同一主服务读取一份配置；BPF 应用 protect/allow-writer，fanotify 应用可选字段，由协调器统一提交。
 #pragma once
 #include "content_digest.h"
 #include <cstdint>

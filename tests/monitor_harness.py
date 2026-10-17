@@ -13,7 +13,7 @@ class MonitorRun:
         self.errors = tempfile.TemporaryFile(mode='w+')
         self.process = None
         try:
-            self.process = subprocess.Popen([str(binary), '--run-for', str(seconds), *extra],
+            self.process = subprocess.Popen([str(binary), '--bpf-only', '--run-for', str(seconds), *extra],
                                             stdout=self.output, stderr=self.errors)
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:

@@ -2,10 +2,9 @@
 // 只复制宿主已观测状态，保证管理查询和结束统计采用同一组计数与错误口径。
 #include "status.h"
 #include "gate.h"
-management::Reply fanotify_status(const PolicyRuntime &runtime, const FanotifyOptions &options,
+void fill_fanotify_status(management::Reply &reply, const FanotifyOptions &options,
                                  const PermissionGate &gate)
 {
-    auto reply = runtime.snapshot(management::Backend::fanotify);
     // 只借用已有计数；
     // 查询不会处理超时或读取工作进程回复，所以状态可能反映最近一次事件循环观察。
     const auto &stats = gate.stats();
@@ -33,5 +32,4 @@ management::Reply fanotify_status(const PolicyRuntime &runtime, const FanotifyOp
         reply.worker_pid = gate.analyzer_pid();
         reply.scan_limit = options.analyzer.scan_limit;
     }
-    return reply;
 }

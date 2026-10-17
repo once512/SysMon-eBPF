@@ -48,7 +48,7 @@ def main():
         target = Path(temporary) / 'target'
         target.write_bytes(b'clean content')
         existing = os.open(target, os.O_RDWR | os.O_CLOEXEC)
-        run = GateRun(build / 'secmon-fanotify', target, None, config)
+        run = GateRun(build / 'secmon', target, None, config)
         pid = worker_pid(run)
         try:
             status = wait_status(pid, lambda text: 'Uid:\t65534\t65534\t65534\t65534' in text)
@@ -69,7 +69,7 @@ def main():
         print('PASS independent dropped-UID worker, real contents changed on same inode, clean shutdown')
         target.write_bytes(b'clean content')
         for event in ('open', 'access'):
-            run = GateRun(build / 'secmon-fanotify', target, None, [*config, '--event', event])
+            run = GateRun(build / 'secmon', target, None, [*config, '--event', event])
             try:
                 assert operation(target, 'read') == 0
             finally:
@@ -84,7 +84,7 @@ def main():
                 with executable.open('ab') as stream:
                     stream.write(b'SECMON_BLOCK')
             executable.chmod(0o755)
-            run = GateRun(build / 'secmon-fanotify', executable, None,
+            run = GateRun(build / 'secmon', executable, None,
                           [*config, '--event', 'exec', '--scan-limit-bytes', '1048576'])
             try:
                 assert execute([str(executable)]) == (errno.EPERM if blocked else 0)
@@ -94,7 +94,7 @@ def main():
             assert stats['analyzer_error'] == stats['analyzer_failures'] == 0
             print(f'PASS executable content scan: {"marker denied" if blocked else "clean ELF allowed"}')
         for fallback in ('deny', 'allow'):
-            run = GateRun(build / 'secmon-fanotify', target, None,
+            run = GateRun(build / 'secmon', target, None,
                           [*config, '--scan-limit-bytes', '4', '--analyzer-error-decision', fallback])
             try:
                 assert open_errno(target) == (errno.EPERM if fallback == 'deny' else 0)
@@ -106,7 +106,7 @@ def main():
             assert stats['analyzer_failures'] == 0
             print(f'PASS oversized-file analysis error uses {fallback} fallback')
         for fallback in ('deny', 'allow'):
-            run = GateRun(build / 'secmon-fanotify', target, None,
+            run = GateRun(build / 'secmon', target, None,
                           [*config, '--analyzer-error-decision', fallback])
             pid = worker_pid(run)
             try:
@@ -119,7 +119,7 @@ def main():
             print(f'PASS worker crash: {fallback} fallback while fanotify gate remains active')
         fast_timeout = ['--analyzer', str(build / 'secmon-analyzer'), '--deny-marker', 'SECMON_BLOCK',
                         '--request-timeout-ms', '100']
-        run = GateRun(build / 'secmon-fanotify', target, None, fast_timeout)
+        run = GateRun(build / 'secmon', target, None, fast_timeout)
         pid = worker_pid(run)
         try:
             os.kill(pid, signal.SIGSTOP)
@@ -136,7 +136,7 @@ def main():
         # Prove the worker did not inherit the fanotify group: even a stopped
         # worker cannot keep permission requests blocked after the gate dies.
         with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
-            gate = start(build / 'secmon-fanotify', target, None, output, errors, extra=config)
+            gate = start(build / 'secmon', target, None, output, errors, extra=config)
             errors.seek(0)
             pid = int(re.search(r'analyzer_pid=(\d+)', errors.read()).group(1))
             opener = None

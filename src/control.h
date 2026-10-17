@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// 两个宿主共用的 root 管理通道：私有目录中的 UNIX SEQPACKET socket，一条完整消息对应一次命令。
+// 主服务的 root 管理通道：私有目录中的 UNIX SEQPACKET socket，一条完整消息对应一次命令。
 // SO_PEERCRED 验证连接方 UID；这只识别 root 身份，不等于可信应用身份或跨后端事务。
 #pragma once
 #include "owned_fd.h"

@@ -178,9 +178,15 @@ int main()
             require(busy && queue.size() == 1 && replies.empty(), "Busy reload preserves pending contract");
             queue.process_due(start + 10ms);
             require(replies.size() == 1 && replies.back().verdict.allow, "Old request keeps old verdict and delay");
-            queue.reconfigure(next);
+            // 仅准备成功后，若另一模块随后失败，本队列仍应采用旧规则。
+            queue.validate_reconfigure(next);
             queue.submit(descriptor(), start + 11ms);
-            require(replies.size() == 2 && !replies.back().verdict.allow, "New request uses new policy");
+            queue.process_due(start + 21ms);
+            require(replies.size() == 2 && replies.back().verdict.allow, "Preparation alone must not commit new verdict");
+            queue.validate_reconfigure(next);
+            queue.commit_reconfigure(next);
+            queue.submit(descriptor(), start + 22ms);
+            require(replies.size() == 3 && !replies.back().verdict.allow, "New request uses new policy");
             next.external = true;
             bool backend = false;
             try { queue.reconfigure(next); } catch (const std::invalid_argument &) { backend = true; }

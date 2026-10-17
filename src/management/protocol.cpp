@@ -36,7 +36,7 @@ void validate_reply(const Reply &r, Command expected)
         (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 || r.writer_paths > 64 || r.reserved_tail ||
         r.pending > 4096 || r.peak_pending > 4096 || r.event > 3 || r.mode > 3 ||
         !analysis::valid_scan_error(r.last_scan_error, r.last_scan_errno) ||
-        (r.backend != Backend::bpf && r.backend != Backend::fanotify))
+        (r.backend != Backend::bpf && r.backend != Backend::fanotify && r.backend != Backend::combined))
         throw std::runtime_error("Invalid management response");
     // 原因拆分与总错误数保持守恒；用减法边界检查避免恶意计数触发求和溢出。
     if (r.scan_errors[0] || r.backend_error_requests > r.analysis_errors)
@@ -57,7 +57,7 @@ std::string reply_json(const Reply &r)
     std::ostringstream out;
     out << "{\"protocol_version\":" << r.abi << ",\"command\":\"" << command_name(r.command)
         << "\",\"code\":\"" << code_name(r.code) << "\",\"backend\":\""
-        << (r.backend == Backend::bpf ? "bpf" : "fanotify") << "\",\"pid\":" << r.pid
+        << (r.backend == Backend::bpf ? "bpf" : (r.backend == Backend::fanotify ? "fanotify" : "combined")) << "\",\"pid\":" << r.pid
         << ",\"instance_ns\":" << r.instance_ns << ",\"uptime_ms\":" << r.uptime_ms
         << ",\"configured\":" << ((r.flags & configured) ? "true" : "false")
         << ",\"revision\":" << r.revision << ",\"reloads\":" << r.reloads << ",\"rejections\":" << r.rejections
@@ -66,10 +66,10 @@ std::string reply_json(const Reply &r)
     if (r.flags & configured) out << '\"' << digest_hex(r.source_digest) << '\"';
     else out << "null";
     // 按后端输出实际支持的字段，不给 BPF 状态填造 fanotify 的裁决业务计数。
-    if (r.backend == Backend::bpf)
+    if (r.backend != Backend::fanotify)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")
             << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths;
-    else {
+    if (r.backend != Backend::bpf) {
         const char *events[] = {"none", "open", "access", "exec"};
         const char *modes[] = {"none", "allow", "deny", "analysis"};
         out << ",\"permission_event\":\"" << events[r.event] << "\",\"decision\":\"" << modes[r.mode]

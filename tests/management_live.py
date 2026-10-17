@@ -35,7 +35,7 @@ def main():
     if os.geteuid() != 0:
         parser.error('requires root/BPF/fanotify permissions')
     build = Path(args.build_dir).resolve()
-    bpf, fan = build / 'secmon', build / 'secmon-fanotify'
+    bpf, fan = build / 'secmon', build / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-') as temporary:
         root = Path(temporary)
         a, c, target = [root / name for name in ('protected-a', 'protected-c', 'gate')]
@@ -168,7 +168,7 @@ def main():
                 monitor.process.wait(timeout=5)
         # 无配置启动也可查询；重载明确返回 no_policy，且不改变活动模式。
         with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
-            process = subprocess.Popen([str(fan), '--file', str(target), '--decision', 'deny', '--run-for', '10',
+            process = subprocess.Popen([str(fan), '--fanotify-only', '--file', str(target), '--decision', 'deny', '--run-for', '10',
                                         '--control', str(gate_socket)], stdout=output, stderr=errors)
             try:
                 deadline = time.monotonic() + 5

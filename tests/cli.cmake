@@ -38,3 +38,12 @@ expect_invalid(--policy relative.conf)
 
 expect_invalid(--status)
 expect_invalid(--status /unused --check)
+
+# 单入口的模块选择和共用管理参数不得产生隐含优先级。
+expect_invalid(--bpf-only --fanotify-only)
+expect_invalid(--fanotify-only)
+expect_invalid(--bpf-only --file /unused --decision deny)
+expect_invalid(--control relative)
+expect_invalid(--control /a --self-protect /b)
+expect_invalid(--check --fanotify-only)
+expect_invalid(--policy /a --file /unused --decision allow)

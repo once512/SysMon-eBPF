@@ -65,5 +65,11 @@ int main()
     r.analysis_errors = 3; r.backend_error_requests = 1; r.scan_errors[5] = 2;
     r.last_scan_error = analysis::ScanError::oversized;
     require(reply_json(r).find("\"oversized\":2") != std::string::npos);
+    r.backend = Backend::combined;
+    r.protected_paths = 2; r.writer_paths = 1; r.flags |= self_protected;
+    const auto combined = reply_json(r);
+    require(combined.find("\"backend\":\"combined\"") != std::string::npos);
+    require(combined.find("\"protected_paths\":2") != std::string::npos);
+    require(combined.find("\"permission_event\":\"access\"") != std::string::npos);
     std::cout << "PASS management framing, status rendering and no-policy reload isolation\n";
 }

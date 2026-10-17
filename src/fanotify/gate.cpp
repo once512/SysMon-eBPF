@@ -206,10 +206,15 @@ void PermissionGate::service_analysis()
     }
 }
 
-void PermissionGate::reconfigure(DecisionConfig config)
+void PermissionGate::validate_reconfigure(DecisionConfig config) const
 {
     // Do not service/expire old requests as a side effect of a rejected update.
     if (analyzer_ && analyzer_->active())
         throw management::Error(management::Code::busy, "Policy reload requires an idle analyzer; retry later");
-    pending_.reconfigure(config);
+    pending_.validate_reconfigure(config);
+}
+void PermissionGate::reconfigure(DecisionConfig config)
+{
+    validate_reconfigure(config);
+    commit_reconfigure(config);
 }

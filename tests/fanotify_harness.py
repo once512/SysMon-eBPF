@@ -8,7 +8,7 @@ import select
 import time
 
 def start(binary, path, decision, output, errors, seconds=20, extra=()):
-    command = [str(binary), '--file', str(path), '--run-for', str(seconds), *extra]
+    command = [str(binary), '--fanotify-only', '--file', str(path), '--run-for', str(seconds), *extra]
     if decision is not None:
         command += ['--decision', decision]
     process = subprocess.Popen(command, stdout=output, stderr=errors)

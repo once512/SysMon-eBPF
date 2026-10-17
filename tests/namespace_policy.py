@@ -114,13 +114,13 @@ def main():
             assert not (alias / 'target').exists(), 'bind mount escaped its private mount namespace'
 
         with MonitorRun(build / 'secmon', ['--protect-file', str(target)]):
-            gate = GateRun(build / 'secmon-fanotify', target, 'deny', [])
+            gate = GateRun(build / 'secmon', target, 'deny', [])
             try:
                 bind_probe(errno.EPERM, errno.EACCES)
             finally:
                 gate.finish()
             bind_probe(0, errno.EACCES)
-        gate = GateRun(build / 'secmon-fanotify', target, 'deny', [])
+        gate = GateRun(build / 'secmon', target, 'deny', [])
         try:
             bind_probe(errno.EPERM, errno.EPERM)
         finally:
@@ -142,7 +142,7 @@ def main():
 
             probe(0, 0)
             with MonitorRun(build / 'secmon', ['--protect-file', str(pinned_path)]):
-                gate = GateRun(build / 'secmon-fanotify', pinned_path, 'deny', [])
+                gate = GateRun(build / 'secmon', pinned_path, 'deny', [])
                 try:
                     probe(errno.EPERM, errno.EACCES)
                 finally:

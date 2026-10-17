@@ -17,13 +17,17 @@ PendingDecisions::PendingDecisions(DecisionConfig config, Reply reply)
         throw std::invalid_argument("Invalid pending decision configuration");
 }
 
-void PendingDecisions::reconfigure(DecisionConfig config)
+void PendingDecisions::validate_reconfigure(DecisionConfig config) const
 {
     // 空队列才允许替换统一配置，否则同一批旧请求的裁决、截止时间和回退可能被重载悄悄改变。
     if (!pending_.empty()) throw management::Error(management::Code::busy, "Policy reload requires an empty delivered-request queue; retry later");
     if (config.delay.count() < 0 || config.timeout.count() <= 0 || !config.max_pending || config.external != config_.external)
         throw std::invalid_argument("Invalid decision reconfiguration");
-    config_ = config;
+}
+void PendingDecisions::reconfigure(DecisionConfig config)
+{
+    validate_reconfigure(config);
+    commit_reconfigure(config);
 }
 
 void PendingDecisions::submit(OwnedFd fd, Clock::time_point now)

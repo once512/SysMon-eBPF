@@ -28,7 +28,7 @@ def main():
     if not 5 <= args.duration <= 1800:
         parser.error('duration must be 5..1800 seconds')
     build = Path(args.build_dir).resolve()
-    binary = build / 'secmon-fanotify'
+    binary = build / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-soak-') as temporary:
         root = Path(temporary)
         target, config, control = [root / name for name in ('target', 'policy', 'control')]
@@ -49,7 +49,7 @@ def main():
             stage.replace(config)
         publish()
         with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
-            process = subprocess.Popen([str(binary), '--policy', str(config), '--control', str(control),
+            process = subprocess.Popen([str(binary), '--fanotify-only', '--policy', str(config), '--control', str(control),
                                         '--run-for', str(args.duration + 30)], stdout=output, stderr=errors)
             halt = threading.Event()
             condition = threading.Condition()

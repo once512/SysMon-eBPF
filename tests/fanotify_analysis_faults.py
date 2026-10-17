@@ -25,7 +25,7 @@ def main():
         for mode in ('wrong-id', 'wrong-version', 'wrong-size', 'wrong-bytes', 'wrong-verdict',
                      'short', 'extra-fds', 'exit', 'late', 'duplicate', 'wrong-error', 'allow-error',
                      'error-without-reason', 'wrong-errno', 'metadata-no-errno'):
-            run = GateRun(build / 'secmon-fanotify', target, None,
+            run = GateRun(build / 'secmon', target, None,
                           ['--analyzer', str(build / 'secmon-analysis-fault-worker'), '--deny-marker', mode,
                            '--request-timeout-ms', '100' if mode == 'late' else '1000'])
             baseline = len(list(Path(f'/proc/{run.process.pid}/fd').iterdir()))
@@ -45,7 +45,7 @@ def main():
             assert stats['denied'] == (1 if mode == 'duplicate' else 2)
             print(f'PASS {mode}: bounded quarantine, no unauthorized allow or leaked reply FDs')
         for allow in (False, True):
-            run = GateRun(build / 'secmon-fanotify', target, None,
+            run = GateRun(build / 'secmon', target, None,
                           ['--analyzer', str(build / 'secmon-analysis-fault-worker'), '--deny-marker', 'resource-error',
                            '--analyzer-error-decision', 'allow' if allow else 'deny'])
             try:
@@ -57,7 +57,7 @@ def main():
             assert stats['scan_error_counts']['resource_exhausted'] == stats['analyzer_error'] == 2
             assert stats['last_scan_errno'] == errno.ENOMEM
             print('PASS typed resource error preserves worker and applies configured request fallback')
-        run = GateRun(build / 'secmon-fanotify', target, None,
+        run = GateRun(build / 'secmon', target, None,
                       ['--analyzer', str(build / 'secmon-analysis-fault-worker'), '--deny-marker', 'delay',
                        '--request-timeout-ms', '2000'])
         opener = None
@@ -79,7 +79,7 @@ def main():
         print('PASS requester cancellation: late valid reply does not disrupt unrelated permission requests')
         for mode in ('no-ready', 'bad-ready', 'ready-fds', 'ready-error'):
             started = time.monotonic()
-            result = subprocess.run([str(build / 'secmon-fanotify'), '--file', str(target), '--run-for', '5',
+            result = subprocess.run([str(build / 'secmon'), '--fanotify-only', '--file', str(target), '--run-for', '5',
                                      '--analyzer', str(build / 'secmon-analysis-fault-worker'),
                                      '--deny-marker', mode], capture_output=True, text=True, timeout=3)
             assert result.returncode == 1 and 'Fanotify active;' not in result.stderr

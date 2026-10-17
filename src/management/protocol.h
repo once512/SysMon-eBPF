@@ -16,7 +16,7 @@ enum class Code : std::uint32_t {
     ok = 0, no_policy = 1, not_newer = 2, invalid_policy = 3,
     prepare_failed = 4, busy = 5, restart_required = 6, internal_error = 7
 };
-enum class Backend : std::uint32_t { bpf = 1, fanotify = 2 };
+enum class Backend : std::uint32_t { bpf = 1, fanotify = 2, combined = 3 };
 enum Flag : std::uint32_t { configured = 1, self_protected = 2, analyzer = 4, analyzer_online = 8 };
 // 只描述服务内存中的活动状态，查询不读取磁盘配置、不执行到期处理、不重启分析器。
 struct Reply {

@@ -36,7 +36,7 @@ add_custom_command(OUTPUT "${BPF_OBJ}"
         -c ${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c -o ${BPF_OBJ}
     DEPENDS eBPF/secmon.bpf.c eBPF/writer_identity.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h "${VMLINUX}"
     VERBATIM)
-# skeleton 从当前 ELF 生成并嵌入对象；src/main.cpp 调用生成的 open/load/attach/destroy 接口。
+# skeleton 从当前 ELF 生成并嵌入对象；BpfMonitor 调用生成的 open/load/attach/destroy 接口。
 add_custom_command(OUTPUT "${BPF_SKEL}"
     COMMAND ${CMAKE_COMMAND} -DTOOL=${BPFTOOL_EXE} -DMODE=skeleton
         -DINPUT=${BPF_OBJ} -DOUTPUT=${BPF_SKEL}
@@ -50,6 +50,8 @@ target_compile_options(secmon-policy PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon-policy PUBLIC OpenSSL::Crypto)
 add_executable(secmon
     src/main.cpp
+    src/service.cpp
+    src/bpf/monitor.cpp
     src/options.cpp
     src/events.cpp
     src/file_policy.cpp
@@ -60,15 +62,13 @@ target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF src
 target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy)
 
-add_executable(secmon-fanotify src/fanotify/main.cpp src/fanotify/gate.cpp
+# fanotify 与 BPF 链接进同一个服务；分析器仍是独立降权进程。
+target_sources(secmon PRIVATE src/fanotify/monitor.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
     src/fanotify/policy.cpp src/fanotify/status.cpp src/fanotify/stats.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
-target_include_directories(secmon-fanotify PRIVATE src)
-target_compile_options(secmon-fanotify PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(secmon-fanotify PRIVATE secmon-policy)
 
-add_executable(secmon-policyctl src/management/main.cpp src/management/consistency.cpp)
+add_executable(secmon-policyctl src/management/main.cpp)
 target_link_libraries(secmon-policyctl PRIVATE secmon-policy)
 target_compile_options(secmon-policyctl PRIVATE -Wall -Wextra -Werror)
 
@@ -95,10 +95,6 @@ if(BUILD_TESTING)
     add_executable(secmon-control-loop-tests tests/control_nonblocking.cpp)
     target_link_libraries(secmon-control-loop-tests PRIVATE secmon-policy)
     target_compile_options(secmon-control-loop-tests PRIVATE -Wall -Wextra -Werror)
-    add_executable(secmon-consistency-tests tests/policy_consistency.cpp src/management/consistency.cpp)
-    target_link_libraries(secmon-consistency-tests PRIVATE secmon-policy)
-    target_compile_options(secmon-consistency-tests PRIVATE -Wall -Wextra -Werror)
-    add_test(NAME policy-consistency COMMAND secmon-consistency-tests)
     add_test(NAME policyctl-help COMMAND secmon-policyctl --help)
     add_test(NAME policyctl-cli COMMAND ${CMAKE_COMMAND} -DPOLICYCTL=$<TARGET_FILE:secmon-policyctl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/policyctl_cli.cmake)
@@ -140,8 +136,8 @@ if(BUILD_TESTING)
     target_link_libraries(secmon-scenarios PRIVATE Threads::Threads)
     target_compile_options(secmon-scenarios PRIVATE -Wall -Wextra -Werror)
     add_test(NAME fanotify-cli COMMAND ${CMAKE_COMMAND}
-        -DSECMON=$<TARGET_FILE:secmon-fanotify> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
-    add_test(NAME fanotify-help COMMAND secmon-fanotify --help)
+        -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
+    add_test(NAME fanotify-help COMMAND secmon --help)
     add_test(NAME cli-help COMMAND secmon --help)
     add_test(NAME cli-validation COMMAND ${CMAKE_COMMAND}
         -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli.cmake)

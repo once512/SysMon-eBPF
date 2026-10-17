@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root/CAP_SYS_ADMIN')
-    binary = (Path(args.build_dir) / 'secmon-fanotify').resolve()
+    binary = (Path(args.build_dir) / 'secmon').resolve()
     with tempfile.TemporaryDirectory(prefix='secmon-fanotify-') as temporary:
         directory = Path(temporary)
         target = directory / 'target'
@@ -115,7 +115,7 @@ def main():
         link = directory / 'symlink'
         link.symlink_to(target)
         for invalid in (link, directory, directory / 'missing'):
-            result = subprocess.run([str(binary), '--file', str(invalid), '--decision', 'deny',
+            result = subprocess.run([str(binary), '--fanotify-only', '--file', str(invalid), '--decision', 'deny',
                                      '--run-for', '1'], capture_output=True, text=True, timeout=5)
             assert result.returncode == 1
         print('PASS reject symlink, directory and missing target')

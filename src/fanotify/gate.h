@@ -36,6 +36,8 @@ public:
     // timeout_ms 是本轮等待上限，实际等待还受最近请求截止时间限制；
     // 返回 false 不表示分析器离线。
     bool poll_once(int timeout_ms);
+    void validate_reconfigure(DecisionConfig config) const;
+    void commit_reconfigure(DecisionConfig config) noexcept { pending_.commit_reconfigure(config); }
     void reconfigure(DecisionConfig config);
     // 正常退出先回复已交付队列，再停止分析器；
     // 析构关闭 group 会释放仍留在内核中的等待。

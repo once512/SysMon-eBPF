@@ -1,7 +1,7 @@
 # 只检查 fanotify 参数和配置模式互斥，不能据此认定权限事件机制已获内核支持。
 # These malformed arguments must fail before opening/marking any file.
 function(expect_invalid)
-    execute_process(COMMAND "${SECMON}" ${ARGV}
+    execute_process(COMMAND "${SECMON}" --fanotify-only ${ARGV}
         RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
     if(NOT "${status}" STREQUAL "2")
         message(FATAL_ERROR "${ARGV}: expected exit 2, got ${status}: ${output}${error}")
@@ -10,7 +10,6 @@ endfunction()
 set(base --file /unused --decision allow --run-for 1)
 expect_invalid()
 expect_invalid(--file /unused --run-for 1)
-expect_invalid(--file /unused --decision allow)
 expect_invalid(--file /unused --decision unknown --run-for 1)
 expect_invalid(${base} --unknown value)
 expect_invalid(${base} --file /other)
@@ -45,7 +44,6 @@ expect_invalid(--file /unused --run-for 1 --analyzer /unused --deny-marker marke
 
 expect_invalid(--policy)
 expect_invalid(--policy relative --run-for 1)
-expect_invalid(--policy /unused)
 expect_invalid(--policy /unused --run-for 1 --decision deny)
 expect_invalid(--policy /unused --run-for 1 --file /unused)
 expect_invalid(--policy /unused --run-for 1 --event open)

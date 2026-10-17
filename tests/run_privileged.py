@@ -30,6 +30,7 @@ TESTS = (
     ('namespace-policy', 'namespace_policy.py'),
     ('pid-namespace', 'pid_namespace.py'),
     ('policy-consistency', 'policy_consistency.py'),
+    ('unified-service', 'unified_service.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
     ('baseline-mismatch', 'baseline_mismatch.py'),

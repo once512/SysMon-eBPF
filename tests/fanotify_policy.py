@@ -20,7 +20,7 @@ from monitor_harness import MonitorRun
 @contextmanager
 def running(binary, config, control):
     with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
-        process = subprocess.Popen([str(binary), '--policy', str(config), '--control', str(control),
+        process = subprocess.Popen([str(binary), '--fanotify-only', '--policy', str(config), '--control', str(control),
                                     '--run-for', '60'], stdout=output, stderr=errors)
         try:
             deadline = time.monotonic() + 5
@@ -49,7 +49,7 @@ def main():
     if os.geteuid() != 0:
         parser.error('requires root/fanotify/BPF permissions')
     build = Path(args.build_dir).resolve()
-    binary = build / 'secmon-fanotify'
+    binary = build / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-unified-') as tmp:
         root = Path(tmp)
         os.chmod(root, 0o700)
@@ -157,10 +157,10 @@ def main():
             assert open_errno(target) == 0
             errors.seek(0)
             text = errors.read()
-            assert 'Fanotify policy active revision=21' in text
+            assert 'Policy active revision=21' in text
         print('PASS configured scanner, marker deny, worker failure and live error-fallback update')
         publish(30, 'fanotify-decision deny', file=config)
-        rejected = subprocess.run([str(binary), '--policy', str(config), '--run-for', '1'],
+        rejected = subprocess.run([str(binary), '--fanotify-only', '--policy', str(config), '--run-for', '1'],
                                   capture_output=True, text=True, timeout=5)
         assert rejected.returncode == 1 and 'Fanotify active;' not in rejected.stderr, rejected.stderr
         assert 'cannot be the marked inode' in rejected.stderr

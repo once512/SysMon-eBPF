@@ -48,12 +48,12 @@ def main():
         with WriterProcess(trusted, target) as live, WriterProcess(other, target) as outsider, \
                 MonitorRun(build / 'secmon', ['--policy', str(config), '--self-protect', str(bpf_socket)]) as monitor:
             try:
-                with running(build / 'secmon-fanotify', config, fan_socket):
+                with running(build / 'secmon', config, fan_socket):
                     # BPF 的允许只表示本层不拒绝；open 门独立返回 EPERM。
                     attempt(trusted, errno.EPERM)
                     assert live.request() == 0 and outsider.request() == errno.EACCES
                     publish(2, 'allow', True)
-                    assert call(build / 'secmon-fanotify', 'reload', fan_socket)['revision'] == 2
+                    assert call(build / 'secmon', 'reload', fan_socket)['revision'] == 2
                     attempt(trusted, 0)
                     attempt(other, errno.EACCES)
                     assert call(build / 'secmon', 'reload', bpf_socket)['writer_paths'] == 1
@@ -61,13 +61,12 @@ def main():
                     assert call(build / 'secmon', 'reload', bpf_socket)['writer_paths'] == 0
                     attempt(trusted, errno.EACCES)
                     assert live.request() == outsider.request() == errno.EACCES
-                    call(build / 'secmon-fanotify', 'reload', fan_socket)
-                    result = subprocess.run([str(build / 'secmon-policyctl'), '--bpf-socket', str(bpf_socket),
-                                             '--fanotify-socket', str(fan_socket), '--expect-revision', '3'],
+                    call(build / 'secmon', 'reload', fan_socket)
+                    result = subprocess.run([str(build / 'secmon-policyctl'), '--socket', str(bpf_socket), '--expect-revision', '3'],
                                             capture_output=True, text=True, check=True, timeout=5)
-                    assert json.loads(result.stdout)['code'] == 'consistent'
+                    assert json.loads(result.stdout)['code'] == 'ok'
                     publish(4, 'deny', False)
-                    call(build / 'secmon-fanotify', 'reload', fan_socket)
+                    call(build / 'secmon', 'reload', fan_socket)
                     # 独立停止 BPF 后 open 门仍拒绝，而现有 FD 写入恢复；不是 fanotify 失效。
                     subprocess.run([str(build / 'secmon'), '--stop', str(bpf_socket)], check=True,
                                    capture_output=True, timeout=5)

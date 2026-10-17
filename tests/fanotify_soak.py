@@ -30,7 +30,7 @@ def main():
         parser.error('analysis workload uses actual contents, not synthetic timeouts')
     if not 1 <= args.duration <= 1800:
         parser.error('duration must be 1..1800 seconds')
-    binary = (Path(args.build_dir) / 'secmon-fanotify').resolve()
+    binary = (Path(args.build_dir) / 'secmon').resolve()
     with tempfile.TemporaryDirectory(prefix='secmon-soak-') as temporary:
         path = Path(temporary) / 'target'
         path.write_bytes(b'clean payload'.ljust(32, b'.'))
