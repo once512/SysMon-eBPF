@@ -27,7 +27,7 @@
 - `secmon-policyctl --socket SOCKET` 只读核对主服务的活动策略和可选预期 revision。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
 - `--policy FILE` 加载带递增 revision 的文件策略，`--reload SOCKET` 在线完整替换；同一主进程同时应用 BPF 和 fanotify 字段，支持空闲时联合更新，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
-- 配置中的 `allow-writer` 按执行文件 inode、有效 UID、目标 inode 与操作检查点授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮验证见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
+- 配置中的 `allow-writer` 按执行文件 inode、有效 UID、目标 inode 与操作检查点授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮目标/操作授权与审计可靠性验证见 [最新记录](docs/VALIDATION_SCOPED_2026_10_18.md)，此前结果见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
 - `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。
 
 服务只有一个入口：`main` → `MonitorService` → `BpfMonitor` / `FanotifyMonitor`。一份配置、一个管理 socket、一次重载统一协调两个对象；分析器继续独立降权运行。`--bpf-only` 与 `--fanotify-only` 供机制诊断，正常部署无需分别启动。详见 [单服务结构](docs/UNIFIED_SERVICE.md)。

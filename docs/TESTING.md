@@ -116,3 +116,5 @@ sudo python3 tests/run_privileged.py --build-dir build --only writer-scope unifi
 审计出口的队列边界、线程分工、输出失败行为及诊断限制见 [有界审计出口](AUDIT_OUTPUT.md)。
 
 单独运行 management_soak.py 时可用 --combined --verify-audit-output 开启当前审计出口健康检查；该模式要求所有相应字段存在且错误/丢弃为零，不把旧字段缺失当作通过。
+
+本轮目标授权、审计出口与持续负载的具体产物/范围/数字见 [2026-10-18 验证记录](VALIDATION_SCOPED_2026_10_18.md)。
