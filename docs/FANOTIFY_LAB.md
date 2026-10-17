@@ -40,7 +40,7 @@ cat /tmp/secmon-fanotify-demo
 
 `O_PATH | O_NOFOLLOW` 固定一个普通文件，拒绝末尾符号链接、目录和不存在的文件。通过 `/proc/self/fd/N` 对固定的对象设置 inode mark，避免重新解析原始路径。硬链接共享策略，文件重命名后策略跟随对象，原路径替换成新 inode 则不受该标记约束；文件描述符固定期间不会出现目标 inode 被回收复用。
 
-组采用 `FAN_CLASS_CONTENT | FAN_NONBLOCK | FAN_CLOEXEC`，默认请求 `FAN_OPEN_PERM`，也可通过 `--event` 单独选择读取或执行打开事件。不使用 `FAN_REPORT_*`，按固定大小的 metadata 一次读取一个事件，每个事件 FD 通过 RAII 关闭。校验 ABI 后把 FD 所有权转交 `PendingDecisions`，立即或到期写入 `FAN_ALLOW`/`FAN_DENY`，成功回复才增加计数并释放 FD。期间不读取文件内容、不再次打开目标，不调用外部分析程序。
+组采用 `FAN_CLASS_CONTENT | FAN_NONBLOCK | FAN_CLOEXEC`，默认请求 `FAN_OPEN_PERM`，也可通过 `--event` 单独选择读取或执行打开事件。不使用 `FAN_REPORT_*`，按固定大小的 metadata 一次读取一个事件，每个事件 FD 通过 RAII 关闭。校验 ABI 后把 FD 所有权转交 `PendingDecisions`，立即或到期写入 `FAN_ALLOW`/`FAN_DENY`，成功回复才增加计数并释放 FD。静态/模拟延迟模式不读取文件内容。也可启用 [独立内容分析组件](ANALYSIS_WORKER.md)，由子进程扫描传递的事件 FD，接收端不重新打开目标。
 
 ## 三种权限入口
 
@@ -69,7 +69,7 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision allow --
   --timeout-decision deny --max-pending 4 --overload-decision deny
 ```
 
-这个示例模拟需要 1000 ms 才能给出的 allow 策略，但已接收事件在 100 ms 后超时，因此回复 deny。延迟只是受控实验值，当前没有真正的分析线程或外部服务。
+这个示例模拟需要 1000 ms 才能给出的 allow 策略，但已接收事件在 100 ms 后超时，因此回复 deny。延迟只是受控实验值，此模拟模式不调用分析进程；真实内容分析需显式选择 analyzer 模式，两者不能同时启用。
 
 | 参数 | 默认值 | 范围/含义 |
 | --- | --- | --- |
@@ -90,7 +90,7 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision allow --
 - 检测到 `FAN_Q_OVERFLOW` 时增加计数并以失败退出；ABI、读取或回复异常也报告失败并关闭组。这是可观察的退出策略，不能保证队列满时继续拒绝全部访问。
 - 正常 SIGINT/SIGTERM 或内部期限退出时，先对已投递到用户态队列的请求回复 deny，再关闭组。关闭或崩溃会移除标记，内核尚未投递或故障时尚未回复的请求会放行；不能把正常退出的用户态队列排空理解成全局原子拒绝。故障后没有持久拒绝承诺。
 - 每次 poll 最多等待 100 ms，并受最近请求截止时间约束，循环检查内部期限与退出信号；持续到达事件时也会检查。没有独立 watchdog 或调度暂停期间的截止保证，SIGSTOP 会暂停裁决。
-- 当前没有进程身份授权、内容检测、权限缓存、递归目录保护，也未接入 BPF、自保护和管理 socket。
+- 当前没有进程身份授权、真实恶意内容检测、权限缓存、递归目录保护，也未接入 BPF、自保护和管理 socket。
 
 权限事件与关闭组的语义参考 [Linux fanotify(7)](https://man7.org/linux/man-pages/man7/fanotify.7.html)，标记接口参考 [fanotify_mark(2)](https://man7.org/linux/man-pages/man2/fanotify_mark.2.html)。
 

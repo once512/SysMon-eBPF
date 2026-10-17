@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 10 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 12 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -31,6 +31,7 @@ sudo python3 tests/run_privileged.py --build-dir build --only credential-transit
 | self-protection | `self_protection.py` | 信号、ptrace 类检查、管理端身份、授权停止、期限及 socket 清理 |
 | fanotify-open | `fanotify.py` | 单文件打开裁决、硬链接/重命名、已有 FD、崩溃释放 |
 | fanotify-deferred | `fanotify_deferred.py` | 延迟、接收后超时、容量回退、队列预算、正常退出排空 |
+| fanotify-analysis | `fanotify_analysis.py` | 独立进程内容扫描、传递 FD、无递归、降权与故障回退 |
 | fanotify-events | `fanotify_events.py` | 普通读取、mmap 边界、ELF/脚本直接执行与解释读取区别 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |
 | baseline-lifecycle | `baseline_lifecycle.py` | 活线程 Map key/value、join 删除、合法降权、非主线程 exec 与最终删除 |
@@ -47,3 +48,12 @@ sudo python3 tests/run_privileged.py --build-dir build --only credential-transit
 这些结果不是吞吐基准，也不覆盖所有文件系统和命名空间。真实内核队列溢出、真实 PID 复用、容器、异步 I/O、真实提权攻击和内容分析故障仍需后续专项验证。用户态容量回退与内核队列溢出是两件不同的事。
 
 专题导读：[源码结构](CODE_GUIDE.md)、[fanotify](FANOTIFY_LAB.md)、[策略组合](POLICY_LAYERS.md)、[凭证生命周期](CREDENTIAL_LIFECYCLE.md)。
+
+
+独立分析组件可加入两种权限入口的持续负载（各指定秒数，交替修改临时文件内容）：
+
+```bash
+sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 30
+```
+
+示例扫描只做字节标记匹配，详细故障预算见 [分析组件导读](ANALYSIS_WORKER.md)。

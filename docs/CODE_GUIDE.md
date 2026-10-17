@@ -71,3 +71,5 @@ sudo python3 tests/self_protection.py --build-dir build
 5. **区分几个容易混淆的覆盖面。** 对照 `fanotify_events.py` 预测 open、read、mmap、直接执行和解释器读取的结果，再看 `policy_composition.py` 中停止一层后的已有 FD 写入。把“操作被拦截”“任务被隔离”和“内容能恢复”分开列证据。
 
 建议每次只改变一个实验参数，先使用测试自建的临时文件和内部期限。观察结论写在自己的笔记里；不要把本机一次通过扩大成所有文件系统、容器或攻击场景的保证。
+
+独立内容分析的协议、降权和 FD 生命周期见 [分析组件导读](ANALYSIS_WORKER.md)。先比较静态队列与外部分析模式，再研究超时后的子进程终止。
