@@ -16,6 +16,9 @@ class PolicyRuntime {
     management::Code last_code_ = management::Code::ok;
 public:
     PolicyRuntime(std::string source, PolicyConfig initial);
+    // 版本/实例状态属于一个运行协调器，不能复制成第二个看似相同的实例。
+    PolicyRuntime(const PolicyRuntime &) = delete;
+    PolicyRuntime &operator=(const PolicyRuntime &) = delete;
     const PolicyConfig &active() const { return active_; }
     management::Code reload(const std::function<void(const PolicyConfig &)> &commit, int excluded_fd = -1);
     management::Reply snapshot(management::Backend backend) const;

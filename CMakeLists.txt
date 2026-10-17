@@ -43,8 +43,8 @@ add_custom_command(OUTPUT "${BPF_SKEL}"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Bpftool.cmake
     DEPENDS "${BPF_OBJ}" cmake/Bpftool.cmake VERBATIM)
 # 纯用户态公共库：配置读取/摘要、运行版本和 root 管理协议；没有 BPF/fanotify 挂载动作。
-add_library(secmon-policy STATIC src/policy_config.cpp src/policy_runtime.cpp src/control.cpp
-    src/management/protocol.cpp src/content_digest.cpp)
+add_library(secmon-policy STATIC src/policy_config.cpp src/policy_runtime.cpp src/control.cpp src/control_client.cpp
+    src/management/protocol.cpp src/management/channel.cpp src/content_digest.cpp)
 target_include_directories(secmon-policy PUBLIC src)
 target_compile_options(secmon-policy PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon-policy PUBLIC OpenSSL::Crypto)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 只复制宿主已观测状态，保证管理查询和结束统计采用同一组计数与错误口径。
 #include "status.h"
+#include "gate.h"
 management::Reply fanotify_status(const PolicyRuntime &runtime, const FanotifyOptions &options,
                                  const PermissionGate &gate)
 {

@@ -17,6 +17,23 @@
 #include <utility>
 extern char **environ;
 
+namespace {
+// spawn 文件动作和 FD 一样有明确的释放 API；用对象封装，字符串分配等异常也会销毁动作表。
+class SpawnActions {
+    posix_spawn_file_actions_t actions_;
+public:
+    SpawnActions()
+    {
+        const int error = posix_spawn_file_actions_init(&actions_);
+        if (error) throw std::system_error(error, std::generic_category(), "spawn actions init");
+    }
+    ~SpawnActions() { posix_spawn_file_actions_destroy(&actions_); }
+    SpawnActions(const SpawnActions &) = delete;
+    SpawnActions &operator=(const SpawnActions &) = delete;
+    posix_spawn_file_actions_t *get() { return &actions_; }
+};
+} // namespace
+
 AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
 {
     scan_limit_ = config.scan_limit;
@@ -25,26 +42,26 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
         throw std::system_error(errno, std::generic_category(), "analysis socketpair");
     channel_ = OwnedFd(pair[0]);
     OwnedFd worker(pair[1]);
-    posix_spawn_file_actions_t actions;
-    int error = posix_spawn_file_actions_init(&actions);
-    if (error) throw std::system_error(error, std::generic_category(), "spawn actions init");
-    // Errors are accumulated; actions are destroyed even when setup fails.
-    auto action = [&](int result) { if (!error) error = result; };
-    // 子进程只保留约定的 IPC FD 3；关闭其余高位 FD，不能让降权进程继承 group/Map/控制 socket 权限。
-    action(posix_spawn_file_actions_adddup2(&actions, worker.get(), 3));
-    action(posix_spawn_file_actions_addclosefrom_np(&actions, 4));
-    action(posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0));
-    action(posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0));
-    const auto limit = std::to_string(config.scan_limit);
-    const auto parent = std::to_string(getpid());
-    char *arguments[] = {const_cast<char *>(config.executable.c_str()), const_cast<char *>("--fd"),
-        const_cast<char *>("3"), const_cast<char *>("--deny-marker"),
-        const_cast<char *>(config.marker.c_str()), const_cast<char *>("--scan-limit-bytes"),
-        const_cast<char *>(limit.c_str()), const_cast<char *>("--parent-pid"),
-        const_cast<char *>(parent.c_str()), nullptr};
-    if (!error) error = posix_spawn(&pid_, config.executable.c_str(), &actions, nullptr, arguments, environ);
-    posix_spawn_file_actions_destroy(&actions);
-    if (error) { pid_ = -1; throw std::system_error(error, std::generic_category(), "spawn analysis worker"); }
+    {
+        SpawnActions actions;
+        int error = 0;
+        // 保留第一个系统调用错误，动作表由作用域对象统一清理。
+        auto action = [&](int result) { if (!error) error = result; };
+        // 子进程只保留约定的 IPC FD 3；关闭其余高位 FD，不能让降权进程继承 group/Map/控制 socket 权限。
+        action(posix_spawn_file_actions_adddup2(actions.get(), worker.get(), 3));
+        action(posix_spawn_file_actions_addclosefrom_np(actions.get(), 4));
+        action(posix_spawn_file_actions_addopen(actions.get(), 0, "/dev/null", O_RDONLY, 0));
+        action(posix_spawn_file_actions_addopen(actions.get(), 1, "/dev/null", O_WRONLY, 0));
+        const auto limit = std::to_string(config.scan_limit);
+        const auto parent = std::to_string(getpid());
+        char *arguments[] = {const_cast<char *>(config.executable.c_str()), const_cast<char *>("--fd"),
+            const_cast<char *>("3"), const_cast<char *>("--deny-marker"),
+            const_cast<char *>(config.marker.c_str()), const_cast<char *>("--scan-limit-bytes"),
+            const_cast<char *>(limit.c_str()), const_cast<char *>("--parent-pid"),
+            const_cast<char *>(parent.c_str()), nullptr};
+        if (!error) error = posix_spawn(&pid_, config.executable.c_str(), actions.get(), nullptr, arguments, environ);
+        if (error) { pid_ = -1; throw std::system_error(error, std::generic_category(), "spawn analysis worker"); }
+    }
     try {
         process_ = OwnedFd(static_cast<int>(syscall(SYS_pidfd_open, pid_, 0)));
         if (process_.get() < 0) throw std::system_error(errno, std::generic_category(), "analysis pidfd_open");

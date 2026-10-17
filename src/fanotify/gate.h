@@ -3,30 +3,12 @@
 // 成员按声明的逆序析构：group 先于 target 和 analyzer 释放，避免监听器关闭后仍等待分析清理。
 #pragma once
 #include "decisions.h"
+#include "gate_stats.h"
 #include "event_kind.h"
 #include "analysis/client.h"
 #include <memory>
-#include <array>
 #include <cstdint>
 #include <string>
-
-struct GateStats {
-    std::uint64_t allowed = 0;
-    std::uint64_t denied = 0;
-    std::uint64_t overflow = 0;
-    std::uint64_t timed_out = 0;
-    std::uint64_t overloaded = 0;
-    std::uint64_t shutdown_denied = 0;
-    std::uint64_t analyzed = 0;
-    std::uint64_t analysis_denied = 0;
-    std::uint64_t analyzer_error = 0;
-    std::uint64_t analyzer_failures = 0;
-    std::uint64_t backend_error_requests = 0;
-    std::array<std::uint64_t, analysis::scan_error_count> scan_errors{};
-    analysis::ScanError last_scan_error = analysis::ScanError::none;
-    int last_scan_errno = 0;
-    std::size_t peak_pending = 0;
-};
 
 // A single inode mark with bounded decisions and an optional external scanner.
 class PermissionGate {

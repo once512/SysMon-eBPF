@@ -16,6 +16,7 @@
 #include "secmon.h"
 #include "file_policy.h"
 #include "control.h"
+#include "control_client.h"
 #include "options.h"
 #include "policy_config.h"
 #include "policy_runtime.h"

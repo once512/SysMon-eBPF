@@ -7,15 +7,13 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <unistd.h>
+#include <utility>
 #include <vector>
 #include "secmon.h"
 
 #include "file_policy.h"
 #include "owned_fd.h"
 #include "writer_identity.h"
-
-ProtectedFiles::~ProtectedFiles() { for (int fd : descriptors_) close(fd); }
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
@@ -31,7 +29,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     if (policy_map.get() < 0) throw std::runtime_error("Cannot create candidate policy map");
     for (const auto &path : paths) {
         auto pinned = pin_policy_file(path, false);
-        candidate.descriptors_.push_back(pinned.fd.release());
+        candidate.descriptors_.push_back(std::move(pinned.fd));
         const auto key = pinned.key;
         file_policy_value policy{SECMON_FILE_READONLY, 0};
         if (bpf_map_update_elem(policy_map.get(), &key, &policy, BPF_ANY))
@@ -41,7 +39,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     }
     for (const auto &writer : config.writers) {
         auto pinned = pin_policy_file(writer.path, true);
-        candidate.descriptors_.push_back(pinned.fd.release());
+        candidate.descriptors_.push_back(std::move(pinned.fd));
         file_policy_value value{};
         // 同一 inode 可同时是 protect 对象和 writer；别名重复且 UID 不同则拒绝整个候选。
         if (bpf_map_lookup_elem(policy_map.get(), &pinned.key, &value) && errno != ENOENT)

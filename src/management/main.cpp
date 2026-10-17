@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 只读跨后端核对工具：不读取磁盘候选、不发 reload；按固定顺序采样实际活动来源。
 #include "consistency.h"
-#include "control.h"
+#include "control_client.h"
 #include <charconv>
 #include <iostream>
 #include <set>

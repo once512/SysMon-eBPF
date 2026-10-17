@@ -5,6 +5,7 @@
 #include "options.h"
 #include "policy.h"
 #include "control.h"
+#include "control_client.h"
 #include "status.h"
 #include "stats.h"
 #include <chrono>
