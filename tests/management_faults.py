@@ -83,6 +83,24 @@ def main():
                             process.kill()
                             process.wait(timeout=5)
                         path.unlink()
+            for case in ('stop-valid', 'stop-fds', 'stop-truncated'):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as server:
+                    server.bind(str(path)); server.listen(1); server.settimeout(5)
+                    process = subprocess.Popen([str(binary), '--stop', str(path)], stdout=subprocess.PIPE,
+                                               stderr=subprocess.PIPE, text=True)
+                    try:
+                        with server.accept()[0] as connection:
+                            connection.settimeout(5)
+                            assert connection.recv(32) == b'stop'
+                            payload = b'ok' + (b'x' * 64 if case == 'stop-truncated' else b'')
+                            ancillary = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [held]))] if case == 'stop-fds' else []
+                            connection.sendmsg([payload], ancillary)
+                        output, error = process.communicate(timeout=5)
+                        assert (process.returncode == 0) == (case == 'stop-valid'), (case, output, error)
+                    finally:
+                        if process.poll() is None:
+                            process.kill(); process.wait(timeout=5)
+                        path.unlink()
         finally:
             os.close(held)
     print('PASS management client rejects corrupt frames, identity mismatch and unexpected received FDs')

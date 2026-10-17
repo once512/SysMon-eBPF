@@ -166,7 +166,7 @@ static void request_command(const std::string &path, const char *command)
         throw std::runtime_error("Cannot send control request");
     pollfd response{connection.get(), POLLIN, 0};
     char result[8]{};
-    if (poll(&response, 1, 3000) <= 0 || recv(connection.get(), result, sizeof(result), 0) != 2 ||
+    if (poll(&response, 1, 3000) <= 0 || receive_message(connection.get(), result, sizeof(result)) != 2 ||
         std::memcmp(result, "ok", 2)) throw std::runtime_error("Control request rejected or not acknowledged");
 }
 
