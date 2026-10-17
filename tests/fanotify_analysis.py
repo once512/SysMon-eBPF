@@ -7,10 +7,11 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import tempfile
 import time
 from fanotify_harness import GateRun, open_errno, start, stop, begin_open, finish_open
-from fanotify_events import operation
+from fanotify_events import operation, execute
 
 
 def worker_pid(run):
@@ -51,6 +52,10 @@ def main():
         try:
             status = wait_status(pid, lambda text: 'Uid:\t65534\t65534\t65534\t65534' in text)
             assert 'NoNewPrivs:\t1' in status
+            assert 'CapEff:\t0000000000000000' in status
+            assert 'CapPrm:\t0000000000000000' in status
+            assert 'CapInh:\t0000000000000000' in status
+            assert 'CapAmb:\t0000000000000000' in status
             assert open_errno(target) == 0
             os.pwrite(existing, b'SECMON_BLOCK!', 0)
             assert open_errno(target) == errno.EPERM
@@ -71,6 +76,22 @@ def main():
             assert stats['analyzed'] == 1 and stats['analyzer_failures'] == 0
             assert stats['timed_out'] == stats['analyzer_error'] == 0
             print(f'PASS {event}: scanner reads transferred FD without recursive permission event')
+        for blocked in (False, True):
+            executable = Path(temporary) / ('blocked-exec' if blocked else 'clean-exec')
+            shutil.copyfile('/usr/bin/true', executable)
+            if blocked:
+                with executable.open('ab') as stream:
+                    stream.write(b'SECMON_BLOCK')
+            executable.chmod(0o755)
+            run = GateRun(build / 'secmon-fanotify', executable, None,
+                          [*config, '--event', 'exec', '--scan-limit-bytes', '1048576'])
+            try:
+                assert execute([str(executable)]) == (errno.EPERM if blocked else 0)
+            finally:
+                stats = run.finish()
+            assert stats['analyzed'] >= 1 and stats['analysis_denied'] == (1 if blocked else 0)
+            assert stats['analyzer_error'] == stats['analyzer_failures'] == 0
+            print(f'PASS executable content scan: {"marker denied" if blocked else "clean ELF allowed"}')
         for fallback in ('deny', 'allow'):
             run = GateRun(build / 'secmon-fanotify', target, None,
                           [*config, '--scan-limit-bytes', '4', '--analyzer-error-decision', fallback])
@@ -124,6 +145,7 @@ def main():
                 gate.kill()
                 gate.wait(timeout=5)
                 assert finish_open(opener) == 0
+                wait_status(pid, lambda text: not text or 'State:\tZ' in text)
                 print('PASS gate crash releases permission request despite stopped worker')
             finally:
                 stop(gate)

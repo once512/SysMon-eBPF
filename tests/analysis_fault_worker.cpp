@@ -12,6 +12,11 @@ int main(int argc, char **argv)
 {
     if (argc != 9) return 2;
     const std::string mode(argv[4]);
+    if (mode == "no-ready") { poll(nullptr, 0, 5000); return 0; }
+    analysis::Response initialized;
+    initialized.result = analysis::Result::ready;
+    if (mode == "bad-ready") initialized.id = 42;
+    analysis::send_packet(3, &initialized, sizeof(initialized), mode == "ready-fds" ? 0 : -1);
     while (true) {
         pollfd ready{3, POLLIN, 0};
         if (poll(&ready, 1, 5000) <= 0) return 3;

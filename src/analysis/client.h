@@ -19,6 +19,7 @@ class AnalysisClient {
     pid_t pid_ = -1;
     std::uint64_t active_ = 0;
     void reap();
+    void wait_for_exit();
 public:
     explicit AnalysisClient(const AnalyzerConfig &config);
     ~AnalysisClient();

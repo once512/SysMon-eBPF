@@ -42,8 +42,34 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
     if (!error) error = posix_spawn(&pid_, config.executable.c_str(), &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
     if (error) { pid_ = -1; throw std::system_error(error, std::generic_category(), "spawn analysis worker"); }
-    process_ = OwnedFd(static_cast<int>(syscall(SYS_pidfd_open, pid_, 0)));
-    if (process_.get() < 0) throw std::system_error(errno, std::generic_category(), "analysis pidfd_open");
+    try {
+        process_ = OwnedFd(static_cast<int>(syscall(SYS_pidfd_open, pid_, 0)));
+        if (process_.get() < 0) throw std::system_error(errno, std::generic_category(), "analysis pidfd_open");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        while (true) {
+            analysis::Response ready;
+            auto packet = analysis::receive_packet(channel_.get(), &ready, sizeof(ready));
+            if (packet.status != analysis::Io::would_block) {
+                if (packet.status != analysis::Io::ready || packet.size != sizeof(ready) || !packet.fds.empty() ||
+                    ready.magic_value != analysis::magic || ready.abi != analysis::version ||
+                    ready.size != sizeof(ready) || ready.id || ready.result != analysis::Result::ready ||
+                    ready.bytes_scanned)
+                    throw std::runtime_error("Invalid analysis worker readiness handshake");
+                break;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) throw std::runtime_error("Analysis worker startup deadline exceeded");
+            pollfd incoming{channel_.get(), POLLIN, 0};
+            const int timeout = static_cast<int>(std::chrono::ceil<std::chrono::milliseconds>(deadline - now).count());
+            if (poll(&incoming, 1, timeout) < 0 && errno != EINTR)
+                throw std::system_error(errno, std::generic_category(), "analysis startup poll");
+        }
+    } catch (...) {
+        // A throwing constructor has no destructor: terminate/reap explicitly.
+        stop();
+        wait_for_exit();
+        throw;
+    }
 }
 
 void AnalysisClient::reap()
@@ -62,16 +88,19 @@ void AnalysisClient::stop()
     if (process_.get() >= 0) syscall(SYS_pidfd_send_signal, process_.get(), SIGKILL, nullptr, 0);
     reap();
 }
-AnalysisClient::~AnalysisClient()
+void AnalysisClient::wait_for_exit()
 {
-    stop();
-    // The gate declares this client before the group: group closure precedes
-    // this bounded cleanup. A filesystem task in uninterruptible sleep can outlive it.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
     while (pid_ >= 0 && std::chrono::steady_clock::now() < deadline) {
         reap();
         if (pid_ >= 0) poll(nullptr, 0, 1);
     }
+}
+AnalysisClient::~AnalysisClient()
+{
+    stop();
+    // Group closure precedes this bounded cleanup (see gate member ordering).
+    wait_for_exit();
 }
 
 void AnalysisClient::submit(std::uint64_t id, int event_fd)

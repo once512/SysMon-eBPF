@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 
 MAGIC = 0x53434D41
+VERSION = 2
 REQUEST = struct.Struct('<IHHQ')
 RESPONSE = struct.Struct('<IHHQII')
 
@@ -26,8 +27,10 @@ def run_worker(binary, payload, files, expect_success):
         ancillary = []
         if files:
             ancillary = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', files))]
-        parent.sendmsg([payload], ancillary)
         parent.settimeout(3)
+        initialized = RESPONSE.unpack(parent.recv(128))
+        assert initialized == (MAGIC, VERSION, 24, 0, 4, 0)
+        parent.sendmsg([payload], ancillary)
         try:
             reply = parent.recv(128)
         except ConnectionResetError:
@@ -35,7 +38,7 @@ def run_worker(binary, payload, files, expect_success):
         if expect_success:
             assert len(reply) == RESPONSE.size
             magic, version, size, request_id, result, scanned = RESPONSE.unpack(reply)
-            assert (magic, version, size, request_id, result, scanned) == (MAGIC, 1, 24, 42, 1, 5)
+            assert (magic, version, size, request_id, result, scanned) == (MAGIC, VERSION, 24, 42, 1, 5)
             parent.close()
             process.wait(timeout=3)
             assert process.returncode == 0
@@ -64,13 +67,13 @@ def main():
         source.flush()
         fd = os.open(source.name, os.O_RDONLY | os.O_CLOEXEC)
         try:
-            good = REQUEST.pack(MAGIC, 1, 16, 42)
+            good = REQUEST.pack(MAGIC, VERSION, 16, 42)
             run_worker(binary, good, [fd], True)
             for payload, fds in (
-                (REQUEST.pack(0, 1, 16, 42), [fd]),
-                (REQUEST.pack(MAGIC, 2, 16, 42), [fd]),
-                (REQUEST.pack(MAGIC, 1, 15, 42), [fd]),
-                (REQUEST.pack(MAGIC, 1, 16, 0), [fd]),
+                (REQUEST.pack(0, VERSION, 16, 42), [fd]),
+                (REQUEST.pack(MAGIC, VERSION + 1, 16, 42), [fd]),
+                (REQUEST.pack(MAGIC, VERSION, 15, 42), [fd]),
+                (REQUEST.pack(MAGIC, VERSION, 16, 0), [fd]),
                 (good, []), (good, [fd, fd]), (good, [fd] * 9),
                 (good + b'extra payload', [fd]), (good[:3], [fd]),
             ):

@@ -4,6 +4,7 @@
 import argparse
 import errno
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import time
@@ -61,6 +62,15 @@ def main():
                 opener.wait(timeout=3)
         assert stats['analyzer_failures'] == stats['analyzer_error'] == stats['timed_out'] == 0
         print('PASS requester cancellation: late valid reply does not disrupt unrelated permission requests')
+        for mode in ('no-ready', 'bad-ready', 'ready-fds'):
+            started = time.monotonic()
+            result = subprocess.run([str(build / 'secmon-fanotify'), '--file', str(target), '--run-for', '5',
+                                     '--analyzer', str(build / 'secmon-analysis-fault-worker'),
+                                     '--deny-marker', mode], capture_output=True, text=True, timeout=3)
+            assert result.returncode == 1 and 'Fanotify active;' not in result.stderr
+            assert time.monotonic() - started < 2.5
+            assert open_errno(target) == 0
+            print(f'PASS {mode}: reject startup before marking target')
         assert open_errno(target) == 0
 
 

@@ -3,6 +3,8 @@
 #include "transport.h"
 #include <charconv>
 #include <grp.h>
+#include <linux/capability.h>
+#include <sys/syscall.h>
 #include <iostream>
 #include <poll.h>
 #include <climits>
@@ -43,10 +45,21 @@ int main(int argc, char **argv)
         if (geteuid() == 0 && (setgroups(0, nullptr) || setresgid(65534, 65534, 65534) ||
                                setresuid(65534, 65534, 65534)))
             throw std::runtime_error("Cannot drop analysis worker credentials");
+        __user_cap_header_struct header{};
+        __user_cap_data_struct capabilities[2]{};
+        header.version = _LINUX_CAPABILITY_VERSION_3;
+        if (syscall(SYS_capset, &header, capabilities) ||
+            prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0))
+            throw std::runtime_error("Cannot clear worker capabilities");
         if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) throw std::runtime_error("Cannot set no_new_privs");
         if (prctl(PR_SET_PDEATHSIG, SIGKILL) || getppid() != static_cast<pid_t>(number(argv[8])))
             throw std::runtime_error("Analysis parent disappeared or death signal setup failed");
+        if (prctl(PR_SET_DUMPABLE, 0)) throw std::runtime_error("Cannot disable worker dumpability");
         OwnedFd channel(static_cast<int>(number(argv[2])));
+        analysis::Response initialized;
+        initialized.result = analysis::Result::ready;
+        if (!analysis::send_packet(channel.get(), &initialized, sizeof(initialized)))
+            throw std::runtime_error("Cannot send worker readiness");
         while (true) {
             pollfd ready{channel.get(), POLLIN, 0};
             const int status = poll(&ready, 1, -1);
