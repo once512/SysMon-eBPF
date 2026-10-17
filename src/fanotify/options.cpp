@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 只解析参数，不创建 group/mark；传统命令行和共用配置两种入口最后都转成相同运行类型。
 #include "options.h"
 #include <charconv>
 #include <filesystem>

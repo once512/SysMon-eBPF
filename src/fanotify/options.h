@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// fanotify 启动参数；配置文件模式与逐项策略参数互斥，避免两个来源存在隐含覆盖顺序。
 #pragma once
 #include "decisions.h"
 #include "event_kind.h"

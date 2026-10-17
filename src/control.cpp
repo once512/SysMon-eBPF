@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 管理 socket 用目录 FD 锚定创建与清理位置；不删除不明来源的已有 socket。
+// 命令处理在宿主事件循环内串行完成，回调成功后才确认；客户端超时不保证服务没有执行命令。
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
@@ -25,6 +27,7 @@ sockaddr_un unix_address(const std::string &path)
 }
 bool root_peer(int fd)
 {
+    // 对端身份取自内核 SO_PEERCRED，不能信任客户端在消息正文中自报 UID。
     ucred peer{};
     socklen_t size = sizeof(peer);
     return !getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) &&
@@ -54,6 +57,7 @@ ControlServer::ControlServer(const std::string &path)
 {
     if (name_.empty() || name_ == "." || name_ == ".." || socket_.get() < 0)
         throw std::runtime_error("Cannot create control socket");
+    // 通过已验证目录 FD 的 proc 引用绑定，避免验证目录后又按原路径解析到另一处。
     const auto address = unix_address("/proc/self/fd/" + std::to_string(directory_.get()) + "/" + name_);
     if (bind(socket_.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)))
         throw std::runtime_error("Cannot bind control socket (existing sockets are not removed)");
@@ -78,12 +82,14 @@ void ControlServer::dispatch(const std::function<void(ControlCommand)> &handler)
     pollfd request{client.get(), POLLIN, 0};
     if (poll(&request, 1, 100) <= 0) return;
     char message[16]{};
+    // SEQPACKET 保留消息边界；MSG_TRUNC 让超长报文按原长度被拒绝，不把被截断前缀误认成有效命令。
     const auto count = recv(client.get(), message, sizeof(message), MSG_DONTWAIT | MSG_TRUNC);
     ControlCommand command = ControlCommand::none;
     if (count == 4 && !std::memcmp(message, "stop", 4)) command = ControlCommand::stop;
     if (count == 6 && !std::memcmp(message, "reload", 6)) command = ControlCommand::reload;
     if (command == ControlCommand::none) return;
     try {
+        // 处理成功才发 ok；若重载准备失败，调用方抛异常，服务发 error 且继续运行。
         handler(command);
         send(client.get(), "ok", 2, MSG_NOSIGNAL);
     } catch (const std::exception &) {

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 宿主侧分析器监督器：私有 socketpair、一次一个在途请求、pidfd 定向终止、非阻塞收取结果。
+// 分析器故障后保持离线并由权限门执行回退；这里不自动重启，也不管理被监控业务进程。
 #pragma once
 #include "owned_fd.h"
 #include "protocol.h"

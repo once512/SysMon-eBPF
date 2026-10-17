@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 权限门负责 group、目标 inode 和事件 FD 生命周期，并协调有界队列与可选的独立分析器。
+// 成员按声明的逆序析构：group 先于 target 和 analyzer 释放，避免监听器关闭后仍等待分析清理。
 #pragma once
 #include "decisions.h"
 #include "event_kind.h"

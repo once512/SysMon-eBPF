@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 有界字节标记扫描器：输入已打开 FD，输出 allow/deny/error；它是机制示例，不是恶意软件分类器。
 #pragma once
 #include "protocol.h"
 #include <string>

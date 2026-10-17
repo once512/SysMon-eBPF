@@ -1,3 +1,5 @@
+// 内核与用户态共同包含的事件 ABI：类型、字段顺序和对齐都属于接口，不能只改一侧。
+// 每条事件携带 version/size，宿主校验后才解读；这里不是磁盘格式或跨架构网络协议。
 #ifndef SECMON_H
 #define SECMON_H
 #define SECMON_ABI_VERSION 4
@@ -5,6 +7,7 @@
 #define SECMON_PATH_LEN 256
 #define SECMON_BASELINE_MISMATCH 1U
 enum secmon_event_kind { SECMON_EXEC_CHECK = 1, SECMON_EXEC_SUCCESS = 2, SECMON_FILE_DENIED = 3, SECMON_SELF_DENIED_EVENT = 4 };
+// inode 号只在相应文件系统/设备身份内有意义，不能单独作为跨设备策略键。
 struct file_key {
     unsigned int major;
     unsigned int minor;
@@ -15,6 +18,7 @@ enum secmon_file_operation {
     SECMON_OP_UNLINK, SECMON_OP_RENAME, SECMON_OP_LINK, SECMON_OP_SETATTR,
     SECMON_OP_MMAP_WRITE, SECMON_OP_SIGNAL, SECMON_OP_PTRACE
 };
+// 同一个结构承载多类事件，kind 决定哪些字段有效；所有事件先清零，宿主再按 kind 输出。
 struct exec_event {
     unsigned int version;
     unsigned int size;
@@ -24,7 +28,9 @@ struct exec_event {
     unsigned int operation;
     unsigned int target_pid;
     int signal;
+    // timestamp_ns 是事件发生时的单调时间；start_ns 来自任务启动时间，用于生命周期身份，均不是墙上时钟日期。
     unsigned long long timestamp_ns;
+    // 该启动时间与上面的事件时间来源不同，不直接相减计算运行时长；此处只用它区分任务生命周期。
     unsigned long long start_ns;
     unsigned long long caps;
     unsigned int pid;
@@ -35,6 +41,7 @@ struct exec_event {
     /* Check: preliminary bprm candidate, not final setuid prediction.
      * Success: committed task EUID (bprm->cred has been consumed). */
     unsigned int target_euid;
+    // 位 0 仅表示执行检查时当前凭证偏离观测基线；exec_success 的 0 不表示又做了一轮异常检测。
     unsigned int flags;
     unsigned short file_mode;
     char comm[SECMON_COMM_LEN];

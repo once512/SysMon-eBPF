@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 宿主参数解析与互斥检查；提前拒绝无效组合，避免参数错误时已经挂载了部分内核策略。
 #include "options.h"
 #include <charconv>
 #include <iostream>

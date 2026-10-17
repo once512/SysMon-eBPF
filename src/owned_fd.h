@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 可移动、不可复制的 FD 所有权包装：析构 close，移动转交所有权；get 只借用，release 放弃托管。
+// 项目大量使用异常和提前返回，RAII 让错误路径也能关闭 FD，避免把每条分支写成手工清理。
 #pragma once
 #include <unistd.h>
 

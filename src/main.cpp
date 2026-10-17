@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MIT
+// BPF 宿主入口：解析参数 → 环境检查 → open/load skeleton → 写策略 → attach → 消费 ring buffer。
+// skeleton 是 bpftool 根据 BPF ELF 生成的管理接口，提供程序/Map 句柄和统一销毁，不在宿主执行 BPF 字节码。
+// 资源声明顺序影响异常退出：先销毁链接，再释放当前策略固定的 inode，防止保护期间 inode 被复用。
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <cerrno>
@@ -63,13 +66,16 @@ int main(int argc, char **argv)
         }
         std::unique_ptr<ControlServer> control;
         if (!control_path.empty()) control = std::make_unique<ControlServer>(control_path);
+        // C++ 局部对象逆序析构：skeleton 释放链接后，才允许本对象释放当前 inode 句柄。
         ProtectedFiles protected_files; // Must outlive BPF links.
         std::unique_ptr<secmon_bpf, decltype(&secmon_bpf__destroy)> skel(
             secmon_bpf__open(), secmon_bpf__destroy);
         if (!skel) throw std::runtime_error("Cannot open BPF skeleton");
+        // open 只解析 ELF/创建宿主结构；load 才创建内核 Map 并提交程序给 verifier，此时尚未 attach。
         if (secmon_bpf__load(skel.get()))
             throw std::runtime_error("BPF load failed; inspect libbpf diagnostics and privileges");
         if (control) {
+            // TASK_STORAGE 的用户态 Map 更新使用 pidfd 作为 key，不直接把 getpid 的整数当作生命周期身份。
             OwnedFd self(static_cast<int>(syscall(SYS_pidfd_open, getpid(), 0)));
             unsigned int enabled = 1;
             if (self.get() < 0) throw std::runtime_error("Cannot open self pidfd");
@@ -79,6 +85,7 @@ int main(int argc, char **argv)
                 throw std::runtime_error("Cannot install task-local self-protection policy");
         }
         protected_files.install(bpf_map__fd(skel->maps.protected_files), active.paths);
+        // ring_buffer__new 注册消费回调；它不挂载 BPF，只有后面的 attach 才开始进入安全/跟踪钩子。
         std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring(
             ring_buffer__new(bpf_map__fd(skel->maps.events), consume, nullptr, nullptr),
             ring_buffer__free);
@@ -88,6 +95,7 @@ int main(int argc, char **argv)
         sigemptyset(&action.sa_mask);
         if (sigaction(SIGINT, &action, nullptr) || sigaction(SIGTERM, &action, nullptr))
             throw std::runtime_error("Cannot install signal handlers");
+        // 策略先准备，链接随后逐个挂载；多个 LSM 钩子的首次启用并不是一次原子操作。
         if (secmon_bpf__attach(skel.get())) throw std::runtime_error("BPF attach failed");
         if (control) std::cerr << "Self protection active; stop via --stop " << control_path << '\n';
         if (!active.paths.empty()) std::cerr << "File read-only policy active for " << active.paths.size() << " paths\n";
@@ -98,6 +106,7 @@ int main(int argc, char **argv)
         while (!stopping) {
             if (run_seconds && std::chrono::steady_clock::now() - started >=
                 std::chrono::seconds(run_seconds)) break;
+            // 管理命令和事件处理共用此线程，重载不会与另一个宿主线程同时修改 active/pinned FD 集合。
             if (control) control->dispatch([&](ControlCommand command) {
                 if (command == ControlCommand::stop) {
                     std::cerr << "Authorized control stop accepted\n";
@@ -126,6 +135,7 @@ int main(int argc, char **argv)
                 std::cout.flush();
             }
         }
+        // 正常退出先停止事件来源，再消费剩余记录；不是先关 ring buffer 后让 BPF 继续向无人消费的缓冲写。
         secmon_bpf__detach(skel.get());
         ring_buffer__consume(ring.get());
         report_stats(bpf_map__fd(skel->maps.stats));

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 配置适配边界：共享文本模型不依赖 fanotify 运行类，本模块负责转换与不可在线变更字段比较。
 #pragma once
 #include "options.h"
 #include "policy_config.h"

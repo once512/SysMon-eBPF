@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 文件策略的资源所有者：固定当前策略的 inode，并负责候选 Map 准备和完整替换。
+// 对象需比 BPF 链接活得更久；重载成功时旧策略的句柄可以释放，失败时保留原集合。
 #pragma once
 #include <string>
 #include <vector>

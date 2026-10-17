@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 配置解析与安全读取：先完整校验文本，再由调用方准备运行资源；本模块不修改 Map 或 fanotify mark。
+// 先用 O_PATH 固定配置，再读取同一对象；fanotify 重载排除自己的目标 inode，防止自等裁决。
 #include "policy_config.h"
 #include "owned_fd.h"
 #include <charconv>
@@ -85,6 +87,7 @@ PolicyConfig parse_policy(std::istream &input)
         if (fields >> extra) invalid();
     }
     if (input.bad() || !version || !result.revision) invalid();
+    // 字段逐条解析后再校验整体约束，允许字段换序，但禁止混用静态决策与分析器专属字段。
     if (!gate_keys.empty()) {
         if (version != 2 || gate.path.empty()) invalid();
         if (gate.analyzer.empty()) {
@@ -103,6 +106,7 @@ PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
     if (pinned.get() < 0 || fstat(pinned.get(), &before) || !S_ISREG(before.st_mode) ||
         before.st_uid != 0 || (before.st_mode & 022) || before.st_size > static_cast<off_t>(max_bytes))
         throw std::runtime_error("Policy must be a root-owned regular file, not writable by group/others, at most 64 KiB");
+    // 必须在 O_RDONLY 打开之前排除监听器自身目标：否则 open/access 权限事件会让服务等待自己的裁决。
     if (forbidden_inode_fd >= 0) {
         struct stat forbidden{};
         if (fstat(forbidden_inode_fd, &forbidden)) throw std::runtime_error("Cannot inspect excluded policy inode");
@@ -123,6 +127,7 @@ PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
         contents.append(chunk, static_cast<std::size_t>(count));
         if (contents.size() > max_bytes) throw std::runtime_error("Policy exceeds 64 KiB");
     }
+    // 比较元数据可发现普通并发修改，但不是不可变快照；部署时仍应使用可信目录中的原子文件替换。
     if (fstat(fd.get(), &after) || before.st_size != after.st_size ||
         before.st_mtim.tv_sec != after.st_mtim.tv_sec || before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
         before.st_ctim.tv_sec != after.st_ctim.tv_sec || before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)

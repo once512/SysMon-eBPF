@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 非阻塞 SEQPACKET 传输封装：保留报文边界，并把所有收到的 SCM_RIGHTS FD 纳入 RAII 所有权。
+// would_block 是暂时无数据，closed 是对端关闭，ready 仍需上层检查协议与 FD 数量。
 #pragma once
 #include "owned_fd.h"
 #include <cstddef>

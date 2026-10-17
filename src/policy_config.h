@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 共用配置模型：version 是文本语法版本，revision 是进程内单调递增的运行策略版本。
+// 同一文件可供两个宿主读取；BPF 应用 protect，fanotify 应用可选的 fanotify 配置，分别提交。
 #pragma once
 #include <cstdint>
 #include <istream>

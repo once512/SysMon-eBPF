@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// fanotify 宿主入口：建立可选管理通道，创建权限事件监听器，在事件循环中串行处理裁决和重载。
+// 它是独立服务；与 BPF 的 LSM 拒绝是叠加关系，fanotify 放行不能推翻其他安全层的拒绝。
 #include "gate.h"
 #include "options.h"
 #include "policy.h"
@@ -56,6 +58,7 @@ int main(int argc, char **argv)
                             apply_fanotify_policy(candidate, next);
                             if (!same_fanotify_backend(options, next))
                                 throw std::runtime_error("Changing fanotify target, event or analyzer requires restart");
+                            // 先完整解析并检查固定后端，再要求队列/分析器空闲；拒绝时不更新 active revision，可稍后重试。
                             gate.reconfigure(next.decision);
                             options = std::move(next);
                             active = std::move(candidate);
@@ -67,6 +70,7 @@ int main(int argc, char **argv)
                     });
                     if (!stopping) gate.poll_once(100);
                 }
+                // 正常停止显式拒绝已交付请求；未读内核队列在 group 关闭时释放，不能宣称关闭仍保持拒绝保护。
                 gate.shutdown();
             } catch (...) { stats = gate.stats(); throw; }
             stats = gate.stats();

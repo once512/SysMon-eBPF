@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 独立分析器在创建 fanotify mark 前完成降权并回复 Ready，避免业务请求进入后才发现后端无法启动。
+// 宿主只传事件 FD，不传 fanotify group/BPF Map；启动、请求、故障和回收分别维护清晰的所有权。
 #include "client.h"
 #include "transport.h"
 #include <cerrno>
@@ -28,6 +30,7 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
     if (error) throw std::system_error(error, std::generic_category(), "spawn actions init");
     // Errors are accumulated; actions are destroyed even when setup fails.
     auto action = [&](int result) { if (!error) error = result; };
+    // 子进程只保留约定的 IPC FD 3；关闭其余高位 FD，不能让降权进程继承 group/Map/控制 socket 权限。
     action(posix_spawn_file_actions_adddup2(&actions, worker.get(), 3));
     action(posix_spawn_file_actions_addclosefrom_np(&actions, 4));
     action(posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0));
@@ -45,6 +48,7 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
     try {
         process_ = OwnedFd(static_cast<int>(syscall(SYS_pidfd_open, pid_, 0)));
         if (process_.get() < 0) throw std::system_error(errno, std::generic_category(), "analysis pidfd_open");
+        // 启动握手有 1 秒期限，校验 Ready 必须无 FD、id=0，确认降权完成后才允许宿主建立 mark。
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         while (true) {
             analysis::Response ready;
@@ -66,6 +70,7 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
         }
     } catch (...) {
         // A throwing constructor has no destructor: terminate/reap explicitly.
+        // 构造函数抛异常时对象析构函数不会执行，已启动的子进程必须在这里显式终止并尝试回收。
         stop();
         wait_for_exit();
         throw;
@@ -76,6 +81,7 @@ void AnalysisClient::reap()
 {
     if (pid_ < 0) return;
     int status;
+    // WNOHANG 只回收已退出子进程，不让权限事件循环等待子进程结束；数字 PID 仅用于回收自己的子进程。
     const auto result = waitpid(pid_, &status, WNOHANG);
     if (result == pid_ || (result < 0 && errno == ECHILD)) pid_ = -1;
 }
@@ -85,6 +91,7 @@ void AnalysisClient::stop()
     channel_ = OwnedFd();
     active_ = 0;
     // PID cannot be reused while our child has not been reaped.
+    // 用 pidfd 发信号定位本次创建的进程对象，避免把复用后的同号进程误杀。
     if (process_.get() >= 0) syscall(SYS_pidfd_send_signal, process_.get(), SIGKILL, nullptr, 0);
     reap();
 }
@@ -119,6 +126,7 @@ std::optional<analysis::Response> AnalysisClient::receive()
     auto packet = analysis::receive_packet(channel_.get(), &response, sizeof(response));
     if (packet.status == analysis::Io::would_block) return std::nullopt;
     if (packet.status == analysis::Io::closed) throw std::runtime_error("Analysis worker disconnected");
+    // 把分析后端视作可能故障的协议对端：检查 ID、ABI、长度、结果和无附加 FD，迟到/重复回复均拒绝。
     if (packet.size != sizeof(response) || !packet.fds.empty() || !active_ || response.id != active_ ||
         response.magic_value != analysis::magic || response.abi != analysis::version ||
         response.size != sizeof(response) || response.bytes_scanned > scan_limit_ + 1 ||

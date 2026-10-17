@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 用户态审计出口：先校验二进制 ABI，再按事件种类输出；不能把 exec_check 当作执行成功。
+// 安全拒绝由内核 LSM 直接完成，日志消费失败或 ring buffer 满不应改变已作出的拒绝。
 #include "events.h"
 #include "secmon.h"
 #include <bpf/bpf.h>
@@ -10,6 +12,7 @@
 #include <vector>
 
 namespace {
+// comm/filename 来自内核记录，按容量限制读取并转义，避免控制字符破坏 JSONL 的记录边界。
 std::string json_string(const char *data, std::size_t capacity)
 {
     constexpr char hex[] = "0123456789abcdef";
@@ -31,6 +34,7 @@ int consume(void *, void *data, std::size_t size)
         std::cerr << "Unexpected event size: " << size << '\n';
         return 0;
     }
+    // 将回调缓冲复制到本地结构再读取，不假设传入地址满足宿主 C++ 结构的对齐要求。
     exec_event e{};
     std::memcpy(&e, data, sizeof(e));
     if (e.version != SECMON_ABI_VERSION || e.size != sizeof(e)) {
@@ -75,6 +79,7 @@ int consume(void *, void *data, std::size_t size)
 }
 void report_stats(int fd)
 {
+    // PERCPU_ARRAY 的一次用户态 lookup 返回所有 possible CPU 的值，不只是当前在线 CPU 或单个 u64。
     const int cpus = libbpf_num_possible_cpus();
     if (cpus < 1) throw std::runtime_error("Cannot determine possible CPUs");
     std::vector<unsigned long long> values(static_cast<std::size_t>(cpus));

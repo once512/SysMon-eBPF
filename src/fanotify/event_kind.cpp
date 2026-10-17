@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// OPEN_PERM 是打开前裁决；ACCESS_PERM 是访问权限事件；OPEN_EXEC_PERM 针对直接执行打开。
+// 脚本解释器读取、已有 FD、mmap 的行为需分别理解，不能仅根据名称假设覆盖全部读写执行。
 #include "event_kind.h"
 #include <stdexcept>
 #include <sys/fanotify.h>

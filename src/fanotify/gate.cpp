@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// fanotify 权限事件会挂起请求方：读取事件得到 FD，向同一 group 写 fanotify_response 才作出裁决。
+// 这不同于只观察事件的通知接口；close 事件 FD 本身不等同于发送拒绝，关闭整个 group 会释放未决请求。
 #include "gate.h"
 #include <algorithm>
 #include <utility>
@@ -35,6 +37,9 @@ int pin_file(const std::string &path)
 }
 int create_group()
 {
+    // FAN_CLASS_CONTENT 支持权限裁决；NONBLOCK 只让监听端读取不阻塞，请求方仍等待裁决。
+    // 第二组参数指定事件 FD 的打开方式：只读/CLOEXEC；不是把被监控业务的打开模式改成只读。
+    // group 是 fanotify_init 返回的监听 FD；mark 是附着到 inode 的订阅，两者不是同一个对象。
     int fd = fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC | FAN_NONBLOCK,
                           O_RDONLY | O_LARGEFILE | O_CLOEXEC);
     if (fd < 0) fail("fanotify_init (requires CAP_SYS_ADMIN and permission-event support)");
@@ -57,6 +62,7 @@ PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, P
     }
     // Follow the pinned FD rather than resolving the user's path a second time.
     const auto pinned = "/proc/self/fd/" + std::to_string(target_.get());
+    // mark 选中固定的对象与事件类型，不是目录递归规则；通过 /proc/self/fd 引用避免再次解析目标路径。
     if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_,
                       AT_FDCWD, pinned.c_str())) fail("fanotify_mark permission event");
 }
@@ -64,6 +70,7 @@ PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, P
 bool PermissionGate::poll_once(int timeout_ms)
 {
     service_analysis();
+    // 同时等待内核事件与分析结果，不能在这里同步读取大文件，否则整个权限服务会被一个分析拖住。
     pollfd ready[] = {{group_.get(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
     const int wait_ms = pending_.poll_timeout(timeout_ms, PendingDecisions::Clock::now());
     const int result = poll(ready, 2, wait_ms);
@@ -82,6 +89,7 @@ bool PermissionGate::poll_once(int timeout_ms)
     // No FAN_REPORT_* flags: the kernel returns fixed-size metadata records.
     // Read one record so an exception cannot strand FDs from an unread batch.
     fanotify_event_metadata event{};
+    // 一次只接收一个 metadata，立即用 OwnedFd 接管 event.fd，避免批量读取中途抛错遗留其他 FD。
     const auto size = read(group_.get(), &event, sizeof(event));
     if (size < 0) {
         if (errno == EAGAIN || errno == EINTR) return false;
@@ -92,6 +100,7 @@ bool PermissionGate::poll_once(int timeout_ms)
     if (event.vers != FANOTIFY_METADATA_VERSION || event.event_len != sizeof(event) ||
         event.metadata_len != sizeof(event))
         throw std::runtime_error("Unexpected fanotify metadata ABI");
+    // 内核队列溢出意味着监控覆盖不完整，选择报错关闭；不要把它当成用户态 max_pending 容量回退。
     if (event.mask & FAN_Q_OVERFLOW) {
         ++stats_.overflow;
         // Stop visibly rather than presenting incomplete coverage as healthy.
@@ -107,6 +116,7 @@ bool PermissionGate::poll_once(int timeout_ms)
 
 void PermissionGate::respond(int fd, Verdict verdict)
 {
+    // 回复用的是当前事件 FD，而不是业务进程 PID；写入 group 成功后，队列才会关闭对应事件 FD。
     fanotify_response response{fd, static_cast<unsigned int>(verdict.allow ? FAN_ALLOW : FAN_DENY)};
     ssize_t written;
     do { written = write(group_.get(), &response, sizeof(response)); }
@@ -139,6 +149,7 @@ void PermissionGate::service_analysis()
     }
     // Timeouts win over a late reply, and the worker's duplicate FD must not
     // survive indefinitely after the parent releases the original event FD.
+    // 宿主超时移除了请求，但工作进程仍可能持有它的重复 FD；终止工作进程，避免请求对象长期残留。
     if (analyzer_->active() && !pending_.contains(analyzer_->active())) {
         analyzer_->stop();
         ++stats_.analyzer_failures;
@@ -153,6 +164,7 @@ void PermissionGate::service_analysis()
         pending_.fail_analysis();
         return;
     }
+    // 队列完成前再次按当前单调时间检查超时，迟到的 allow 不能覆盖已经生效的超时回退。
     if (response)
         pending_.complete(response->id, response->result == analysis::Result::allow,
                           response->result == analysis::Result::error, PendingDecisions::Clock::now());

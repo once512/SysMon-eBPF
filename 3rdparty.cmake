@@ -1,3 +1,4 @@
+# 历史的子模块 libbpf 构建入口；当前顶层 CMake 使用 pkg-config 查找系统 libbpf，未包含此文件。
 include(ExternalProject)
 # libbpf 编译输出重定向
 set(LIBBPF_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/libbpf-build")

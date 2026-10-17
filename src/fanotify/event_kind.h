@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 把用户可读的事件名称映射到单一 fanotify 权限事件，避免将不同监控语义混为一谈。
 #pragma once
 #include <cstdint>
 #include <string_view>

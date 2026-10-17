@@ -1,4 +1,8 @@
+/* 文件只读保护：与传统 LSM 类似在操作前返回负 errno；并非在用户态收到事件后再撤销操作。 */
+/* 策略按设备号和 inode 匹配，路径只用于用户态首次选中并固定对象；不递归保护目录。 */
+/* 外层 ARRAY_OF_MAPS 指向一份完整 HASH 策略，更新引用即可切换，避免逐条修改产生半份策略。 */
 /* Included by secmon.bpf.c. Exact-inode, read-only policy. */
+/* 内层模板规定 key/value/容量，用户态新建的候选 HASH 必须符合该布局才能装入外层 Map。 */
 struct file_policy_map {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 256);
@@ -14,6 +18,7 @@ struct {
     .values = { [0] = &file_policy_template },
 };
 
+/* 一次取出当前内层 Map 引用；切换前已取到旧引用的在途 BPF 程序可继续访问它，内核管理其生命周期。 */
 static __always_inline void *active_file_policy(void)
 {
     u32 slot = 0;
@@ -24,6 +29,7 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
 {
     if (!inode || !policy) return 0;
     struct file_key key = {};
+    /* 这里读的是内核 dev_t 编码，按主次设备号拆开；用户态以 major/minor(st_dev) 构造同样的键。 */
     u32 dev = BPF_CORE_READ(inode, i_sb, s_dev);
     key.major = dev >> 20;
     key.minor = dev & ((1U << 20) - 1);
@@ -31,6 +37,7 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     if (!bpf_map_lookup_elem(policy, &key)) return 0;
     count_stat(SECMON_POLICY_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    /* 审计记录申请失败仍返回 EACCES：日志拥塞不能把原本应拒绝的写入变成允许。 */
     if (!e) {
         count_stat(SECMON_DROPPED);
         return -13; /* EACCES, independent of audit delivery. */
@@ -57,6 +64,7 @@ static __always_inline int guard_inode(struct inode *inode, u32 operation)
 {
     return guard_inode_policy(inode, operation, active_file_policy());
 }
+/* 以下 LSM 程序都保留前序 ret；f_mode 的 FMODE_WRITE=2 表示文件以可写方式打开。 */
 SEC("lsm/file_open")
 int BPF_PROG(guard_open, struct file *file, int ret)
 {
@@ -64,12 +72,14 @@ int BPF_PROG(guard_open, struct file *file, int ret)
     return (BPF_CORE_READ(file, f_mode) & 2) ?
         guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_OPEN_WRITE) : 0;
 }
+/* 已有写入 FD 也需在普通写权限检查点拦截；只拦 file_open 无法限制保护启用前打开的 FD。 */
 SEC("lsm/file_permission")
 int BPF_PROG(guard_permission, struct file *file, int mask, int ret)
 {
     if (ret) return ret;
     return (mask & 2) ? guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_WRITE) : 0;
 }
+/* 路径截断与文件 FD 截断的内核入口不同，分别挂载；实际拒绝可能先发生在更早的权限钩子。 */
 SEC("lsm/path_truncate")
 int BPF_PROG(guard_truncate, const struct path *path, int ret)
 {
@@ -88,6 +98,7 @@ int BPF_PROG(guard_unlink, struct inode *dir, struct dentry *dentry, int ret)
     if (ret) return ret;
     return guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_UNLINK);
 }
+/* rename 必须同时检查源和被覆盖目标；两次判断共用同一策略快照，不能在中途重新取活动 Map。 */
 SEC("lsm/inode_rename")
 int BPF_PROG(guard_rename, struct inode *old_dir, struct dentry *old_dentry,
              struct inode *new_dir, struct dentry *new_dentry, int ret)
@@ -98,6 +109,7 @@ int BPF_PROG(guard_rename, struct inode *old_dir, struct dentry *old_dentry,
     int denied = guard_inode_policy(BPF_CORE_READ(old_dentry, d_inode), SECMON_OP_RENAME, policy);
     return denied ? denied : guard_inode_policy(BPF_CORE_READ(new_dentry, d_inode), SECMON_OP_RENAME, policy);
 }
+/* 新增硬链接也引用原 inode，因此按对象身份检查，不尝试规范化或逐个列出所有路径别名。 */
 SEC("lsm/inode_link")
 int BPF_PROG(guard_link, struct dentry *old_dentry, struct inode *dir,
              struct dentry *new_dentry, int ret)
@@ -105,6 +117,7 @@ int BPF_PROG(guard_link, struct dentry *old_dentry, struct inode *dir,
     if (ret) return ret;
     return guard_inode(BPF_CORE_READ(old_dentry, d_inode), SECMON_OP_LINK);
 }
+/* 对保护对象保守拒绝此入口的属性修改，包括常见 chmod/时间更新；不等于覆盖所有文件系统专属操作。 */
 SEC("lsm/inode_setattr")
 int BPF_PROG(guard_setattr, struct mnt_idmap *idmap, struct dentry *dentry,
              struct iattr *attr, int ret)
@@ -112,6 +125,8 @@ int BPF_PROG(guard_setattr, struct mnt_idmap *idmap, struct dentry *dentry,
     if (ret) return ret;
     return guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_SETATTR);
 }
+/* 新增共享可写映射可以绕开 write 系统调用；这里检查映射建立，下面检查后续 mprotect 增加写权限。 */
+/* 私有映射写入自己的页而不写回原文件；策略不撤销启用之前已经存在的共享可写映射。 */
 SEC("lsm/mmap_file")
 int BPF_PROG(guard_mmap, struct file *file, unsigned long reqprot,
              unsigned long prot, unsigned long flags, int ret)

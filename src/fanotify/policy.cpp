@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 在线只改裁决规则，不重建 mark 或分析器；固定目标/事件/扫描参数的变化必须显式重启。
 #include "policy.h"
 #include <stdexcept>
 
@@ -20,6 +21,7 @@ void apply_fanotify_policy(const PolicyConfig &policy, FanotifyOptions &options)
 }
 bool same_fanotify_backend(const FanotifyOptions &a, const FanotifyOptions &b)
 {
+    // 比较配置身份而不重新解析路径；运行中的 mark 固定原 inode，路径重命名不会让它自动转移到新对象。
     return a.path == b.path && a.event == b.event &&
         a.decision.external == b.decision.external &&
         a.analyzer.executable == b.analyzer.executable && a.analyzer.marker == b.analyzer.marker &&

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 只管理已经从内核读出的事件：持有事件 FD、接收时间与请求 ID，不代表内核队列的长度或容量。
+// 静态延迟用于实验；外部模式把实际分析交给独立进程，本队列仍负责截止时间和回退。
 #pragma once
 #include "owned_fd.h"
 #include <chrono>
