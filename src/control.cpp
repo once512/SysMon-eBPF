@@ -67,35 +67,45 @@ ControlServer::ControlServer(const std::string &path)
 
 ControlServer::~ControlServer() { if (bound_) unlinkat(directory_.get(), name_.c_str(), 0); }
 
-bool ControlServer::stop_requested()
+void ControlServer::dispatch(const std::function<void(ControlCommand)> &handler)
 {
     OwnedFd client(accept4(socket_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC));
     if (client.get() < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return false;
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
         throw std::runtime_error("Control accept failed");
     }
-    if (!root_peer(client.get())) return false;
+    if (!root_peer(client.get())) return;
     pollfd request{client.get(), POLLIN, 0};
-    if (poll(&request, 1, 100) <= 0) return false;
+    if (poll(&request, 1, 100) <= 0) return;
     char message[16]{};
     const auto count = recv(client.get(), message, sizeof(message), MSG_DONTWAIT | MSG_TRUNC);
-    if (count != 4 || std::memcmp(message, "stop", 4)) return false;
-    send(client.get(), "ok", 2, MSG_NOSIGNAL);
-    return true;
+    ControlCommand command = ControlCommand::none;
+    if (count == 4 && !std::memcmp(message, "stop", 4)) command = ControlCommand::stop;
+    if (count == 6 && !std::memcmp(message, "reload", 6)) command = ControlCommand::reload;
+    if (command == ControlCommand::none) return;
+    try {
+        handler(command);
+        send(client.get(), "ok", 2, MSG_NOSIGNAL);
+    } catch (const std::exception &) {
+        send(client.get(), "error", 5, MSG_NOSIGNAL);
+    }
 }
 
-void request_stop(const std::string &path)
+static void request_command(const std::string &path, const char *command)
 {
-    if (geteuid() != 0) throw std::runtime_error("Stop command requires root");
+    if (geteuid() != 0) throw std::runtime_error("Control command requires root");
     OwnedFd connection(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
     const auto address = unix_address(path);
     if (connection.get() < 0 ||
         connect(connection.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) ||
         !root_peer(connection.get())) throw std::runtime_error("Cannot connect to root control service");
-    if (send(connection.get(), "stop", 4, MSG_NOSIGNAL) != 4)
-        throw std::runtime_error("Cannot send stop request");
+    if (send(connection.get(), command, std::strlen(command), MSG_NOSIGNAL) != static_cast<ssize_t>(std::strlen(command)))
+        throw std::runtime_error("Cannot send control request");
     pollfd response{connection.get(), POLLIN, 0};
     char result[8]{};
     if (poll(&response, 1, 3000) <= 0 || recv(connection.get(), result, sizeof(result), 0) != 2 ||
-        std::memcmp(result, "ok", 2)) throw std::runtime_error("Stop request not acknowledged");
+        std::memcmp(result, "ok", 2)) throw std::runtime_error("Control request rejected or not acknowledged");
 }
+
+void request_stop(const std::string &path) { request_command(path, "stop"); }
+void request_reload(const std::string &path) { request_command(path, "reload"); }

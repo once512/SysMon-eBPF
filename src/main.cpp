@@ -14,6 +14,7 @@
 #include "file_policy.h"
 #include "control.h"
 #include "options.h"
+#include "policy_config.h"
 #include "events.h"
 #include <sys/syscall.h>
 #include <secmon.skel.h>
@@ -35,9 +36,15 @@ int main(int argc, char **argv)
     try { action = parse_options(argc, argv, options); }
     catch (const std::invalid_argument &) { return 2; }
     if (action == CliAction::help) return 0;
-    const auto &[check, paths, control_path, run_seconds] = options;
+    const auto &check = options.check;
+    const auto &control_path = options.control_path;
+    const auto &run_seconds = options.run_seconds;
     try {
         if (action == CliAction::stop) { request_stop(control_path); return 0; }
+        if (action == CliAction::reload) { request_reload(control_path); return 0; }
+        PolicyConfig active;
+        active.paths = options.paths;
+        if (!options.policy_path.empty()) active = load_policy(options.policy_path);
         utsname info{};
         if (uname(&info)) throw std::runtime_error("uname failed");
         const auto lsm = read_file("/sys/kernel/security/lsm");
@@ -70,7 +77,7 @@ int main(int argc, char **argv)
                                     &enabled, BPF_NOEXIST))
                 throw std::runtime_error("Cannot install task-local self-protection policy");
         }
-        protected_files.install(bpf_map__fd(skel->maps.protected_files), paths);
+        protected_files.install(bpf_map__fd(skel->maps.protected_files), active.paths);
         std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring(
             ring_buffer__new(bpf_map__fd(skel->maps.events), consume, nullptr, nullptr),
             ring_buffer__free);
@@ -82,17 +89,33 @@ int main(int argc, char **argv)
             throw std::runtime_error("Cannot install signal handlers");
         if (secmon_bpf__attach(skel.get())) throw std::runtime_error("BPF attach failed");
         if (control) std::cerr << "Self protection active; stop via --stop " << control_path << '\n';
-        if (!paths.empty()) std::cerr << "File read-only policy active for " << paths.size() << " paths\n";
+        if (!active.paths.empty()) std::cerr << "File read-only policy active for " << active.paths.size() << " paths\n";
+        if (active.revision) std::cerr << "Policy active revision=" << active.revision << '\n';
         std::cerr << "Audit active; exec_check events are attempts, not successful execs.\n";
         const auto started = std::chrono::steady_clock::now();
         auto next = started + std::chrono::seconds(10);
         while (!stopping) {
             if (run_seconds && std::chrono::steady_clock::now() - started >=
                 std::chrono::seconds(run_seconds)) break;
-            if (control && control->stop_requested()) {
-                std::cerr << "Authorized control stop accepted\n";
-                break;
-            }
+            if (control) control->dispatch([&](ControlCommand command) {
+                if (command == ControlCommand::stop) {
+                    std::cerr << "Authorized control stop accepted\n";
+                    stopping = 1;
+                    return;
+                }
+                try {
+                    if (options.policy_path.empty()) throw std::runtime_error("Reload requires --policy at startup");
+                    auto candidate = load_policy(options.policy_path);
+                    if (candidate.revision <= active.revision) throw std::runtime_error("Policy revision must increase");
+                    protected_files.install(bpf_map__fd(skel->maps.protected_files), candidate.paths);
+                    active = std::move(candidate);
+                    std::cerr << "Policy active revision=" << active.revision << '\n';
+                } catch (const std::exception &error) {
+                    std::cerr << "Policy reload rejected: " << error.what() << '\n';
+                    throw;
+                }
+            });
+            if (stopping) break;
             const int result = ring_buffer__poll(ring.get(), 250);
             if (result < 0 && result != -EINTR) throw std::runtime_error("Ring buffer poll failed");
             if (!std::cout) throw std::runtime_error("Event output failed");

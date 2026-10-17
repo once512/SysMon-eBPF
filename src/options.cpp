@@ -14,11 +14,12 @@ CliAction parse_options(int argc, char **argv, Options &options)
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--help" && argc == 2) {
-            std::cout << "Usage: secmon [--check] [--protect-file PATH ...] [--self-protect SOCKET] [--run-for SECONDS]\n"
+            std::cout << "Usage: secmon [--check] [--protect-file PATH ...] [--self-protect SOCKET] [--run-for SECONDS] [--policy FILE]\n"
                          "Default: execution/credential audit. --protect-file enforces read-only\n"
                          "on an existing regular file inode for all tasks, including root.\n"
                          "--self-protect SOCKET: protect this process; requires a root-owned private directory.\n"
                          "secmon --stop SOCKET: authorized root shutdown.\n"
+                         "--policy FILE: versioned file policy; reload via secmon --reload SOCKET.\n"
                          "--run-for SECONDS: exit internally after 1..3600 seconds.\n"
                          "--check: inspect environment without attaching BPF.\n";
             return CliAction::help;
@@ -35,9 +36,16 @@ CliAction parse_options(int argc, char **argv, Options &options)
         }
         else if (arg == "--self-protect" && i + 1 < argc && control_path.empty())
             control_path = argv[++i];
-        else if (arg == "--stop" && argc == 3 && i == 1) {
+        else if (arg == "--policy" && i + 1 < argc && options.policy_path.empty()) {
+            options.policy_path = argv[++i];
+            if (options.policy_path.empty() || options.policy_path.front() != '/') {
+                std::cerr << "--policy requires an absolute file path\n";
+                throw std::invalid_argument("Invalid command line");
+            }
+        }
+        else if ((arg == "--stop" || arg == "--reload") && argc == 3 && i == 1) {
             options.control_path = argv[2];
-            return CliAction::stop;
+            return arg == "--stop" ? CliAction::stop : CliAction::reload;
         }
         else if (arg == "--protect-file" && i + 1 < argc) paths.emplace_back(argv[++i]);
         else {
@@ -45,8 +53,9 @@ CliAction parse_options(int argc, char **argv, Options &options)
             throw std::invalid_argument("Invalid command line");
         }
     }
-    if ((check && (!paths.empty() || !control_path.empty() || run_seconds)) || paths.size() > 256) {
-        std::cerr << "--check cannot install policies; at most 256 files are supported\n";
+    if ((check && (!paths.empty() || !control_path.empty() || run_seconds || !options.policy_path.empty())) ||
+        (!options.policy_path.empty() && !paths.empty()) || paths.size() > 256) {
+        std::cerr << "--check cannot install policies; --policy and --protect-file are mutually exclusive; at most 256 files are supported\n";
         throw std::invalid_argument("Invalid command line");
     }
     return CliAction::run;

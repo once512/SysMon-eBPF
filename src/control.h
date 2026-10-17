@@ -2,6 +2,9 @@
 #pragma once
 #include "owned_fd.h"
 #include <string>
+#include <functional>
+
+enum class ControlCommand { none, stop, reload };
 
 // Root-only SOCK_SEQPACKET endpoint. The directory FD anchors bind and cleanup.
 class ControlServer {
@@ -13,6 +16,8 @@ class ControlServer {
 public:
     explicit ControlServer(const std::string &path);
     ~ControlServer();
-    bool stop_requested();
+    // Dispatches one bounded request and acknowledges only after the handler completes.
+    void dispatch(const std::function<void(ControlCommand)> &handler);
 };
 void request_stop(const std::string &path);
+void request_reload(const std::string &path);

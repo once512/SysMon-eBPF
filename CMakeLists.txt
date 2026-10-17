@@ -40,6 +40,7 @@ add_executable(secmon
     src/options.cpp
     src/events.cpp
     src/control.cpp
+    src/policy_config.cpp
     src/file_policy.cpp
     "${BPF_SKEL}")
 target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF)
@@ -59,6 +60,10 @@ target_compile_options(secmon-analyzer PRIVATE -Wall -Wextra -Werror)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(secmon-policy-tests tests/policy_config.cpp src/policy_config.cpp)
+    target_include_directories(secmon-policy-tests PRIVATE src)
+    target_compile_options(secmon-policy-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME policy-config COMMAND secmon-policy-tests)
     find_package(Threads REQUIRED)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_executable(secmon-analysis-fault-worker tests/analysis_fault_worker.cpp src/analysis/transport.cpp)

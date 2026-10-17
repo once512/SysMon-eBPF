@@ -24,3 +24,13 @@ foreach(index RANGE 1 257)
     list(APPEND paths --protect-file /unused)
 endforeach()
 expect_invalid(${paths})
+
+expect_invalid(--policy)
+expect_invalid(--reload)
+expect_invalid(--reload /unused --check)
+expect_invalid(--policy /a --policy /b)
+expect_invalid(--check --policy /a)
+expect_invalid(--policy /a --protect-file /b)
+
+expect_invalid(--policy "")
+expect_invalid(--policy relative.conf)
