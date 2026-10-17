@@ -98,3 +98,5 @@ sudo python3 tests/self_protection.py --build-dir build
 指定文件保护的特权测试也已通过：写打开、硬链接写打开、已有 FD 写入和截断、路径截断、删除、重命名源与覆盖目标、新建硬链接、chmod、utime、共享可写 mmap 及共享 mprotect 均返回 EACCES。未受保护文件可写，受保护文件可读、私有映射不改变原文件，拒绝事件的文件身份正确，停止后可重新写入。
 
 自保护测试有内部 20 秒运行上限，已验证外部 SIGTERM/SIGINT/SIGSTOP/SIGKILL/SIGUSR1、pidfd 信号、tgkill、PTRACE_SEIZE、`/proc/PID/mem` 打开及 `process_vm_writev` 权限检查被拒绝；非法命令与非 root 管理连接被拒绝，root 授权停止、内部超时和 socket 清理正常，非目标进程信号不受影响。拒绝事件的目标身份正确，事件丢失和基线更新失败计数为 0。
+
+宿主模块拆分至 `src/` 后，已针对代码提交 `4015ced` 重跑上述两项特权集成测试，均通过；文件只读策略、执行/凭证事件、进程自保护及管理退出回归正常，事件丢失和基线更新失败计数均为 0。详细记录见 `DESIGN.md`。

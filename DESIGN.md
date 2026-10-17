@@ -269,3 +269,12 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 参数解析返回显式动作，`--stop` 的实际通信由入口分发，保持原有退出码语义；新增无特权 CLI 参数回归检查。
 - 增加 `docs/CODE_GUIDE.md`，说明阅读顺序、构建链、资源释放顺序、事件语义及验证层次。
 - 本轮构建、5 项 CTest 与 `--check` 通过；当前 sudo 需要交互密码，未重跑两项特权集成测试，已有特权验证记录仍属于拆分前版本。
+
+
+### 2026-10-17：模块拆分后的特权回归
+
+- 用户授权 sudo 后，针对代码提交 `4015ced` 构建出的程序运行 `sudo python3 tests/integration.py --build-dir build` 与 `sudo python3 tests/self_protection.py --build-dir build`，两项均以退出码 0 完成。
+- 文件策略的 13 类拒绝操作、读取/私有映射及非保护文件写入、拒绝事件文件身份、退出后策略解除均通过。
+- 普通执行、线程生命周期场景、非主线程 exec 的旧 TID 关联、UID/GID 降权后执行及正常关闭均通过；不代表已验证真实提权攻击检测或 Map 条目的完整清理。
+- 外部信号、pidfd/tgkill、ptrace、proc mem 和 process_vm_writev 权限检查拒绝通过；非目标进程信号、非法管理消息拒绝、非 root 管理拒绝、root 停止、内部运行期限和 socket 清理通过。
+- 两项测试均检查到 `ringbuf_dropped=0` 和 `baseline_update_failed=0`。本次结果补齐上一条记录中因 sudo 密码未能重跑的验证。
