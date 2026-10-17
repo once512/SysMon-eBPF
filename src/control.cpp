@@ -200,9 +200,10 @@ void request_reload(const std::string &path)
     if (reply.code != management::Code::ok)
         throw management::Error(reply.code, std::string("Policy reload rejected: ") + management::code_name(reply.code));
 }
+management::Reply query_status(const std::string &path) { return query(path, management::Command::status); }
 void request_status(const std::string &path)
 {
-    const auto reply = query(path, management::Command::status);
+    const auto reply = query_status(path);
     std::cout << management::reply_json(reply) << '\n';
     if (reply.code != management::Code::ok)
         throw management::Error(reply.code, std::string("Status request rejected: ") + management::code_name(reply.code));
