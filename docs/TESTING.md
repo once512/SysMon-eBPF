@@ -74,3 +74,5 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 `analysis-scan-errors` 使用仅测试目标的系统调用/分配包装，验证扫描原因和 errno；有效错误回退与畸形错误报文另由真实权限专题覆盖。
 
 私有挂载的范围与限制详见 [命名空间策略验证](NAMESPACE_POLICY.md)。
+
+本轮完整的分阶段验证数字与代码快照范围见 [2026-10-17 验证记录](VALIDATION_2026_10_17.md)。

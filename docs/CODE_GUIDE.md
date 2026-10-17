@@ -105,3 +105,15 @@ sudo python3 tests/self_protection.py --build-dir build
 `src/fanotify/stats.h/.cpp` 统一输出累计裁决统计及原因拆分，`analysis::ScanError` 在分析协议中定义。管理状态复用同一份 GateStats，避免末次日志与实时查询出现两套计数口径。
 
 新增 `secmon-policyctl`：`src/management/main.cpp` 顺序采集两轮状态，`consistency.h/.cpp` 纯函数判断稳定来源与分歧。这里核对的是活动配置字节，不会将其等同于完整健康或跨后端事务。
+
+## 几种“版本”不要混淆
+
+| 名称 | 当前值 | 作用 |
+| --- | --- | --- |
+| 配置 `version` | 2，保留格式 1 | 定义配置可使用哪些字段 |
+| 配置 `revision` | 管理者指定的正 uint64 | 当前实例内成功重载必须递增，不是 ABI 版本 |
+| 管理协议 | v2，提供 v1 响应前缀 | 状态、重载结果和诊断的本地报文布局 |
+| 分析器协议 | v3 | 请求/Ready/扫描响应，工作进程必须匹配 |
+| BPF 事件 ABI | v4 | 内核 ring buffer 与宿主事件解析布局 |
+
+原始配置 SHA-256 用于核对字节内容，不替代上述任何版本，也不是签名或被保护文件的内容哈希。
