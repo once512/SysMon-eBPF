@@ -39,6 +39,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | fanotify-policy | `fanotify_policy.py` | 共用 v2 配置、静态与扫描模式、空闲切换/忙队列拒绝、固定后端、配置自阻塞防护、FD 稳定 |
 | management-live | `management_live.py` | 活动内存查询、稳定重载错误、独立版本、忙请求、权限与 FD 稳定 |
 | management-faults | `management_faults.py` | 伪服务错误帧/身份/附带 FD 的客户端拒绝 |
+| control-loop | `control_loop.py` / `control_nonblocking.cpp` | 静默连接无阻塞推进与稍后发送，root 身份，不加载内核策略 |
+| namespace-policy | `namespace_policy.py` | 私有 bind 别名与私有 tmpfs 的跨挂载对象策略、两层独立清理 |
 | policy-reload | `policy_reload.py` | 真实 BPF 完整切换、版本拒绝、准备失败保留旧保护、配置权限、root 控制与重复切换 FD 回收 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |
 | baseline-lifecycle | `baseline_lifecycle.py` | 活线程 Map key/value、join 删除、合法降权、非主线程 exec 与最终删除 |
@@ -52,7 +54,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 已分别完成两轮 300 秒 fanotify 负载，处理 231241 和 231760 次打开，全部回复对账一致；配置 pending=4 时 FD 基线 5、峰值 10，未见随时间增长。详细数字和阶段记录保留在 DESIGN 中。
 
-这些结果不是吞吐基准，也不覆盖所有文件系统和命名空间。真实内核队列溢出、真实 PID 复用、容器、异步 I/O、真实提权攻击和更复杂分析引擎的故障仍需后续专项验证。独立字节扫描组件的崩溃、卡住、协议异常、初始化失败及请求取消现已覆盖。用户态容量回退与内核队列溢出是两件不同的事。
+这些结果不是吞吐基准，也不覆盖所有文件系统和命名空间。真实内核队列溢出、真实 PID 复用、完整容器支持、异步 I/O、真实提权攻击和更复杂分析引擎的故障仍需后续专项验证。独立字节扫描组件的崩溃、卡住、协议异常、初始化失败及请求取消现已覆盖。用户态容量回退与内核队列溢出是两件不同的事。
 
 专题导读：[源码结构](CODE_GUIDE.md)、[fanotify](FANOTIFY_LAB.md)、[策略组合](POLICY_LAYERS.md)、[凭证生命周期](CREDENTIAL_LIFECYCLE.md)。
 
@@ -68,3 +70,5 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 版本化文件配置增加无特权 `policy-config` CTest，格式与在线切换边界见 [策略配置](POLICY_CONFIG.md)。
 
 `analysis-scan-errors` 使用仅测试目标的系统调用/分配包装，验证扫描原因和 errno；有效错误回退与畸形错误报文另由真实权限专题覆盖。
+
+私有挂载的范围与限制详见 [命名空间策略验证](NAMESPACE_POLICY.md)。
