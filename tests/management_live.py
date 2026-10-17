@@ -123,6 +123,13 @@ def main():
                             assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base
                     finally:
                         os.close(held)
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as silent:
+                        silent.settimeout(3)
+                        silent.connect(str(gate_socket))
+                        assert open_errno(target) == errno.EPERM
+                        assert call(fan, 'status', gate_socket)['revision'] == 5
+                        assert silent.recv(1) == b''
+                    assert len(list(Path(f'/proc/{process.pid}/fd').iterdir())) == base
                     # 临时开放路径可达性，实际校验 SO_PEERCRED 而不仅是目录 DAC。
                     os.chmod(root, 0o755)
                     os.chmod(gate_socket, 0o666)

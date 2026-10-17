@@ -6,6 +6,7 @@
 #include "management/protocol.h"
 #include <string>
 #include <functional>
+#include <chrono>
 
 using ControlCommand = management::Command;
 
@@ -13,13 +14,16 @@ using ControlCommand = management::Command;
 class ControlServer {
     OwnedFd directory_;
     OwnedFd socket_;
+    OwnedFd pending_; // 最多保留一个未交付命令的连接，不在业务循环里等待其发送。
+    std::chrono::steady_clock::time_point expires_{};
     std::string name_;
     bool bound_ = false;
     static int open_directory(const std::string &path);
 public:
     explicit ControlServer(const std::string &path);
     ~ControlServer();
-    // Dispatches one bounded request and acknowledges only after the handler completes.
+    // Nonblocking dispatch: idle clients expire without delaying permission decisions.
+    // Acknowledge only after the handler completes.
     void dispatch(const std::function<management::Reply(ControlCommand)> &handler);
 };
 void request_stop(const std::string &path);

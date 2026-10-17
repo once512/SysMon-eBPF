@@ -5,6 +5,7 @@
 #include <iostream>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <cstring>
 #include <filesystem>
 #include <poll.h>
@@ -104,14 +105,26 @@ ControlServer::~ControlServer() { if (bound_) unlinkat(directory_.get(), name_.c
 
 void ControlServer::dispatch(const std::function<management::Reply(ControlCommand)> &handler)
 {
-    OwnedFd client(accept4(socket_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC));
-    if (client.get() < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
-        throw std::runtime_error("Control accept failed");
+    if (pending_.get() < 0) {
+        OwnedFd accepted(accept4(socket_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC));
+        if (accepted.get() < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
+            throw std::runtime_error("Control accept failed");
+        }
+        if (!root_peer(accepted.get())) return;
+        pending_ = std::move(accepted);
+        expires_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
     }
-    if (!root_peer(client.get())) return;
-    pollfd request{client.get(), POLLIN, 0};
-    if (poll(&request, 1, 100) <= 0) return;
+    // 管理客户端可能只 connect 而不发送。保留有限状态并立即返回，避免原先 poll(100ms) 挡住裁决截止时间。
+    pollfd request{pending_.get(), POLLIN, 0};
+    const int ready = poll(&request, 1, 0);
+    if (ready < 0 && errno == EINTR) return;
+    if (ready <= 0) {
+        if (ready < 0 || std::chrono::steady_clock::now() >= expires_) pending_ = OwnedFd();
+        return;
+    }
+    OwnedFd client(std::move(pending_));
+    if (!(request.revents & POLLIN)) return;
     char message[16]{};
     ssize_t count;
     try { count = receive_message(client.get(), message, sizeof(message)); }
