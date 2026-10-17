@@ -34,7 +34,7 @@ void validate_reply(const Reply &r, Command expected)
     // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
-        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITERS || r.reserved_tail ||
+        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES || r.reserved_tail ||
         r.pending > SECMON_MAX_PENDING || r.peak_pending > SECMON_MAX_PENDING || r.event > 3 || r.mode > 3 ||
         !analysis::valid_scan_error(r.last_scan_error, r.last_scan_errno) ||
         (r.backend != Backend::bpf && r.backend != Backend::fanotify && r.backend != Backend::combined))

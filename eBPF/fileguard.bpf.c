@@ -45,7 +45,7 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
     if (!(entry->flags & SECMON_FILE_IDENTITY)) {
         if (!(entry->flags & SECMON_FILE_READONLY)) return 0;
-        if (authorized_writer(policy)) return 0;
+        if (authorized_writer(policy, entry, operation)) return 0;
     }
     count_stat(SECMON_POLICY_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);

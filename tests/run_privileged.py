@@ -21,6 +21,7 @@ TESTS = (
     ('policy-layers', 'policy_composition.py'),
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
+    ('writer-scope', 'writer_scope.py'),
     ('writer-capacity', 'writer_capacity.py'),
     ('writer-layers', 'writer_layers.py'),
     ('fanotify-policy', 'fanotify_policy.py'),

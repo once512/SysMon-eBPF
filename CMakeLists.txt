@@ -34,7 +34,7 @@ add_custom_command(OUTPUT "${BPF_OBJ}"
         -Wall -Werror -I${CMAKE_CURRENT_BINARY_DIR}
         -I${CMAKE_CURRENT_SOURCE_DIR}/eBPF -I${CMAKE_CURRENT_SOURCE_DIR}/include ${LIBBPF_CFLAGS}
         -c ${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c -o ${BPF_OBJ}
-    DEPENDS eBPF/secmon.bpf.c eBPF/writer_identity.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h include/secmon/policy_limits.h "${VMLINUX}"
+    DEPENDS eBPF/secmon.bpf.c eBPF/writer_identity.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h include/secmon/policy_limits.h include/secmon/file_operations.h "${VMLINUX}"
     VERBATIM)
 # skeleton 从当前 ELF 生成并嵌入对象；BpfMonitor 调用生成的 open/load/attach/destroy 接口。
 add_custom_command(OUTPUT "${BPF_SKEL}"
@@ -43,7 +43,7 @@ add_custom_command(OUTPUT "${BPF_SKEL}"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Bpftool.cmake
     DEPENDS "${BPF_OBJ}" cmake/Bpftool.cmake VERBATIM)
 # 纯用户态公共库：配置读取/摘要、运行版本和 root 管理协议；没有 BPF/fanotify 挂载动作。
-add_library(secmon-policy STATIC src/policy_config.cpp src/policy/source.cpp src/policy/fanotify_fields.cpp src/policy_runtime.cpp src/control.cpp src/control_client.cpp
+add_library(secmon-policy STATIC src/policy_config.cpp src/policy/source.cpp src/policy/fanotify_fields.cpp src/policy/writer_fields.cpp src/policy_runtime.cpp src/control.cpp src/control_client.cpp
     src/management/protocol.cpp src/management/channel.cpp src/content_digest.cpp)
 target_include_directories(secmon-policy PUBLIC src include)
 target_compile_options(secmon-policy PRIVATE -Wall -Wextra -Werror)

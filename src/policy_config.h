@@ -33,7 +33,13 @@ struct PolicyConfig {
     // 安装后真正匹配 inode，运行时路径被替换不会使策略自动迁移。
     std::vector<std::string> paths;
     // 当前 mm->exe_file 的对象身份 + 初始 user namespace 的有效 UID，不按进程名/PID 授权。
-    struct Writer { std::string path; std::uint32_t euid; };
+    // 一条规则只选中一个显式 protect 路径；同程序可对多个目标分别声明权限，最多 64 条规则。
+    struct Writer {
+        std::string path;
+        std::uint32_t euid;
+        std::string target;
+        std::uint32_t operations;
+    };
     std::vector<Writer> writers;
 };
 // 有界单一文本格式；解析不访问文件系统，旧 version 指令按未知字段拒绝。

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 只解析参数，不创建 group/mark；传统命令行和共用配置两种入口最后都转成相同运行类型。
 #include "options.h"
+#include <secmon/policy_limits.h>
 #include <charconv>
 #include <filesystem>
 #include <iostream>
@@ -49,7 +50,7 @@ void parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
             options.decision.delay = std::chrono::milliseconds(number(arg, value, 0, 60000));
         else if (arg == "--request-timeout-ms")
             options.decision.timeout = std::chrono::milliseconds(number(arg, value, 1, 60000));
-        else if (arg == "--max-pending") options.decision.max_pending = number(arg, value, 1, 4096);
+        else if (arg == "--max-pending") options.decision.max_pending = number(arg, value, 1, SECMON_MAX_PENDING);
         else if (arg == "--timeout-decision") options.decision.timeout_allow = allow(arg, value);
         else if (arg == "--overload-decision") options.decision.overload_allow = allow(arg, value);
         else throw std::invalid_argument("Unknown option: " + std::string(arg));

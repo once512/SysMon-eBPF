@@ -4,6 +4,7 @@
 #include "policy_config.h"
 #include "policy/fields.h"
 #include "policy/fanotify_fields.h"
+#include "policy/writer_fields.h"
 #include <set>
 #include <sstream>
 
@@ -12,7 +13,8 @@ PolicyConfig parse_policy(std::istream &input)
     using namespace policy_fields;
     PolicyConfig result;
     FanotifyFields fanotify;
-    std::set<std::string> paths, writers;
+    std::set<std::string> paths;
+    std::set<std::pair<std::string, std::string>> writers;
     std::size_t bytes = 0, line_number = 0;
     std::string line;
     while (std::getline(input, line)) {
@@ -31,11 +33,14 @@ PolicyConfig parse_policy(std::istream &input)
                 result.paths.push_back(std::move(value));
             } else if (key == "allow-writer") {
                 auto value = path(fields);
-                if (!writers.insert(value).second || result.writers.size() == SECMON_MAX_WRITERS)
-                    invalid("duplicate writer path or too many writers");
+                if (result.writers.size() == SECMON_MAX_WRITER_RULES) invalid("too many writer grants");
                 // (uid_t)-1 是无效 UID；此处只验证文本，同 inode 别名冲突在候选 Map 准备时验证。
                 const auto uid = number<std::uint32_t>(word(fields), 0, UINT32_MAX - 1);
-                result.writers.push_back({std::move(value), uid});
+                auto target = path(fields);
+                const auto operations = parse_writer_operations(word(fields));
+                // 规则按程序路径/目标路径去重；相同 inode 的别名冲突仍交给固定对象阶段判断。
+                if (!writers.emplace(value, target).second) invalid("duplicate writer/target grant");
+                result.writers.push_back({std::move(value), uid, std::move(target), operations});
             } else if (key.compare(0, 9, "fanotify-") == 0) fanotify.parse(key, fields);
             else if (key == "revision" && !result.revision)
                 result.revision = number<std::uint64_t>(word(fields), 1, UINT64_MAX);
@@ -48,6 +53,8 @@ PolicyConfig parse_policy(std::istream &input)
         }
     }
     if (input.bad() || !result.revision) invalid("Invalid policy: missing positive revision or input failure");
+    for (const auto &writer : result.writers)
+        if (!paths.count(writer.target)) invalid("writer target must be an explicit protect path: " + writer.target);
     result.fanotify = fanotify.finish();
     return result;
 }

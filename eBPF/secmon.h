@@ -3,6 +3,7 @@
 #ifndef SECMON_H
 #define SECMON_H
 #include <secmon/policy_limits.h>
+#include <secmon/file_operations.h>
 /* 当前唯一事件布局标识，供宿主检错；不存在历史事件解码或兼容分支。 */
 #define SECMON_ABI_VERSION 4
 #define SECMON_COMM_LEN 16
@@ -26,11 +27,10 @@ struct file_key {
 struct file_policy_value {
     unsigned int flags;
     unsigned int writer_euid;
-};
-enum secmon_file_operation {
-    SECMON_OP_OPEN_WRITE = 1, SECMON_OP_WRITE, SECMON_OP_TRUNCATE,
-    SECMON_OP_UNLINK, SECMON_OP_RENAME, SECMON_OP_LINK, SECMON_OP_SETATTR,
-    SECMON_OP_MMAP_WRITE, SECMON_OP_SIGNAL, SECMON_OP_PTRACE
+    /* 本程序 inode 对应的授权规则位；多个路径/目标规则合并为同一主体身份。 */
+    unsigned long long writer_rules;
+    /* 每个操作对应一组规则位；只有主体规则与目标操作规则存在交集才允许。 */
+    unsigned long long allowed_writers[SECMON_FILE_OPERATION_COUNT];
 };
 // 同一个结构承载多类事件，kind 决定哪些字段有效；所有事件先清零，宿主再按 kind 输出。
 struct exec_event {

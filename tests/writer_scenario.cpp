@@ -55,6 +55,12 @@ int main(int argc, char **argv)
         return 0;
     }
     if (!std::strcmp(argv[1], "write")) return write_file(argv[2]);
+    if (!std::strcmp(argv[1], "open-write")) {
+        const int fd = open(argv[2], O_WRONLY | O_CLOEXEC);
+        if (fd < 0) return errno;
+        close(fd);
+        return 0;
+    }
     if (!std::strcmp(argv[1], "uid-write") && argc == 4) {
         if (setgid(65534) || setuid(static_cast<uid_t>(std::strtoul(argv[3], nullptr, 10)))) return errno;
         return write_file(argv[2]);

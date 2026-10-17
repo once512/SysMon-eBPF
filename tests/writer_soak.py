@@ -42,9 +42,9 @@ def main():
         def publish(revision, uid, broken=False):
             text = f'revision {revision}\nprotect "{target}"\n'
             if uid is not None:
-                text += f'allow-writer "{trusted}" {uid}\n'
+                text += f'allow-writer "{trusted}" {uid} "{target}" all\n'
             if broken:
-                text += f'allow-writer "{root / "missing"}" 0\n'
+                text += f'allow-writer "{root / "missing"}" 0 "{target}" all\n'
             stage = private / 'staging'
             stage.write_text(text)
             stage.chmod(0o600)

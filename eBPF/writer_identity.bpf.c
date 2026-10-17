@@ -2,7 +2,7 @@
 /* 普通 fork 保留同一 mm/可执行对象；exec 换成新对象后，下次操作重新匹配，因此不永久继承授权。 */
 /* 脚本执行时该对象通常是解释器，信任通用解释器会放行它执行的所有代码，不能区分脚本。 */
 /* 本辅助函数返回逻辑值：0 表示没有主体例外；与 LSM 程序返回 0 表示本层不拒绝的含义不同。 */
-static __always_inline int authorized_writer(void *policy)
+static __always_inline int authorized_writer(void *policy, const struct file_policy_value *target, u32 operation)
 {
     struct task_struct *task = bpf_get_current_task_btf();
     /* 此处读已经生效的进程执行对象，不读 exec 请求的文件名； */
@@ -18,5 +18,9 @@ static __always_inline int authorized_writer(void *policy)
     /* 目标已需要保护时，调用程序未命中 WRITER 就没有例外，外层文件钩子仍会返回 EACCES。 */
     if (!writer || !(writer->flags & SECMON_FILE_WRITER)) return 0;
     // kuid.val 是内核全局 UID 坐标，不是容器内自行解释的 UID 数字。
-    return writer->writer_euid == BPF_CORE_READ(task, cred, euid.val);
+    if (writer->writer_euid != BPF_CORE_READ(task, cred, euid.val)) return 0;
+    /* 显式界限也让 verifier 能证明下面动态索引始终在 value 的八个元素内。 */
+    if (!operation || operation > SECMON_FILE_OPERATION_COUNT) return 0;
+    /* 主体与目标都在同一只读候选 Map 中：切换不会混用两版规则位编号。 */
+    return (writer->writer_rules & target->allowed_writers[operation - 1]) != 0;
 }

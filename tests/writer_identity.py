@@ -44,7 +44,7 @@ def main():
             staging = root / 'staging'
             staging.write_text('revision ' + str(revision) + '\n' +
                                ''.join(f'protect "{p}"\n' for p in ([target] if paths is None else paths)) +
-                               ''.join(f'allow-writer "{p}" {uid}\n' for p, uid in writers))
+                               ''.join(f'allow-writer "{p}" {uid} "{target}" all\n' for p, uid in writers))
             staging.chmod(0o600)
             staging.replace(config)
 

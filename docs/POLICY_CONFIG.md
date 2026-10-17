@@ -123,6 +123,8 @@ fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已
 
 ## 程序对象修改授权
 
-新增 `allow-writer "/absolute/program" EUID`，最多 64 条，与最多 256 条 `protect` 共用一份 320 项候选 Map。身份、撤销、代码保护及实验边界详见 [程序对象授权](WRITER_IDENTITY.md)。fanotify 仍只应用自己的字段，不按 writer 绕过裁决。
+使用 `allow-writer "/absolute/program" EUID "/protected/target" open-write,write`，最多 64 条规则（相同程序对不同目标分别计数），目标必须与某条 protect 的路径文本一致，与最多 256 条 `protect` 共用一份 320 项候选 Map。身份、撤销、代码保护及实验边界详见 [程序对象授权](WRITER_IDENTITY.md)。fanotify 仍只应用自己的字段，不按 writer 绕过裁决。
 
 联合服务的对象所有权与提交时序详见 [单服务结构](UNIFIED_SERVICE.md)。
+
+原来仅含程序路径和 UID 的 allow-writer 写法已移除；必须明确目标与操作，不提供隐式全局授权或历史语法兼容。

@@ -15,7 +15,8 @@ class FileKey(ctypes.Structure):
 
 
 class FileValue(ctypes.Structure):
-    _fields_ = [('flags', ctypes.c_uint32), ('euid', ctypes.c_uint32)]
+    _fields_ = [('flags', ctypes.c_uint32), ('euid', ctypes.c_uint32), ('rules', ctypes.c_uint64),
+                ('allowed', ctypes.c_uint64 * 8)]
 
 
 def map_info(map_id):
@@ -55,7 +56,7 @@ class PolicyMapView:
             info = map_info(self.map_id)
             assert info['type'] == 'hash' and info['max_entries'] == 320
             assert info['bytes_key'] == ctypes.sizeof(FileKey) == 16
-            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 8
+            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 80
         except BaseException:
             self.close()
             raise
@@ -66,7 +67,7 @@ class PolicyMapView:
             raise OSError(ctypes.get_errno(), 'open policy inspection FD')
         return fd
 
-    def entries(self):
+    def entries(self, full=False):
         # 本项目发布后不原地修改内层 Map，本 FD 固定的版本可完整遍历；不宣称通用 HASH 并发快照。
         result, previous = {}, None
         for _ in range(321):
@@ -77,7 +78,7 @@ class PolicyMapView:
             value = FileValue()
             if self.lib.bpf_map_lookup_elem(self.inner, ctypes.byref(key), ctypes.byref(value)):
                 raise OSError(ctypes.get_errno(), 'read fixed policy entry')
-            result[(key.major, key.minor, key.ino)] = (value.flags, value.euid)
+            result[(key.major, key.minor, key.ino)] = (value.flags, value.euid, value.rules, tuple(value.allowed)) if full else (value.flags, value.euid)
             previous = key
         raise AssertionError('policy iteration exceeded bounded capacity')
 

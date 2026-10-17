@@ -35,7 +35,7 @@ def main():
         def publish(revision, decision, writer):
             stage = root / 'staging'
             stage.write_text(f'revision {revision}\nprotect "{target}"\n' +
-                             (f'allow-writer "{trusted}" 0\n' if writer else '') +
+                             (f'allow-writer "{trusted}" 0 "{target}" all\n' if writer else '') +
                              f'fanotify-file "{target}"\nfanotify-decision {decision}\n')
             stage.chmod(0o600)
             stage.replace(config)

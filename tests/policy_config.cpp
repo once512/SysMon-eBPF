@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 单一配置格式：revision 负责重载顺序，不要求格式版本；旧 version 字段和非法参数均拒绝。
 #include "policy_config.h"
+#include "policy/writer_fields.h"
+#include <secmon/file_operations.h>
 #include <sstream>
 #include <stdexcept>
 #include <iostream>
@@ -57,21 +59,35 @@ int main() {
     std::istringstream analyzer(base + "fanotify-analyzer \"/worker\"\nfanotify-marker \"BLOCK\"\nfanotify-scan-limit-bytes 99\nfanotify-error-decision allow");
     auto analyzed = parse_policy(analyzer);
     require(analyzed.fanotify && analyzed.fanotify->scan_limit == 99 && analyzed.fanotify->analyzer_error_allow);
-    std::istringstream writer(base + "fanotify-decision deny\nprotect \"/data\"\nallow-writer \"/program\" 65534\n");
+    const char *operation_names[] = {"open-write", "write", "truncate", "unlink", "rename", "link", "setattr", "mmap-write"};
+    for (unsigned i = 0; i < SECMON_FILE_OPERATION_COUNT; ++i)
+        require(parse_writer_operations(operation_names[i]) == (1U << i));
+    require(parse_writer_operations("all") == SECMON_FILE_OPERATION_MASK);
+    require(parse_writer_operations("mmap-write,setattr,link,rename,unlink,truncate,write,open-write") == SECMON_FILE_OPERATION_MASK);
+    const std::string data = "revision 1\nprotect \"/data\"\n";
+    std::istringstream writer(base + "fanotify-decision deny\nprotect \"/data\"\nallow-writer \"/program\" 65534 \"/data\" open-write,write\n");
     auto authorized = parse_policy(writer);
     require(authorized.fanotify && authorized.paths.size() == 1 && authorized.writers.size() == 1);
     require(authorized.writers[0].path == "/program" && authorized.writers[0].euid == 65534);
-    for (const auto *tail : {"", "-1", "+1", "4294967295", "4294967296", "1x", "1 extra"})
-        reject(std::string("revision 1\nallow-writer \"/exe\" ") + tail);
-    reject("revision 1\nallow-writer /exe 0");
-    reject("revision 1\nallow-writer \"relative\" 0");
-    reject("revision 1\nallow-writer \"/exe\" 0\nallow-writer \"/exe\" 1");
-    std::string writers = "revision 1\n";
-    for (int i = 0; i < 65; ++i) writers += "allow-writer \"/exe" + std::to_string(i) + "\" 0\n";
+    require(authorized.writers[0].target == "/data" && authorized.writers[0].operations == 3);
+    for (const auto *uid : {"-1", "+1", "4294967295", "4294967296", "1x"})
+        reject(data + "allow-writer \"/exe\" " + uid + " \"/data\" all");
+    for (const auto *tail : {"", "0", "0 \"/data\"", "0 \"/unknown\" all", "0 /data all",
+            "0 \"/data\" all extra", "0 \"/data\" all,write", "0 \"/data\" write,write",
+            "0 \"/data\" write,", "0 \"/data\" ,write", "0 \"/data\" write,,truncate",
+            "0 \"/data\" unknown", "0 \"/data\" signal"})
+        reject(data + "allow-writer \"/exe\" " + tail);
+    reject(data + "allow-writer /exe 0 \"/data\" all");
+    reject(data + "allow-writer \"relative\" 0 \"/data\" all");
+    reject(data + "allow-writer \"/exe\" 0 \"/data\" write\nallow-writer \"/exe\" 0 \"/data\" truncate");
+    std::string writers = data;
+    for (int i = 0; i < 65; ++i) writers += "allow-writer \"/exe" + std::to_string(i) + "\" 0 \"/data\" all\n";
     reject(writers);
     std::istringstream maximum(writers.substr(0, writers.rfind("allow-writer")));
     require(parse_policy(maximum).writers.size() == 64);
-    std::istringstream largest_uid("revision 1\nallow-writer \"/exe\" 4294967294\n");
+    std::istringstream largest_uid(data + "allow-writer \"/exe\" 4294967294 \"/data\" all\n");
     require(parse_policy(largest_uid).writers[0].euid == 4294967294U);
-    std::cout << "PASS single policy format, revisions, combined features and strict boundaries\n";
+    std::istringstream separated(data + "protect \"/other\"\nallow-writer \"/exe\" 0 \"/data\" write\nallow-writer \"/exe\" 0 \"/other\" unlink");
+    require(parse_policy(separated).writers.size() == 2);
+    std::cout << "PASS single policy format, revisions, scoped grants and strict boundaries\n";
 }

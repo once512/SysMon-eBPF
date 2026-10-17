@@ -97,7 +97,7 @@ sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
 
 ## 授权条数
 
-BPF 状态的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不按 writer 绕过裁决；仅 fanotify 的诊断模式不提供此字段。
+BPF 状态的 writer_paths 是已提交的 allow-writer 规则中的程序路径条数，范围 0..64；相同程序对不同目标的规则分别计数，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不按 writer 绕过裁决；仅 fanotify 的诊断模式不提供此字段。
 
 ## 同包交付与布局检查
 

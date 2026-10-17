@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <map>
 #include "secmon.h"
 
 #include "file_policy.h"
@@ -18,8 +19,10 @@
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
+    static_assert(sizeof(file_policy_value) == 80);
+    static_assert(SECMON_MAX_WRITER_RULES <= 64, "Rule bitmap must fit uint64");
     const auto &paths = config.paths;
-    if (config.writers.size() > SECMON_MAX_WRITERS) throw std::runtime_error("Too many authorized writers");
+    if (config.writers.size() > SECMON_MAX_WRITER_RULES) throw std::runtime_error("Too many authorized writers");
     if (paths.size() > SECMON_MAX_PROTECTED_PATHS) throw std::runtime_error("Too many protected paths");
     // candidate 是未发布的事务资源集合；
     // 异常只销毁候选，当前对象仍持有活动策略的全部 inode。
@@ -30,19 +33,27 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     OwnedFd policy_map(bpf_map_create(BPF_MAP_TYPE_HASH, "file_policy", sizeof(file_key),
                                      sizeof(file_policy_value), SECMON_POLICY_CAPACITY, nullptr));
     if (policy_map.get() < 0) throw std::runtime_error("Cannot create candidate policy map");
+    std::map<std::string, file_key> target_keys;
     for (const auto &path : paths) {
         auto pinned = pin_policy_file(path, false);
         // 移动 FD 后仍可读取 pinned.key；
         // 键是值数据，FD 则已有唯一的新所有者。
         candidate.descriptors_.push_back(std::move(pinned.fd));
         const auto key = pinned.key;
-        file_policy_value policy{SECMON_FILE_READONLY, 0};
+        target_keys.emplace(path, key);
+        file_policy_value policy{};
+        policy.flags = SECMON_FILE_READONLY;
         if (bpf_map_update_elem(policy_map.get(), &key, &policy, BPF_ANY))
             throw std::runtime_error("Cannot install policy for " + path + ": " + std::strerror(errno));
         std::cerr << "Prepared policy inode " << key.major << ':' << key.minor << ':' << key.ino
                   << " path=" << path << '\n';
     }
-    for (const auto &writer : config.writers) {
+    for (std::size_t index = 0; index < config.writers.size(); ++index) {
+        const auto &writer = config.writers[index];
+        const auto selected = target_keys.find(writer.target);
+        if (selected == target_keys.end() || !writer.operations || (writer.operations & ~SECMON_FILE_OPERATION_MASK))
+            throw std::runtime_error("Writer grant requires a protected target and valid operations");
+        const auto rule = 1ULL << index;
         auto pinned = pin_policy_file(writer.path, true);
         candidate.descriptors_.push_back(std::move(pinned.fd));
         // 先读候选表已有值以合并 protect/writer 标志；
@@ -55,10 +66,20 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
             throw std::runtime_error("Conflicting UIDs for one writer inode");
         value.flags |= SECMON_FILE_WRITER | SECMON_FILE_IDENTITY;
         value.writer_euid = writer.euid;
+        value.writer_rules |= rule;
         if (bpf_map_update_elem(policy_map.get(), &pinned.key, &value, BPF_ANY))
             throw std::runtime_error("Cannot prepare writer identity");
+        // 从本候选已固定的 protect 对象引用取键，不额外解析目标路径，避免同一候选内路径替换。
+        file_policy_value target{};
+        if (bpf_map_lookup_elem(policy_map.get(), &selected->second, &target))
+            throw std::runtime_error("Cannot inspect candidate grant target");
+        for (unsigned int operation = 0; operation < SECMON_FILE_OPERATION_COUNT; ++operation)
+            if (writer.operations & (1U << operation)) target.allowed_writers[operation] |= rule;
+        if (bpf_map_update_elem(policy_map.get(), &selected->second, &target, BPF_EXIST))
+            throw std::runtime_error("Cannot prepare scoped writer grant");
         std::cerr << "Prepared writer inode " << pinned.key.major << ':' << pinned.key.minor
-                  << ':' << pinned.key.ino << " euid=" << writer.euid << " path=" << writer.path << '\n';
+                  << ':' << pinned.key.ino << " euid=" << writer.euid << " path=" << writer.path
+                  << " target=" << writer.target << " operations=" << writer.operations << '\n';
     }
     const unsigned int slot = 0;
     // 外层 Map update 的 value 是内层 Map FD；内核保存对象引用，成功后可关闭宿主的这个管理 FD。
