@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "decisions.h"
+#include "event_kind.h"
 #include <string>
 
 struct FanotifyOptions {
     std::string path;
+    PermissionEvent event = PermissionEvent::open;
     DecisionConfig decision;
     unsigned int seconds = 0;
 };

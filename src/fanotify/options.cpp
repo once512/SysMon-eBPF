@@ -30,13 +30,14 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
 {
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
         std::cout << "Usage: secmon-fanotify --file PATH --decision allow|deny --run-for SECONDS\n"
+                     "  --event open|access|exec          (default open; one event type)\n"
                      "Optional deferred-decision experiment:\n"
                      "  --decision-delay-ms 0..60000     (default 0; synthetic analysis delay)\n"
                      "  --request-timeout-ms 1..60000    (default 250; starts on event receipt)\n"
                      "  --max-pending 1..4096            (default 64; delivered events only)\n"
                      "  --timeout-decision allow|deny    (default deny)\n"
                      "  --overload-decision allow|deny   (default deny)\n"
-                     "Single-inode FAN_OPEN_PERM experiment; requires CAP_SYS_ADMIN.\n"
+                     "Single-inode permission experiment; requires CAP_SYS_ADMIN.\n"
                      "SECONDS: 1..3600. Closing/crashing releases unread/pending requests.\n";
         return false;
     }
@@ -47,6 +48,7 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
         if (i + 1 >= argc) throw std::invalid_argument("Missing value: " + std::string(arg));
         const std::string_view value(argv[++i]);
         if (arg == "--file") options.path = value;
+        else if (arg == "--event") options.event = parse_permission_event(value);
         else if (arg == "--decision") options.decision.allow = allow(arg, value);
         else if (arg == "--run-for") options.seconds = number(arg, value, 1, 3600);
         else if (arg == "--decision-delay-ms")

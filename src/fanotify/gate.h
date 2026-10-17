@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "decisions.h"
+#include "event_kind.h"
 #include <cstdint>
 #include <string>
 
@@ -18,11 +19,13 @@ struct GateStats {
 class PermissionGate {
     OwnedFd target_; // Pin before marking; release after the fanotify group.
     OwnedFd group_;
+    std::uint64_t mask_;
     GateStats stats_;
     PendingDecisions pending_;
     void respond(int fd, Verdict verdict);
 public:
-    PermissionGate(const std::string &path, DecisionConfig config);
+    PermissionGate(const std::string &path, DecisionConfig config,
+                   PermissionEvent event = PermissionEvent::open);
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     PermissionGate(PermissionGate &&) = delete; // The reply callback captures this.

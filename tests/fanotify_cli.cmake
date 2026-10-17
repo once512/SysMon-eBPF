@@ -28,3 +28,6 @@ expect_invalid(${base} --max-pending 0)
 expect_invalid(${base} --max-pending 4097)
 expect_invalid(${base} --timeout-decision unknown)
 expect_invalid(${base} --overload-decision unknown)
+
+expect_invalid(${base} --event unknown)
+expect_invalid(${base} --event open --event exec)

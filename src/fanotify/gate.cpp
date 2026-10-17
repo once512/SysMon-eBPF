@@ -42,14 +42,14 @@ int create_group()
 }
 }
 
-PermissionGate::PermissionGate(const std::string &path, DecisionConfig config)
-    : target_(pin_file(path)), group_(create_group()),
+PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event)
+    : target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
       pending_(config, [this](int fd, Verdict verdict) { respond(fd, verdict); })
 {
     // Follow the pinned FD rather than resolving the user's path a second time.
     const auto pinned = "/proc/self/fd/" + std::to_string(target_.get());
-    if (fanotify_mark(group_.get(), FAN_MARK_ADD, FAN_OPEN_PERM,
-                      AT_FDCWD, pinned.c_str())) fail("fanotify_mark FAN_OPEN_PERM");
+    if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_,
+                      AT_FDCWD, pinned.c_str())) fail("fanotify_mark permission event");
 }
 
 bool PermissionGate::poll_once(int timeout_ms)
@@ -86,7 +86,7 @@ bool PermissionGate::poll_once(int timeout_ms)
         // Stop visibly rather than presenting incomplete coverage as healthy.
         throw std::runtime_error("fanotify queue overflow; closing group releases pending requests");
     }
-    if (event.fd < 0 || event.mask != FAN_OPEN_PERM)
+    if (event.fd < 0 || event.mask != mask_)
         throw std::runtime_error("Unexpected fanotify permission event");
     pending_.submit(std::move(event_fd), PendingDecisions::Clock::now());
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());

@@ -28,8 +28,9 @@ int main(int argc, char **argv)
         if (sigaction(SIGINT, &action, nullptr) || sigaction(SIGTERM, &action, nullptr))
             throw std::runtime_error("Cannot install signal handlers");
         {
-            PermissionGate gate(options.path, options.decision);
-            std::cerr << "Fanotify active; decision=" << (options.decision.allow ? "allow" : "deny") << '\n';
+            PermissionGate gate(options.path, options.decision, options.event);
+            std::cerr << "Fanotify active; decision=" << (options.decision.allow ? "allow" : "deny")
+                      << " event=" << permission_name(options.event) << '\n';
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(options.seconds);
             try {
                 while (!stopping && std::chrono::steady_clock::now() < deadline)
@@ -45,7 +46,7 @@ int main(int argc, char **argv)
                   << " timed_out=" << stats.timed_out << " overloaded=" << stats.overloaded << '\n';
         return 1;
     }
-    std::cout << "{\"allowed\":" << stats.allowed << ",\"denied\":" << stats.denied
+    std::cout << "{\"permission_event\":\"" << permission_name(options.event) << "\",\"allowed\":" << stats.allowed << ",\"denied\":" << stats.denied
               << ",\"overflow\":" << stats.overflow << ",\"timed_out\":" << stats.timed_out
               << ",\"overloaded\":" << stats.overloaded
               << ",\"shutdown_denied\":" << stats.shutdown_denied
