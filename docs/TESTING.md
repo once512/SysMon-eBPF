@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 12 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 13 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -21,6 +21,8 @@ sudo python3 tests/run_privileged.py --build-dir build --soak-duration 90
 sudo python3 tests/run_privileged.py --build-dir build --only credential-transitions
 ```
 
+BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验证。
+
 入口按顺序启动测试，失败即停止，最后输出每项结果与耗时的 JSON 汇总。不要使用 `python -O` 或 `PYTHONOPTIMIZE`，测试需要启用断言。运行前停止手工启动的旧版 secmon，避免额外策略影响结果。
 
 要求 root、活动 BPF LSM、BTF 和 fanotify 权限事件支持。凭证 Map 检查使用系统 libbpf 与 bpftool，合法权限转换实验另需 `setcap`。临时文件系统须支持相关标记、setuid、文件 capabilities 与执行；不满足时报告失败，不悄悄省略场景。
@@ -31,6 +33,7 @@ sudo python3 tests/run_privileged.py --build-dir build --only credential-transit
 | self-protection | `self_protection.py` | 信号、ptrace 类检查、管理端身份、授权停止、期限及 socket 清理 |
 | fanotify-open | `fanotify.py` | 单文件打开裁决、硬链接/重命名、已有 FD、崩溃释放 |
 | fanotify-deferred | `fanotify_deferred.py` | 延迟、接收后超时、容量回退、队列预算、正常退出排空 |
+| analysis-faults | `fanotify_analysis_faults.py` | 错误/重复/迟到回复、FD 超额、请求取消及后端隔离 |
 | fanotify-analysis | `fanotify_analysis.py` | 独立进程内容扫描、传递 FD、无递归、降权与故障回退 |
 | fanotify-events | `fanotify_events.py` | 普通读取、mmap 边界、ELF/脚本直接执行与解释读取区别 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |
