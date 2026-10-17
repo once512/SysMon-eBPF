@@ -3,6 +3,7 @@
 #include <bpf/libbpf.h>
 #include <cerrno>
 #include <chrono>
+#include <charconv>
 #include <csignal>
 #include <cstring>
 #include <fstream>
@@ -15,6 +16,8 @@
 #include <sys/utsname.h>
 #include "secmon.h"
 #include "file_policy.h"
+#include "control.h"
+#include <sys/syscall.h>
 #include <secmon.skel.h>
 
 namespace {
@@ -48,6 +51,15 @@ int consume(void *, void *data, std::size_t size)
     std::memcpy(&e, data, sizeof(e));
     if (e.version != SECMON_ABI_VERSION || e.size != sizeof(e)) {
         std::cerr << "Event ABI mismatch\n";
+        return 0;
+    }
+    if (e.kind == SECMON_SELF_DENIED_EVENT) {
+        std::cout << "{\"event\":\"self_denied\",\"timestamp_ns\":" << e.timestamp_ns
+                  << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
+                  << ",\"target_pid\":" << e.target_pid << ",\"signal\":" << e.signal
+                  << ",\"operation\":" << e.operation << ",\"errno\":1"
+                  << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
+                  << ",\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
         return 0;
     }
     if (e.kind == SECMON_FILE_DENIED) {
@@ -87,7 +99,7 @@ void report_stats(int fd)
             throw std::runtime_error("Cannot read BPF statistics");
         unsigned long long total = 0;
         for (const auto value : values) total += value;
-        const char *names[] = {"ringbuf_dropped=", "baseline_update_failed=", "policy_denied="};
+        const char *names[] = {"ringbuf_dropped=", "baseline_update_failed=", "policy_denied=", "self_denied="};
         std::cerr << names[key]
                   << total << '\n';
     }
@@ -97,23 +109,43 @@ int main(int argc, char **argv)
 {
     bool check = false;
     std::vector<std::string> paths;
+    std::string control_path;
+    unsigned int run_seconds = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--help" && argc == 2) {
-            std::cout << "Usage: secmon [--check] [--protect-file PATH ...]\n"
+            std::cout << "Usage: secmon [--check] [--protect-file PATH ...] [--self-protect SOCKET] [--run-for SECONDS]\n"
                          "Default: execution/credential audit. --protect-file enforces read-only\n"
                          "on an existing regular file inode for all tasks, including root.\n"
+                         "--self-protect SOCKET: protect this process; requires a root-owned private directory.\n"
+                         "secmon --stop SOCKET: authorized root shutdown.\n"
+                         "--run-for SECONDS: exit internally after 1..3600 seconds.\n"
                          "--check: inspect environment without attaching BPF.\n";
             return 0;
         }
         if (arg == "--check") check = true;
+        else if (arg == "--run-for" && i + 1 < argc) {
+            std::string_view value(argv[++i]);
+            auto result = std::from_chars(value.data(), value.data() + value.size(), run_seconds);
+            if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+                run_seconds == 0 || run_seconds > 3600) {
+                std::cerr << "--run-for requires 1..3600 seconds\n";
+                return 2;
+            }
+        }
+        else if (arg == "--self-protect" && i + 1 < argc && control_path.empty())
+            control_path = argv[++i];
+        else if (arg == "--stop" && argc == 3 && i == 1) {
+            try { request_stop(argv[2]); return 0; }
+            catch (const std::exception &error) { std::cerr << error.what() << '\n'; return 1; }
+        }
         else if (arg == "--protect-file" && i + 1 < argc) paths.emplace_back(argv[++i]);
         else {
             std::cerr << "Invalid argument; use --help\n";
             return 2;
         }
     }
-    if ((check && !paths.empty()) || paths.size() > 256) {
+    if ((check && (!paths.empty() || !control_path.empty() || run_seconds)) || paths.size() > 256) {
         std::cerr << "--check cannot install policies; at most 256 files are supported\n";
         return 2;
     }
@@ -133,12 +165,23 @@ int main(int argc, char **argv)
             std::cerr << "Environment check passed; hook/load permissions require actual attach.\n";
             return 0;
         }
+        std::unique_ptr<ControlServer> control;
+        if (!control_path.empty()) control = std::make_unique<ControlServer>(control_path);
         ProtectedFiles protected_files; // Must outlive BPF links.
         std::unique_ptr<secmon_bpf, decltype(&secmon_bpf__destroy)> skel(
             secmon_bpf__open(), secmon_bpf__destroy);
         if (!skel) throw std::runtime_error("Cannot open BPF skeleton");
         if (secmon_bpf__load(skel.get()))
             throw std::runtime_error("BPF load failed; inspect libbpf diagnostics and privileges");
+        if (control) {
+            OwnedFd self(static_cast<int>(syscall(SYS_pidfd_open, getpid(), 0)));
+            unsigned int enabled = 1;
+            if (self.get() < 0) throw std::runtime_error("Cannot open self pidfd");
+            const int fd = self.get();
+            if (bpf_map_update_elem(bpf_map__fd(skel->maps.protected_tasks), &fd,
+                                    &enabled, BPF_NOEXIST))
+                throw std::runtime_error("Cannot install task-local self-protection policy");
+        }
         protected_files.install(bpf_map__fd(skel->maps.protected_files), paths);
         std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring(
             ring_buffer__new(bpf_map__fd(skel->maps.events), consume, nullptr, nullptr),
@@ -150,10 +193,18 @@ int main(int argc, char **argv)
         if (sigaction(SIGINT, &action, nullptr) || sigaction(SIGTERM, &action, nullptr))
             throw std::runtime_error("Cannot install signal handlers");
         if (secmon_bpf__attach(skel.get())) throw std::runtime_error("BPF attach failed");
+        if (control) std::cerr << "Self protection active; stop via --stop " << control_path << '\n';
         if (!paths.empty()) std::cerr << "File read-only policy active for " << paths.size() << " paths\n";
         std::cerr << "Audit active; exec_check events are attempts, not successful execs.\n";
-        auto next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        const auto started = std::chrono::steady_clock::now();
+        auto next = started + std::chrono::seconds(10);
         while (!stopping) {
+            if (run_seconds && std::chrono::steady_clock::now() - started >=
+                std::chrono::seconds(run_seconds)) break;
+            if (control && control->stop_requested()) {
+                std::cerr << "Authorized control stop accepted\n";
+                break;
+            }
             const int result = ring_buffer__poll(ring.get(), 250);
             if (result < 0 && result != -EINTR) throw std::runtime_error("Ring buffer poll failed");
             if (!std::cout) throw std::runtime_error("Event output failed");

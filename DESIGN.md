@@ -250,3 +250,14 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 事件 ABI 升至 3，新增文件拒绝事件及累计拒绝计数。拒绝事件包含设备号与 inode，不尝试把不完整路径当作可靠身份；审计失败不影响拒绝结果。
 - 构建和四项普通测试通过。扩展特权集成测试通过 13 类 EACCES 拒绝场景，包括已有 FD、硬链接、删除和重命名、共享 mmap/mprotect；读取、私有映射及未受保护文件写入正常。退出后策略解除，原有四个凭证/执行场景继续通过，丢失和基线更新失败计数均为零。
 - 边界：只保护指定 inode，不递归保护目录和路径命名空间；不撤销既有共享可写映射。不承诺覆盖未验证的异步 I/O、文件系统 ioctl、扩展属性/ACL、块设备或 overlay 等访问路径。当前不固定 BPF 链接，守护进程停止后策略释放，尚未提供持久自保护。
+
+### 2026-10-17：自身任务保护与管理退出通道
+
+- 文件保护检查点已提交为 `aaed0f3`。本阶段增加可选 `--self-protect SOCKET`，使用 task_kill 和 ptrace_access_check 限制外部信号及进程访问。
+- 通过 pidfd 将自身 leader 加入 BPF task local storage，避免 PID 复用和按进程名授权。目标线程组自身操作与信号 0 不拒绝；外部 root 信号同样拒绝。ABI 升至 4，增加自保护拒绝事件和计数。
+- 管理退出使用私有目录中的 Unix SOCK_SEQPACKET socket，服务端及客户端均校验 root peer 身份；服务仅接受 stop。目录以 FD 固定，socket 权限 0600，拒绝自动覆盖已有路径。当前管理授权粒度是 root，不声称防御同权限宿主机管理员。
+- 增加 `--run-for SECONDS` 内部退出时限，用于有界运行与故障清理；不能依赖外部 timeout 向受保护进程发送终止信号。
+- 首次 verifier 拒绝 probe-read 得到的标量指针用于 task-storage helper；改用保留 BTF 指针类型的直接 CO-RE 字段访问后，实际加载通过。
+- 自保护特权测试验证外部常见终止/停止信号、pidfd、tgkill、ptrace seize、proc mem 和 process_vm_writev 权限检查被拒绝；非目标进程信号放行，非法命令和非 root 连接拒绝，root 管理停止与内部超时退出正常。文件与凭证原有特权回归也通过；无测试 secmon 残留。
+- 边界：不拦截所有内核或终端生成信号，不保护 OOM/cgroup 管理/重启等路径，不撤销已有 tracer 和内存访问句柄，不限制高权限 BPF 管理。程序文件、配置及管理目录保护尚未自动组合。ptrace 规则较保守，可能影响部分只读 proc 查询，后续按产品需求细化。
+- 接口依据：[内核 task local storage 自测试](https://linux.googlesource.com/linux/kernel/git/bpf/bpf-next/+/53cc12a2dc88c2c6f62f507548640885a70a56a8/tools/testing/selftests/bpf/prog_tests/task_local_storage.c)；具体钩子签名按开发机内核头及 verifier 实测确认。

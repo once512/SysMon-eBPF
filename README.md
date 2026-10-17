@@ -12,7 +12,7 @@
 
 ## 当前实现
 
-总体方案见 [DESIGN.md](DESIGN.md)。目前实现执行与凭证审计，以及指定文件对象的只读保护；尚未实现进程自保护、fanotify 裁决、诱饵或完整保险箱。
+总体方案见 [DESIGN.md](DESIGN.md)。目前实现执行与凭证审计、指定文件对象的只读保护，以及可选的 secmon 进程自保护；尚未实现 fanotify 裁决、诱饵或完整保险箱。
 
 - GNU++17 宿主使用 libbpf skeleton 加载、挂载和消费事件。
 - 在执行安全检查点输出 JSON Lines；这些事件表示执行检查，不表示执行最终成功。
@@ -22,6 +22,7 @@
 - 凭证与基线不一致时设置事件 `flags` 的位 0，仅审计，不阻断。合法提交也可能来自攻击，基线不等同于可信授权。
 - 每 10 秒及退出时向标准错误输出丢失事件和基线更新失败计数。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
+- `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。
 
 ## 构建与运行
 
@@ -49,7 +50,26 @@ sudo ./build/secmon --protect-file /absolute/path/important.txt
 
 `file_denied` 包含 PID/TID、当前 UID/EUID、设备主次号、inode、操作类型及 errno=13。操作编号：1 写打开，2 写权限，3 截断，4 删除，5 重命名，6 硬链接，7 属性修改，8 共享可写映射。某些操作可能在更早的钩子被拒绝，因此事件编号不必等于用户调用的系统调用名。
 
-边界：不撤销策略启用前已有的共享可写映射，不承诺覆盖所有异步 I/O、文件系统专属 ioctl、扩展属性/ACL、底层块设备写入或其他尚未测试的操作。跨文件系统与 overlay 等环境仍需专项验证。策略按对象保护，不锁定路径命名空间。加载时各钩子依次挂载，不提供原子启用保证；正常退出、崩溃或进程被终止后，不固定到 bpffs 的链接会释放，不能视为持久自保护。
+边界：不撤销策略启用前已有的共享可写映射，不承诺覆盖所有异步 I/O、文件系统专属 ioctl、扩展属性/ACL、底层块设备写入或其他尚未测试的操作。跨文件系统与 overlay 等环境仍需专项验证。策略按对象保护，不锁定路径命名空间。加载时各钩子依次挂载，不提供原子启用保证；正常退出、崩溃或进程被终止后，不固定到 bpffs 的链接会释放，不能视为持久防护。
+
+## secmon 进程自保护
+
+```bash
+sudo install -d -m 0700 /run/secmon
+sudo ./build/secmon --self-protect /run/secmon/control.sock
+# 在另一个终端进行授权退出：
+sudo ./build/secmon --stop /run/secmon/control.sock
+```
+
+可以与 `--protect-file` 组合。自保护默认关闭；启用后，在 task_kill 和 ptrace_access_check 钩子拒绝其他进程向目标发送非零信号或进行相应访问，包括 root 发出的信号。信号 0 探测与目标线程组自身操作放行。策略通过 pidfd 写入任务本地存储，跟随线程组 leader 生命周期，不使用裸 PID 白名单。
+
+管理 socket 必须使用绝对路径，父目录须已存在、root 所有且无组/其他用户权限；服务要求 root 运行。服务将 socket 权限设为 0600，使用 SO_PEERCRED 校验管理端 UID=0，只接受完整的 `stop` 消息。socket 通过已验证目录的 FD 创建，退出时清理；不自动删除已有 socket。`--stop` 同样校验服务端 root 身份，确认收到接受响应后返回；如需确认全部退出，还应检查服务进程状态。
+
+启用自保护后不要依赖外部 `timeout` 或 kill 停止服务；测试可使用 `--run-for 20`，进程在内部计时结束后自行退出（允许 1..3600 秒）。任务保护对通过已覆盖入口的用户态信号生效，不承诺拦截终端/内核生成的所有信号、OOM、cgroup freeze/kill、重启或内核失陷。不撤销启动前已有的 ptrace 关系或已打开内存访问句柄。高权限管理员仍可通过 BPF 管理等途径解除防护，当前 root 管理身份也不等同于可信应用身份。
+
+ptrace 访问检查同时影响部分 `/proc` 查询；这版策略保守地拒绝外部 ptrace 检查，不区分只读和注入。程序文件、配置和管理目录未自动纳入文件只读策略，需要独立配置，相关完整自保护仍待扩展。
+
+`self_denied` 包含发起者 PID/TID、目标 PID、操作类型、信号和 errno=1。操作编号 9 表示信号，10 表示 ptrace 访问检查。事件字段 PID 使用内核任务标识，容器命名空间展示尚未适配。
 
 构建使用系统 libbpf，不要求初始化子模块。`vmlinux.h` 从 `/sys/kernel/btf/vmlinux` 生成，skeleton 从新编译的对象生成，均输出到构建目录；不使用仓库里旧的生成文件。切换运行内核后重新配置构建。
 
@@ -66,6 +86,7 @@ sudo ./build/secmon --protect-file /absolute/path/important.txt
 ```bash
 ctest --test-dir build --output-on-failure
 sudo python3 tests/integration.py --build-dir build
+sudo python3 tests/self_protection.py --build-dir build
 ```
 
 第一条只验证帮助命令及测试工具的普通执行、线程创建退出、非主线程 exec，不加载 BPF。
@@ -75,3 +96,5 @@ sudo python3 tests/integration.py --build-dir build
 当前开发机上该特权集成测试已全部通过，包括新增钩子的实际加载、普通执行、线程创建退出、非主线程 exec 的 TID 关联、合法降权后的执行及正常退出；两个失败计数均为 0。该测试不验证真实提权攻击检测，也不直接检查 Map 中的所有生命周期条目是否均已清理。
 
 指定文件保护的特权测试也已通过：写打开、硬链接写打开、已有 FD 写入和截断、路径截断、删除、重命名源与覆盖目标、新建硬链接、chmod、utime、共享可写 mmap 及共享 mprotect 均返回 EACCES。未受保护文件可写，受保护文件可读、私有映射不改变原文件，拒绝事件的文件身份正确，停止后可重新写入。
+
+自保护测试有内部 20 秒运行上限，已验证外部 SIGTERM/SIGINT/SIGSTOP/SIGKILL/SIGUSR1、pidfd 信号、tgkill、PTRACE_SEIZE、`/proc/PID/mem` 打开及 `process_vm_writev` 权限检查被拒绝；非法命令与非 root 管理连接被拒绝，root 授权停止、内部超时和 socket 清理正常，非目标进程信号不受影响。拒绝事件的目标身份正确，事件丢失和基线更新失败计数为 0。
