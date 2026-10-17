@@ -12,6 +12,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <sys/syscall.h>
+#include <sys/epoll.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
@@ -23,7 +24,8 @@ std::string read_file(const char *path)
 }
 }
 struct BpfMonitor::State {
-    ProtectedFiles protected_files; // 最后析构：所有 BPF 链接必须先释放。
+    AuditSink audit; // 先创建出口，最后回收；ring callback 始终借用其稳定地址。
+    ProtectedFiles protected_files; // 晚于所有 BPF 链接释放，防止保护期间 inode 被复用。
     std::unique_ptr<secmon_bpf, decltype(&secmon_bpf__destroy)> skel{nullptr, secmon_bpf__destroy};
     std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring{nullptr, ring_buffer__free};
     bool attached = false;
@@ -63,7 +65,7 @@ BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect) : state_(s
             throw std::runtime_error("Cannot install task-local self-protection policy");
     }
     state_->protected_files.install(bpf_map__fd(skel->maps.protected_files), active);
-    state_->ring.reset(ring_buffer__new(bpf_map__fd(skel->maps.events), consume, nullptr, nullptr));
+    state_->ring.reset(ring_buffer__new(bpf_map__fd(skel->maps.events), consume, &state_->audit, nullptr));
     if (!state_->ring) throw std::runtime_error("Cannot create ring buffer consumer");
     if (secmon_bpf__attach(skel.get())) throw std::runtime_error("BPF attach failed");
     state_->attached = true;
@@ -77,14 +79,22 @@ void BpfMonitor::install(const PolicyConfig &candidate)
 }
 void BpfMonitor::poll_once(int timeout_ms)
 {
-    const int result = ring_buffer__poll(state_->ring.get(), timeout_ms);
-    if (result < 0 && result != -EINTR) throw std::runtime_error("Ring buffer poll failed");
-    if (!std::cout) throw std::runtime_error("Event output failed");
+    if (timeout_ms > 0) {
+        epoll_event ready{};
+        const int result = epoll_wait(ring_buffer__epoll_fd(state_->ring.get()), &ready, 1, timeout_ms);
+        if (result < 0 && errno != EINTR) throw std::runtime_error("Ring buffer wait failed");
+    }
+    // 不能在持续审计洪流中无限 consume；每轮最多 128 条，把执行权及时还给管理和 fanotify。
+    const int result = ring_buffer__consume_n(state_->ring.get(), 128);
+    if (result < 0) throw std::runtime_error("Ring buffer consume failed");
 }
 void BpfMonitor::report()
 {
     report_stats(bpf_map__fd(state_->skel->maps.stats));
-    std::cout.flush();
+    const auto audit = audit_stats();
+    std::cerr << "audit_written=" << audit.written << " audit_dropped=" << audit.dropped
+              << " audit_invalid=" << audit.invalid << " audit_queued=" << audit.queued
+              << " audit_errno=" << audit.output_errno << '\n';
 }
 void BpfMonitor::shutdown()
 {
@@ -92,5 +102,8 @@ void BpfMonitor::shutdown()
     secmon_bpf__detach(state_->skel.get());
     state_->attached = false;
     ring_buffer__consume(state_->ring.get());
+    state_->audit.shutdown();
     report();
 }
+
+AuditStats BpfMonitor::audit_stats() const { return state_->audit.stats(); }

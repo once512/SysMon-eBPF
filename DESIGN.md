@@ -553,3 +553,12 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 新增默认关闭的 SECMON_BUILD_FUZZERS（Clang），被测解析源直接用 libFuzzer/AddressSanitizer/UndefinedBehaviorSanitizer 编译，不通过未插桩的普通静态库绕过覆盖。harness 只操作内存，不读真实文件、不加载安全模块。
 - 以接受模型的完整重编码/重解析稳定性作为附加属性；原输入合法但展开默认值后超出文本预算时，不误报为生产解析错误。源码保留三个小种子，脚本在 build 生成 256/64 容量、4095 字节路径和 65536/65537 字节边界。
 - 固定目标运行 1801 秒，执行 22274693 次输入，平均 12367 次/秒，新增 3616 个语料单位，峰值 RSS 734 MiB；正常退出，未触发 sanitizer 或重编码属性失败。RSS 包含 ASan 隔离区/插桩/语料开销，不是生产服务内存，也不构成无漏洞证明。命令和复现边界见 docs/POLICY_FUZZING.md，原始本机日志 /tmp/secmon-policy-fuzz.log。
+
+### 2026-10-18：审计背压隔离与退出资源边界
+
+- 将事件 ABI/JSONL 编码抽为纯 event_format，C 回调只尝试入队；AuditSink 独占输出引用和 I/O 线程，按有效字节/记录数限制队列。写入期间不持队列锁，主循环每轮最多消费 128 条，持续事件洪流不能无限占用管理/fanotify 的执行权。
+- 管道/字符设备重新打开独立非阻塞描述，socket 每次 send 使用 DONTWAIT/NOSIGNAL，普通文件复用原描述保留共享偏移/追加语义。仅输出线程屏蔽 SIGPIPE，永久输出失败报告 errno 并计入丢弃，安全规则继续生效；停止标志改为始终无锁的 atomic，适应信号投递到不同线程。
+- 管理响应当前完整布局为 328 字节，新增用户态 written/dropped/invalid/queued/errno，与内核 ringbuf_dropped 分开。没有旧长度回包或解码兼容；同包组件一起更新。stdout 管道排空给约 200ms，底层存储 I/O 和同步 stderr 的限制明确记录在 docs/AUDIT_OUTPUT.md。
+- 正常停止显式回复已交付请求并关闭 fanotify group，再停止分析器/卸载 BPF和写结束统计，不再等对象析构才释放内核未读等待。填满 stderr 的权限专题确认即使结束统计被堵住，也不会让新的打开操作无限等候。
+- 最终固定产物 build/audit-shutdown-final 的完整 38 项权限/负载回归通过（27 核心专题与 11 项各 10 秒负载），普通/标准库调试构建各 21 项 CTest、三个生产程序构建和头文件独立编译通过。队列真实管道/socket/文件/四生产者测试在 ThreadSanitizer、AddressSanitizer/UndefinedBehaviorSanitizer 下通过；生产源 Clang 静态分析及随后更新的生命周期单元均无诊断。这些检查不等同于完整安全审计或无数据竞争证明。
+- 较早的授权/审计快照与最终快照的持续负载仍分别运行，待完成后按各自 SHA-256/范围记录；不把旧快照的长测冒充最新退出/输出修正后的长测。

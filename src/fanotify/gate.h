@@ -39,9 +39,9 @@ public:
     void validate_reconfigure(DecisionConfig config) const;
     void commit_reconfigure(DecisionConfig config) noexcept { pending_.commit_reconfigure(config); }
     void reconfigure(DecisionConfig config);
-    // 正常退出先回复已交付队列，再停止分析器；
-    // 析构关闭 group 会释放仍留在内核中的等待。
-    void shutdown() { pending_.shutdown(); if (analyzer_) analyzer_->stop(); }
+    // 先回复已交付请求并关闭 group，再停止分析器；在结束统计可能阻塞前释放内核未读等待。
+    // 不依赖外层对象析构才能关闭 mark；调用后不再 poll/reconfigure。
+    void shutdown();
     int target_fd() const { return target_.get(); } // Borrowed; never close or read.
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
     // 这是监督器最近观测到的通信状态；

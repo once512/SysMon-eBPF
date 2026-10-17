@@ -29,7 +29,7 @@ sudo ./build/secmon --stop /run/secmon/control.sock
 
 pid 与 instance_ns 一起用于识别当前实例，不是持久 UUID、任务启动时间或跨 PID namespace 的授权标识。重启后计数和历史归零，未实现持久防回滚。比较 revision 与 source_sha256 才能核对活动版本及原始配置内容；摘要不是签名或授权。配置字节相同也不证明路径解析到了同一 inode 或处于同一命名空间。
 
-启用 BPF 时另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
+启用 BPF 时另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。用户态审计队列还返回 audit_written/audit_dropped/audit_invalid/audit_queued/audit_errno，具体口径见 [审计出口](AUDIT_OUTPUT.md)。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
 
 启用 fanotify 时另返回当前事件、裁决模式、延迟/超时/容量、三种回退设置、已交付 pending 与峰值、累计允许/拒绝/分析错误/后端故障/内核溢出。analyzer_online 表示宿主**已观测**的通道状态，不是瞬时进程健康保证；查询本身不做 ping/reap。analyzer_pid 可能是尚未回收的原子进程 PID，不能把该数字当成独立授权的发信号目标。内部终止仍使用 pidfd。
 
@@ -50,7 +50,7 @@ pid 与 instance_ns 一起用于识别当前实例，不是持久 UUID、任务�
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的唯一 296 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
+- `src/management/protocol.h/.cpp`：本机同架构的唯一 328 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析配置/校验递增 revision，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。

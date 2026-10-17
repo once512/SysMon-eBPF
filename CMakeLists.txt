@@ -9,6 +9,7 @@ find_program(CLANG_EXE NAMES clang REQUIRED)
 find_program(BPFTOOL_EXE NAMES bpftool REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+find_package(Threads REQUIRED)
 pkg_check_modules(LIBBPF REQUIRED IMPORTED_TARGET libbpf)
 if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
     message(FATAL_ERROR "Current implementation targets the development x86_64 kernel")
@@ -54,13 +55,15 @@ add_executable(secmon
     src/bpf/monitor.cpp
     src/options.cpp
     src/events.cpp
+    src/event_format.cpp
+    src/audit_sink.cpp
     src/file_policy.cpp
     src/writer_identity.cpp
     "${BPF_SKEL}")
 # build 放在 eBPF 前面，确保使用新生成的 skeleton；仓库里的旧生成快照不是本次构建输入。
 target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF src)
 target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy)
+target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy Threads::Threads)
 
 # fanotify 与 BPF 链接进同一个服务；分析器仍是独立降权进程。
 target_sources(secmon PRIVATE src/fanotify/monitor.cpp src/fanotify/gate.cpp
@@ -82,6 +85,15 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(secmon-writer-scenario tests/writer_scenario.cpp)
     target_compile_options(secmon-writer-scenario PRIVATE -Wall -Wextra -Werror)
+    add_executable(secmon-audit-tests tests/audit_sink.cpp src/audit_sink.cpp)
+    target_include_directories(secmon-audit-tests PRIVATE src include)
+    target_link_libraries(secmon-audit-tests PRIVATE Threads::Threads)
+    target_compile_options(secmon-audit-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME audit-output-queue COMMAND secmon-audit-tests)
+    add_executable(secmon-event-format-tests tests/event_format.cpp src/event_format.cpp)
+    target_include_directories(secmon-event-format-tests PRIVATE src eBPF include)
+    target_compile_options(secmon-event-format-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME audit-event-format COMMAND secmon-event-format-tests)
     add_executable(secmon-policy-tests tests/policy_config.cpp)
     target_link_libraries(secmon-policy-tests PRIVATE secmon-policy)
     target_include_directories(secmon-policy-tests PRIVATE src)
@@ -98,7 +110,6 @@ if(BUILD_TESTING)
     add_test(NAME policyctl-help COMMAND secmon-policyctl --help)
     add_test(NAME policyctl-cli COMMAND ${CMAKE_COMMAND} -DPOLICYCTL=$<TARGET_FILE:secmon-policyctl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/policyctl_cli.cmake)
-    find_package(Threads REQUIRED)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_executable(secmon-analysis-fault-worker tests/analysis_fault_worker.cpp src/analysis/transport.cpp)
     target_include_directories(secmon-analysis-fault-worker PRIVATE src)

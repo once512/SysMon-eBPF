@@ -53,6 +53,7 @@ flowchart TD
     Service --> Server[ControlServer]
     Service --> BPF[BpfMonitor]
     BPF --> Pins[ProtectedFiles / skeleton]
+    BPF --> Audit[AuditSink：有界队列和 I/O 线程]
     Service --> Fan[FanotifyMonitor]
     Fan --> Gate[PermissionGate]
     Gate --> Pending[PendingDecisions]
@@ -88,3 +89,5 @@ flowchart TD
 结构实现提交为 2d69de6。普通构建 20 项 CTest、25 个头文件独立编译和四程序生产构建通过。固定可执行快照的 22 个权限专题与八项各 10 秒负载共 30 项通过，覆盖管理协议/旧客户端、异常附件与 FD 回收、策略完整切换、授权撤销、分析器故障回退和两层组合。
 
 一次中间回归与同目录重新链接重叠，发生可执行文件替换窗口中的启动失败；该轮未记作完整通过。构建收尾后复制到 build/structure-checkpoint 重跑，完整汇总 passed=true。原始日志为本机 /tmp/secmon-structure-final-root.log，无特权测试为 /tmp/secmon-structure-final-tests.log。该验证不将先前 15 分钟授权长测记为本次重构的重新执行，也不包含单独的 spawn 分配故障注入。
+
+统一入口后的审计出口另拆为纯编码、C 回调和 AuditSink；I/O 线程只消费队列，不访问 PolicyRuntime 或 fanotify 裁决。相关失败边界与已知诊断限制见 [审计出口](AUDIT_OUTPUT.md)。

@@ -2,6 +2,7 @@
 // BPF 模块独占 skeleton、策略 inode 和 ring buffer；主服务仅调用生命周期接口。
 #pragma once
 #include "policy_config.h"
+#include "audit_sink.h"
 #include <memory>
 
 class BpfMonitor {
@@ -16,5 +17,6 @@ public:
     void install(const PolicyConfig &candidate);
     void poll_once(int timeout_ms);
     void report();
+    AuditStats audit_stats() const;
     void shutdown();
 };

@@ -1,85 +1,23 @@
 // SPDX-License-Identifier: MIT
-// 用户态审计出口：先校验二进制 ABI，再按事件种类输出；不能把 exec_check 当作执行成功。
-// 安全拒绝由内核 LSM 直接完成，日志消费失败或 ring buffer 满不应改变已作出的拒绝。
+// ring buffer 回调只编码和尝试入队；格式错误/资源不足不跨越 C ABI 抛异常，也不等待 stdout。
+#include <utility>
 #include "events.h"
+#include "audit_sink.h"
 #include "secmon.h"
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
-#include <cstring>
 #include <iostream>
 #include <stdexcept>
-#include <string>
 #include <vector>
-
-namespace {
-// comm/filename 来自内核记录，按容量限制读取并转义，避免控制字符破坏 JSONL 的记录边界。
-std::string json_string(const char *data, std::size_t capacity)
+int consume(void *context, void *data, std::size_t size) noexcept
 {
-    constexpr char hex[] = "0123456789abcdef";
-    std::string out = "\"";
-    for (std::size_t i = 0; i < capacity && data[i]; ++i) {
-        const auto c = static_cast<unsigned char>(data[i]);
-        if (c == '"' || c == '\\') { out += '\\'; out += static_cast<char>(c); }
-        else if (c < 0x20 || c >= 0x7f) {
-            out += "\\u00"; out += hex[c >> 4]; out += hex[c & 15];
-        } else out += static_cast<char>(c);
-    }
-    return out + '"';
-}
-} // namespace
-
-int consume(void *, void *data, std::size_t size)
-{
-    if (size != sizeof(exec_event)) {
-        std::cerr << "Unexpected event size: " << size << '\n';
-        return 0;
-    }
-    // 将回调缓冲复制到本地结构再读取，不假设传入地址满足宿主 C++ 结构的对齐要求。
-    exec_event e{};
-    // 回调中的 data 只在消费期间借用；
-    // 复制出完整事件后再按 kind 解释，不把缓冲区地址长期保存。
-    std::memcpy(&e, data, sizeof(e));
-    if (e.version != SECMON_ABI_VERSION || e.size != sizeof(e)) {
-        std::cerr << "Event ABI mismatch\n";
-        return 0;
-    }
-    if (e.kind == SECMON_SELF_DENIED_EVENT) {
-        std::cout << "{\"event\":\"self_denied\",\"timestamp_ns\":" << e.timestamp_ns
-                  << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
-                  << ",\"target_pid\":" << e.target_pid << ",\"signal\":" << e.signal
-                  << ",\"operation\":" << e.operation << ",\"errno\":1"
-                  << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
-                  << ",\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
-        return 0;
-    }
-    // 文件身份输出设备号/inode 而不是猜测完整路径；
-    // 事件丢失影响审计完整性，但不会撤销已经作出的内核拒绝。
-    if (e.kind == SECMON_FILE_DENIED) {
-        std::cout << "{\"event\":\"file_denied\",\"timestamp_ns\":" << e.timestamp_ns
-                  << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
-                  << ",\"start_ns\":" << e.start_ns
-                  << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
-                  << ",\"dev_major\":" << e.file.major << ",\"dev_minor\":" << e.file.minor
-                  << ",\"ino\":" << e.file.ino << ",\"operation\":" << e.operation
-                  << ",\"errno\":13,\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
-        return 0;
-    }
-    // 检查事件与完成事件不是一一对应：失败 exec 没有完成事件，解释器链也可能产生多次安全检查。
-    const char *kind = e.kind == SECMON_EXEC_CHECK ? "exec_check" :
-                       e.kind == SECMON_EXEC_SUCCESS ? "exec_success" : nullptr;
-    if (!kind) {
-        std::cerr << "Unknown event kind\n";
-        return 0;
-    }
-    std::cout << "{\"event\":\"" << kind << "\",\"timestamp_ns\":" << e.timestamp_ns
-              << ",\"old_tid\":" << e.old_tid
-              << ",\"start_ns\":" << e.start_ns << ",\"pid\":" << e.pid
-              << ",\"tid\":" << e.tid << ",\"ppid\":" << e.ppid
-              << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
-              << ",\"target_euid\":" << e.target_euid << ",\"caps\":" << e.caps
-              << ",\"mode\":" << e.file_mode << ",\"flags\":" << e.flags
-              << ",\"comm\":" << json_string(e.comm, sizeof(e.comm))
-              << ",\"filename\":" << json_string(e.filename, sizeof(e.filename)) << "}\n";
+    auto *sink = static_cast<AuditSink *>(context);
+    if (!sink) return 0;
+    try {
+        auto line = format_event(data, size);
+        if (line) sink->enqueue(std::move(*line));
+        else sink->note_invalid();
+    } catch (...) { sink->note_drop(); }
     return 0;
 }
 void report_stats(int fd)

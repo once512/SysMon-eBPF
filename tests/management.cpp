@@ -49,6 +49,9 @@ int main()
     reject([](Reply &x) { x.reserved = 1; });
     reject([](Reply &x) { x.writer_paths = 65; });
     reject([](Reply &x) { x.reserved_tail = 1; });
+    reject([](Reply &x) { x.audit_queued = 1025; });
+    reject([](Reply &x) { x.audit_errno = -1; });
+    reject([](Reply &x) { x.audit_errno = 4096; });
     r.writer_paths = 64;
     require(reply_json(r).find("\"writer_paths\":64") != std::string::npos);
     r.writer_paths = 0;
@@ -67,7 +70,9 @@ int main()
     require(reply_json(r).find("\"oversized\":2") != std::string::npos);
     r.backend = Backend::combined;
     r.protected_paths = 2; r.writer_paths = 1; r.flags |= self_protected;
+    r.audit_dropped = 7;
     const auto combined = reply_json(r);
+    require(combined.find("\"audit_dropped\":7") != std::string::npos);
     require(combined.find("\"backend\":\"combined\"") != std::string::npos);
     require(combined.find("\"protected_paths\":2") != std::string::npos);
     require(combined.find("\"permission_event\":\"access\"") != std::string::npos);

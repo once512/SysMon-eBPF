@@ -21,7 +21,9 @@ class Reply(ctypes.Structure):
                   'delay_ms', 'timeout_ms', 'max_pending', 'fallbacks')], ('worker_pid', ctypes.c_int32),
                 ('scan_limit', ctypes.c_uint32), ('last_code', ctypes.c_uint32), ('reserved', ctypes.c_uint32), ('source_digest', ctypes.c_uint8 * 32), ('last_scan_error', ctypes.c_uint32),
                 ('last_scan_errno', ctypes.c_int32), ('backend_error_requests', ctypes.c_uint64),
-                ('scan_errors', ctypes.c_uint64 * 9), ('writer_paths', ctypes.c_uint32), ('reserved_tail', ctypes.c_uint32)]
+                ('scan_errors', ctypes.c_uint64 * 9), ('writer_paths', ctypes.c_uint32), ('reserved_tail', ctypes.c_uint32),
+                ('audit_written', ctypes.c_uint64), ('audit_dropped', ctypes.c_uint64), ('audit_invalid', ctypes.c_uint64),
+                ('audit_queued', ctypes.c_uint32), ('audit_errno', ctypes.c_int32)]
 
 
 def main():
@@ -30,13 +32,13 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root to emulate a root control peer')
-    assert ctypes.sizeof(Reply) == 296
+    assert ctypes.sizeof(Reply) == 328
     binary = Path(args.build_dir).resolve() / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-fault-') as temporary:
         path = Path(temporary) / 'fake.sock'
         cases = ['valid', 'magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                  'pid', 'instance_ns', 'event', 'mode', 'fallbacks', 'reserved', 'scan-reason', 'scan-errno',
-                 'writer-count', 'reserved-tail', 'text-response', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
+                 'writer-count', 'reserved-tail', 'audit-queue', 'audit-errno', 'audit-errno-range', 'text-response', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
         held = os.open('/dev/null', os.O_RDONLY | os.O_CLOEXEC)
         try:
             for command, command_id in (('status', 3), ('reload', 2), ('stop', 1)):
@@ -52,14 +54,17 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 3, 296
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 3, 328
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
                                 reply.worker_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                                             'instance_ns', 'event', 'mode', 'fallbacks', 'reserved'):
-                                    setattr(reply, case, {'abi': 4, 'size': 295, 'command': (1 if command_id != 1 else 3), 'flags': 16,
+                                    setattr(reply, case, {'abi': 4, 'size': 327, 'command': (1 if command_id != 1 else 3), 'flags': 16,
                                                          'instance_ns': 0, 'event': 4, 'mode': 4,
                                                          'fallbacks': 8, 'reserved': 1}.get(case, 99))
+                                if case == 'audit-queue': reply.audit_queued = 1025
+                                if case == 'audit-errno': reply.audit_errno = -1
+                                if case == 'audit-errno-range': reply.audit_errno = 4096
                                 if case == 'writer-count': reply.writer_paths = 65
                                 if case == 'reserved-tail': reply.reserved_tail = 1
                                 if case == 'scan-reason': reply.last_scan_error = 99

@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 19 项（移除已不需要的跨进程四快照判定测试），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 21 项（含审计输出队列与事件格式边界），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -29,6 +29,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
+| audit-backpressure | `audit_backpressure.py` | stdout 背压/断开/持续洪流下的裁决、重载与停止 |
+| shutdown-order | `shutdown_order.py` | stderr 堵塞时先关闭权限监听组，不留下未处理等待 |
 | audit-file | `integration.py` | 执行/凭证事件、旧 TID、文件只读的 13 类拒绝、读取与私有映射、退出解除 |
 | self-protection | `self_protection.py` | 信号、ptrace 类检查、管理端身份、授权停止、期限及 socket 清理 |
 | fanotify-open | `fanotify.py` | 单文件打开裁决、硬链接/重命名、已有 FD、崩溃释放 |
@@ -96,3 +98,5 @@ writer-soak-duration 默认 0（禁用），可选 5..1800 秒。常驻程序分
 运行特权回归时，不要同时重新链接它正在使用的同一 build 目录。链接器替换可执行文件期间，测试子进程可能碰到不可执行或不存在的文件。需要并行开发时，先完成构建，再将所需可执行程序复制到独立快照目录，通过 --build-dir 指向该目录；构建继续写原目录。架构整理这一轮使用 build/structure-checkpoint 验证固定产物，避免将构建竞态解释为后端裁决失败。
 
 机制专题的 harness 使用同一个 secmon 可执行文件加 --bpf-only/--fanotify-only，仅为独立观察裁决层。unified-service 与 policy-consistency 使用默认联合入口和一个管理 socket。
+
+审计出口的队列、线程与失败边界见 [有界审计出口](AUDIT_OUTPUT.md)。

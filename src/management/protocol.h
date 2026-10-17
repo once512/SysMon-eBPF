@@ -65,9 +65,15 @@ struct Reply {
     // 显式 writer 路径条数，不等同不同 inode 数。
     std::uint32_t writer_paths = 0;
     std::uint32_t reserved_tail = 0;
+    // 用户态出口计数与内核 ringbuf_dropped 分开；written 只计完整写出的 JSONL。
+    std::uint64_t audit_written = 0;
+    std::uint64_t audit_dropped = 0;
+    std::uint64_t audit_invalid = 0;
+    std::uint32_t audit_queued = 0;
+    std::int32_t audit_errno = 0;
 };
 // 只约束当前完整结构的布局；调整字段时同步修改本包两端与测试，不保留历史前缀。
-static_assert(sizeof(Reply) == 296);
+static_assert(sizeof(Reply) == 328);
 class Error : public std::runtime_error {
     Code code_;
 public:

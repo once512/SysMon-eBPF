@@ -218,3 +218,11 @@ void PermissionGate::reconfigure(DecisionConfig config)
     validate_reconfigure(config);
     commit_reconfigure(config);
 }
+
+void PermissionGate::shutdown()
+{
+    pending_.shutdown();
+    // close group 立即释放仍在内核队列的等待；统计渲染和分析器退出不能推迟这个资源边界。
+    group_ = OwnedFd();
+    if (analyzer_) analyzer_->stop();
+}

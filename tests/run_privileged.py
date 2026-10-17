@@ -32,6 +32,8 @@ TESTS = (
     ('pid-namespace', 'pid_namespace.py'),
     ('policy-consistency', 'policy_consistency.py'),
     ('unified-service', 'unified_service.py'),
+    ('audit-backpressure', 'audit_backpressure.py'),
+    ('shutdown-order', 'shutdown_order.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
     ('baseline-mismatch', 'baseline_mismatch.py'),

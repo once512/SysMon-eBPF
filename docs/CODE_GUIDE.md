@@ -9,7 +9,8 @@
 | `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助、停止和重载；解析过程不访问 BPF 或 socket |
 | `src/main.cpp` / `src/service.cpp` | 唯一入口与主服务协调 | main 处理参数/管理动作，MonitorService 持有两模块、一个运行策略和管理端 |
 | `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
-| `src/events.h` / `src/events.cpp` | ABI 校验、JSONL 输出、统计汇总 | 先校验记录长度和版本，再按事件类型输出；每 CPU 统计需要逐 CPU 求和 |
+| `src/event_format.cpp` / `src/events.cpp` | ABI/JSONL 纯编码、回调入队和内核统计 | 校验长度/布局/种类，C 回调不抛异常；每 CPU 统计逐 CPU 求和 |
+| `src/audit_sink.h/.cpp` | 有界审计出口 | 主循环只入队，I/O 线程写 stdout；背压和出口错误计数可查询 |
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
 | `src/policy_config.h` / `src/policy_config.cpp` | 配置值模型和纯字段分派 | 严格唯一字段集合、运行 revision、错误行号；不访问文件系统 |
 | `src/policy/source.cpp` / `src/policy/fanotify_fields.cpp` | 安全读取与 fanotify 值构建 | 前者固定/复核来源并计算摘要，后者区分静态/分析字段约束 |
@@ -137,3 +138,5 @@ sudo python3 tests/self_protection.py --build-dir build
 3. **策略替换路径**：[policy_runtime.cpp](../src/policy_runtime.cpp) 的 `reload` → [policy_config.cpp](../src/policy_config.cpp) 的 `load_policy`/`parse_policy` → [file_policy.cpp](../src/file_policy.cpp) 的 `install` → 外层 Map 引用切换 → 活动配置移动赋值。分别看配置读取失败、候选准备失败和成功提交后的状态变化；不要把候选日志当作活动策略已经切换。
 
 接口旁也补充了返回值的边界：`poll_once(false)` 不等于后端离线，`receive_packet(ready)` 不等于协议合法，`scan(allow)` 不等于恶意内容识别完成，`snapshot` 不会主动探测分析器。生成的 vmlinux.h、skeleton 和第三方代码仍按生成/供应方来源阅读，学习入口优先选择手写源码。
+
+主进程的审计入口每轮限量消费，输出经 AuditSink 有界排队；线程不修改运行策略。stdout 背压、错误与停止行为见 [审计出口](AUDIT_OUTPUT.md)。

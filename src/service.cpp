@@ -6,12 +6,16 @@
 #include "fanotify/policy.h"
 #include "control.h"
 #include <csignal>
+#include <atomic>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
 namespace {
-volatile std::sig_atomic_t stopping = 0;
-void stop(int) { stopping = 1; }
+// 现在存在审计 I/O 线程，信号可能投递到任一线程；普通 volatile 不足以提供跨线程同步。
+// 始终无锁的 atomic 才能在异步信号处理器中安全设置停止标志，不持任何业务互斥锁。
+static_assert(std::atomic<bool>::is_always_lock_free);
+std::atomic<bool> stopping{false};
+void stop(int) { stopping.store(true, std::memory_order_relaxed); }
 PolicyConfig initial_policy(const Options &options)
 {
     if (!options.policy_path.empty()) return load_policy(options.policy_path);
@@ -23,7 +27,7 @@ PolicyConfig initial_policy(const Options &options)
 MonitorService::MonitorService(Options options)
     : options_(std::move(options)), runtime_(options_.policy_path, initial_policy(options_))
 {
-    stopping = 0;
+    stopping.store(false, std::memory_order_relaxed);
     struct sigaction action{};
     action.sa_handler = stop;
     sigemptyset(&action.sa_mask);
@@ -65,6 +69,12 @@ management::Reply MonitorService::snapshot() const
     if (bpf_) {
         reply.protected_paths = runtime_.active().paths.size();
         reply.writer_paths = runtime_.active().writers.size();
+        const auto audit = bpf_->audit_stats();
+        reply.audit_written = audit.written;
+        reply.audit_dropped = audit.dropped;
+        reply.audit_invalid = audit.invalid;
+        reply.audit_queued = audit.queued;
+        reply.audit_errno = audit.output_errno;
         if (control_) reply.flags |= management::self_protected;
     }
     if (fanotify_) fanotify_->snapshot(reply);
@@ -74,11 +84,11 @@ void MonitorService::run()
 {
     const auto started = std::chrono::steady_clock::now();
     auto next_report = started + std::chrono::seconds(10);
-    while (!stopping) {
+    while (!stopping.load(std::memory_order_relaxed)) {
         if (options_.run_seconds && std::chrono::steady_clock::now() - started >= std::chrono::seconds(options_.run_seconds)) break;
         if (control_) control_->dispatch([&](ControlCommand command) {
             auto code = management::Code::ok;
-            if (command == ControlCommand::stop) stopping = 1;
+            if (command == ControlCommand::stop) stopping.store(true, std::memory_order_relaxed);
             else if (command == ControlCommand::reload) {
                 code = runtime_.reload([&](const PolicyConfig &candidate) { commit(candidate); }, fanotify_ ? fanotify_->target_fd() : -1);
                 if (code == management::Code::ok) std::cerr << "Policy active revision=" << runtime_.active().revision << '\n';
@@ -87,7 +97,7 @@ void MonitorService::run()
             reply.code = code;
             return reply;
         });
-        if (stopping) break;
+        if (stopping.load(std::memory_order_relaxed)) break;
         // 两个模块轮流处理有界工作；fanotify 开启时 BPF 不阻塞等待，避免把裁决延迟叠加到审计等待上。
         if (bpf_) bpf_->poll_once(fanotify_ ? 0 : 50);
         if (fanotify_) fanotify_->poll_once(10);
