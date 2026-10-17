@@ -261,3 +261,11 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 自保护特权测试验证外部常见终止/停止信号、pidfd、tgkill、ptrace seize、proc mem 和 process_vm_writev 权限检查被拒绝；非目标进程信号放行，非法命令和非 root 连接拒绝，root 管理停止与内部超时退出正常。文件与凭证原有特权回归也通过；无测试 secmon 残留。
 - 边界：不拦截所有内核或终端生成信号，不保护 OOM/cgroup 管理/重启等路径，不撤销已有 tracer 和内存访问句柄，不限制高权限 BPF 管理。程序文件、配置及管理目录保护尚未自动组合。ptrace 规则较保守，可能影响部分只读 proc 查询，后续按产品需求细化。
 - 接口依据：[内核 task local storage 自测试](https://linux.googlesource.com/linux/kernel/git/bpf/bpf-next/+/53cc12a2dc88c2c6f62f507548640885a70a56a8/tools/testing/selftests/bpf/prog_tests/task_local_storage.c)；具体钩子签名按开发机内核头及 verifier 实测确认。
+
+
+### 2026-10-17：宿主模块拆分与学习导读
+
+- 将宿主实现迁入 `src/`，按参数解析、事件输出与统计、文件策略、管理 socket 和 FD 所有权拆分；入口负责环境检查和 BPF 运行生命周期。内核程序及事件 ABI 未改动。
+- 参数解析返回显式动作，`--stop` 的实际通信由入口分发，保持原有退出码语义；新增无特权 CLI 参数回归检查。
+- 增加 `docs/CODE_GUIDE.md`，说明阅读顺序、构建链、资源释放顺序、事件语义及验证层次。
+- 本轮构建、5 项 CTest 与 `--check` 通过；当前 sudo 需要交互密码，未重跑两项特权集成测试，已有特权验证记录仍属于拆分前版本。
