@@ -14,7 +14,7 @@
 
 目前实现执行与凭证审计、指定文件对象的只读保护与授权修改原型，以及可选的 secmon 进程自保护；同一主进程内提供 fanotify 单文件裁决，另以独立降权进程完成有界字节标记扫描实验。真实恶意行为识别、诱饵和完整保险箱仍待实现。
 
-总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)。
+总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)，当前待办见 [下一步](docs/NEXT_STEPS.md)。
 
 - GNU++17 宿主使用 libbpf skeleton 加载、挂载和消费事件。
 - 在执行安全检查点输出 JSON Lines；这些事件表示执行检查，不表示执行最终成功。
