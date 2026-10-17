@@ -1,62 +1,53 @@
-cmake_minimum_required(VERSION 3.10)
-
-set(CMAKE_C_COMPILER "clang")
-set(CMAKE_CXX_COMPILER "clang++")
-
-project(SecMon C CXX)
+cmake_minimum_required(VERSION 3.20)
+project(SecMon LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-find_program(CLANG_EXE clang REQUIRED)
-find_program(BPFTOOL_EXE bpftool REQUIRED)
-
-# 引入libbpf
-include(3rdparty.cmake)
-
-set(BPF_SRC "${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c")
+set(CMAKE_CXX_EXTENSIONS ON)
+find_program(CLANG_EXE NAMES clang REQUIRED)
+find_program(BPFTOOL_EXE NAMES bpftool REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBBPF REQUIRED IMPORTED_TARGET libbpf)
+if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    message(FATAL_ERROR "Current implementation targets the development x86_64 kernel")
+endif()
 set(BPF_OBJ "${CMAKE_CURRENT_BINARY_DIR}/secmon.bpf.o")
 set(BPF_SKEL "${CMAKE_CURRENT_BINARY_DIR}/secmon.skel.h")
-
-# eBPF 源码
-add_custom_command(
-    OUTPUT ${BPF_OBJ}
+set(VMLINUX "${CMAKE_CURRENT_BINARY_DIR}/vmlinux.h")
+# sysfs timestamps may be in the future. Track BTF content, not its mtime.
+# Reconfigure after switching kernels to refresh this identity.
+file(SHA256 /sys/kernel/btf/vmlinux KERNEL_BTF_HASH)
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/kernel-btf.identity"
+    CONTENT "@KERNEL_BTF_HASH@\n" @ONLY)
+add_custom_command(OUTPUT "${VMLINUX}"
+    COMMAND ${CMAKE_COMMAND} -DTOOL=${BPFTOOL_EXE} -DMODE=btf
+        -DINPUT=/sys/kernel/btf/vmlinux -DOUTPUT=${VMLINUX}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Bpftool.cmake
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/kernel-btf.identity" cmake/Bpftool.cmake VERBATIM)
+add_custom_command(OUTPUT "${BPF_OBJ}"
     COMMAND ${CLANG_EXE} -g -O2 -target bpf -D__TARGET_ARCH_x86
-            -I ${LIBBPF_INCLUDE_DIR}
-            -Wno-missing-declarations
-            -c ${BPF_SRC} -o ${BPF_OBJ}
-    DEPENDS ${BPF_SRC}
-    COMMENT "Compiling BPF object: ${BPF_OBJ}"
-)
+        -Wall -Werror -I${CMAKE_CURRENT_BINARY_DIR}
+        -I${CMAKE_CURRENT_SOURCE_DIR}/eBPF ${LIBBPF_CFLAGS}
+        -c ${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c -o ${BPF_OBJ}
+    DEPENDS eBPF/secmon.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h "${VMLINUX}"
+    VERBATIM)
+add_custom_command(OUTPUT "${BPF_SKEL}"
+    COMMAND ${CMAKE_COMMAND} -DTOOL=${BPFTOOL_EXE} -DMODE=skeleton
+        -DINPUT=${BPF_OBJ} -DOUTPUT=${BPF_SKEL}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Bpftool.cmake
+    DEPENDS "${BPF_OBJ}" cmake/Bpftool.cmake VERBATIM)
+add_executable(secmon main.cpp "${BPF_SKEL}")
+target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF)
+target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF)
 
-# 指定依赖关系
-# 强制先编译完 libbpf，再编译 eBPF 源码
-add_custom_target(generate_bpf_obj DEPENDS ${BPF_OBJ})
-add_dependencies(generate_bpf_obj libbpf_ext)
-
-# 生成 CO-RE 骨架
-add_custom_command(
-    OUTPUT ${BPF_SKEL}
-    COMMAND ${BPFTOOL_EXE} gen skeleton ${BPF_OBJ} > ${BPF_SKEL}
-    DEPENDS ${BPF_OBJ}
-    COMMENT "Generating BPF skeleton: ${BPF_SKEL}"
-)
-
-add_custom_target(generate_bpf_skel DEPENDS ${BPF_SKEL})
-add_dependencies(generate_bpf_skel generate_bpf_obj)
-
-# 编译 C++ 宿主
-add_executable(secmon main.cpp)
-add_dependencies(secmon generate_bpf_skel)
-
-target_include_directories(secmon PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${LIBBPF_INCLUDE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libbpf/include/uapi
-)
-
-target_link_directories(secmon PRIVATE
-    "${LIBBPF_BUILD_DIR}/usr/lib"
-    "${LIBBPF_BUILD_DIR}/usr/lib64"
-)
-
-target_link_libraries(secmon bpf elf z)
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(secmon-scenarios tests/scenarios.cpp)
+    target_link_libraries(secmon-scenarios PRIVATE Threads::Threads)
+    target_compile_options(secmon-scenarios PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME cli-help COMMAND secmon --help)
+    add_test(NAME scenario-exec COMMAND secmon-scenarios exec)
+    add_test(NAME scenario-thread-exec COMMAND secmon-scenarios thread-exec)
+    add_test(NAME scenario-threads COMMAND secmon-scenarios threads)
+endif()
