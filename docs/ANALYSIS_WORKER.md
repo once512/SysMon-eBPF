@@ -43,6 +43,31 @@ root 启动时，分析程序清空补充组并降到 UID/GID 65534；随后显�
 
 启动使用本机 glibc 的 `posix_spawn_file_actions_addclosefrom_np`；当前只支持项目声明的开发环境，不提供旧 libc 兼容层。
 
+## 握手、FD 与裁决顺序
+
+```mermaid
+sequenceDiagram
+    participant G as 接收端（root）
+    participant W as 分析进程（降权）
+    participant K as 内核 fanotify
+    G->>W: 启动私有 socketpair 子进程
+    W->>W: 清空权限、设置父死亡信号
+    W-->>G: Ready v2（不携带 FD）
+    G->>K: 标记文件
+    K->>G: 权限事件与事件 FD
+    G->>W: 请求 ID + SCM_RIGHTS 事件 FD
+    W->>W: 有界 pread 与字节匹配
+    alt 截止时间前得到有效回复
+        W-->>G: 同一请求 ID 的结果
+        G->>K: FAN_ALLOW / FAN_DENY
+    else 活动分析仍未完成时超时
+        G->>W: pidfd 终止并关闭 IPC
+        G->>K: 超时回退
+    end
+```
+
+接收端负责内核回复与期限，分析进程只产生结果。普通文件分析错误不等于整个后端故障；协议或进程故障则使后端离线。显式选择 error=allow 会允许无法分析的请求，默认 deny 则拒绝它们，两者都不能改变组关闭后的内核放行语义。
+
 ## 故障与资源预算
 
 - 用户态队列最多 `max_pending` 个原始事件 FD；工作进程一次最多接收一个副本，不把整条等待队列复制进 socket。
