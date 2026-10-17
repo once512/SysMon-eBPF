@@ -40,6 +40,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | management-live | `management_live.py` | 活动内存查询、稳定重载错误、独立版本、忙请求、权限与 FD 稳定 |
 | management-faults | `management_faults.py` | 伪服务错误帧/身份/附带 FD 的客户端拒绝 |
 | control-loop | `control_loop.py` / `control_nonblocking.cpp` | 静默连接无阻塞推进与稍后发送，root 身份，不加载内核策略 |
+| pid-namespace | `pid_namespace.py` | 局部 PID=1 与宿主 BPF 身份、真实凭证和退出基线删除；非真实宿主 PID 复用 |
 | namespace-policy | `namespace_policy.py` | 私有 bind 别名与私有 tmpfs 的跨挂载对象策略、两层独立清理 |
 | policy-reload | `policy_reload.py` | 真实 BPF 完整切换、版本拒绝、准备失败保留旧保护、配置权限、root 控制与重复切换 FD 回收 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |

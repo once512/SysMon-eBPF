@@ -51,6 +51,7 @@ static __always_inline void emit_exec(struct task_struct *task,
     e->timestamp_ns = bpf_ktime_get_ns();
     e->start_ns = BPF_CORE_READ(task, start_boottime);
     /* helper 返回高 32 位 TGID、低 32 位线程 PID；本项目 JSON 的 pid/tid 分别使用这两部分。 */
+    /* helper 使用初始 PID namespace 的编号，不能直接与容器内部 getpid() 比较；用 NSpid 做关联。 */
     u64 id = bpf_get_current_pid_tgid();
     e->pid = id >> 32;
     e->tid = (u32)id;

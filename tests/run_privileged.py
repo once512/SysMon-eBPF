@@ -25,6 +25,7 @@ TESTS = (
     ('management-faults', 'management_faults.py'),
     ('control-loop', 'control_loop.py'),
     ('namespace-policy', 'namespace_policy.py'),
+    ('pid-namespace', 'pid_namespace.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
     ('baseline-mismatch', 'baseline_mismatch.py'),

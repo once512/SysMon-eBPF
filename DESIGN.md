@@ -447,3 +447,9 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 独立 root 控制循环专题通过，静默 dispatch 三次中位数 3us（本机回归值，不是 SLA）；真实管理状态专题覆盖静默连接期间裁决/查询与闲置 FD 回收。17 项 CTest 通过，较完整回归另行收尾。
 - 新增 namespace-policy：私有 mount namespace 的 bind 别名保持设备/inode 身份，两层同时和独立运行结果均符合预期；私有 1MiB tmpfs 通过存活子进程的 proc root 固定对象，BPF/fanotify 对子进程内部普通路径生效。
 - 专题退出检查宿主目录未出现绑定或 tmpfs 文件，所有挂载只在 private propagation 的命名空间内，不修改全局 sysctl 或宿主挂载表。不是 overlay/NFS/FUSE、完整容器、user/PID namespace 或真实 PID 复用的验证。
+
+### 2026-10-17：PID namespace 身份对照
+
+- 两次私有 PID/mount namespace 的 init 都报告局部 PID/proc PID=1、PPID=0；宿主通过 unshare children/NSpid 找到不同全局 PID。
+- 核对对应 cred_map 的全局 TGID/TID/start_boottime 键、子进程自报 UID/EUID/caps 和 exec_success，退出后两次基线均删除。专题通过，无需修改 pid_max 或宿主 proc 挂载。
+- 增补 BPF 身份读取处的中文注释：helper 与 task 原始字段使用初始 PID namespace 编号，不能与容器内 getpid 直接比较。本验证不是实际宿主 PID 回绕/复用、user namespace 或完整容器/跨 namespace 管理支持。

@@ -15,6 +15,7 @@ struct {
 static __always_inline struct task_key task_key_for(struct task_struct *task)
 {
     struct task_key key = {};
+    /* task 的原始 pid/tgid 与上述 helper 使用同一全局编号，局部 PID=1 不会彼此覆盖。 */
     key.id = ((u64)BPF_CORE_READ(task, tgid) << 32) | BPF_CORE_READ(task, pid);
     key.start_ns = BPF_CORE_READ(task, start_boottime);
     return key;
