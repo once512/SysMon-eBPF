@@ -60,6 +60,8 @@ int main(int argc, char **argv)
         if (prctl(PR_SET_PDEATHSIG, SIGKILL) || getppid() != static_cast<pid_t>(number(argv[8])))
             throw std::runtime_error("Analysis parent disappeared or death signal setup failed");
         if (prctl(PR_SET_DUMPABLE, 0)) throw std::runtime_error("Cannot disable worker dumpability");
+        // 这里接管 spawn 约定继承的 IPC FD，不重新按路径寻找宿主；
+        // 业务进程拿不到此私有 channel。
         OwnedFd channel(static_cast<int>(number(argv[2])));
         // 所有初始化完成才发 Ready；这表示工作进程可以接收请求，不表示文件已扫描或具备完整沙箱隔离。
         analysis::Response initialized;
@@ -68,12 +70,16 @@ int main(int argc, char **argv)
             throw std::runtime_error("Cannot send worker readiness");
         while (true) {
             pollfd ready{channel.get(), POLLIN, 0};
+            // 工作进程可在这里无限等待下一请求；
+            // 宿主的权限循环保持非阻塞，并通过自己的截止时间处理卡住的分析。
             const int status = poll(&ready, 1, -1);
             if (status < 0) { if (errno == EINTR) continue; throw std::runtime_error("Worker poll failed"); }
             analysis::Request request;
             auto packet = analysis::receive_packet(channel.get(), &request, sizeof(request));
             if (packet.status == analysis::Io::closed) break;
             if (packet.status == analysis::Io::would_block) continue;
+            // 先验证帧与恰好一个事件 FD，再读取文件；
+            // 协议出错就退出，让宿主按后端故障回退。
             if (packet.size != sizeof(request) || packet.fds.size() != 1 ||
                 request.magic_value != analysis::magic || request.abi != analysis::version ||
                 request.size != sizeof(request) || !request.id)

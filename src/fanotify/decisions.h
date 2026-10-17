@@ -36,6 +36,8 @@ public:
     using Clock = std::chrono::steady_clock;
     using Reply = std::function<void(int, Verdict)>;
 private:
+    // Request 持有 FD、不可复用的请求号和接收时刻；
+    // 数字 PID 不参与 fanotify 回复定位。
     struct Request {
         OwnedFd fd;
         std::uint64_t id;
@@ -53,6 +55,8 @@ public:
     void reconfigure(DecisionConfig config);
     void submit(OwnedFd fd, Clock::time_point now);
     struct ReadyRequest { std::uint64_t id; int fd; };
+    // 返回的是借用视图；
+    // 调用者不得跨越队列完成/超时后继续把其中的裸 FD 当成有效请求。
     std::optional<ReadyRequest> next_request() const;
     bool contains(std::uint64_t id) const;
     bool complete(std::uint64_t id, bool allow, bool error, Clock::time_point now,

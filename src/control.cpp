@@ -71,6 +71,8 @@ void ControlServer::dispatch(const std::function<management::Reply(ControlComman
         if (ready < 0 || std::chrono::steady_clock::now() >= expires_) pending_ = OwnedFd();
         return;
     }
+    // 命令开始处理时把连接从 pending 转为本次局部所有权；
+    // 正常返回或异常都会关闭它，不阻塞下一连接。
     OwnedFd client(std::move(pending_));
     if (!(request.revents & POLLIN)) return;
     char message[16]{};
@@ -82,16 +84,22 @@ void ControlServer::dispatch(const std::function<management::Reply(ControlComman
     const bool v1 = text == "stop-v1" || text == "reload-v1" || text == "status-v1";
     const bool v2 = text == "stop-v2" || text == "reload-v2" || text == "status-v2";
     const bool v3 = text == "stop-v3" || text == "reload-v3" || text == "status-v3";
+    // 旧命令返回 ok/error，版本化命令返回定长结构；
+    // 只按完整字符串匹配，不接受前缀或尾随垃圾。
     const bool structured = v1 || v2 || v3;
     if (text == "stop" || text == "stop-v1" || text == "stop-v2" || text == "stop-v3") command = ControlCommand::stop;
     if (text == "reload" || text == "reload-v1" || text == "reload-v2" || text == "reload-v3") command = ControlCommand::reload;
     if (text == "status-v1" || text == "status-v2" || text == "status-v3") command = ControlCommand::status;
     if (!command) return;
     try {
+        // 回调与后端事件循环串行执行；
+        // 回复发生在回调提交完成之后，但客户端断线不保证提交未发生。
         auto reply = handler(*command);
         reply.command = *command;
         management::validate_reply(reply, *command);
         if (structured) {
+            // 旧版本只发送布局未变的前缀；
+            // 先按当前完整结构验证，再调整头中的 ABI/长度。
             if (v1) { reply.abi = 1; reply.size = 200; }
             if (v2) { reply.abi = 2; reply.size = 288; }
             send(client.get(), &reply, reply.size, MSG_NOSIGNAL | MSG_DONTWAIT);

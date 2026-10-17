@@ -53,6 +53,8 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
                      "SECONDS: 1..3600. Closing/crashing releases unread/pending requests.\n";
         return false;
     }
+    // seen 同时用于拒绝重复选项和检查显式提供的模式字段；
+    // 默认值不能代替“用户是否真的指定过”。
     std::set<std::string_view> seen;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
@@ -80,6 +82,8 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
     }
     if (seen.count("--control") && (options.control_path.empty() || options.control_path.front() != '/'))
         throw std::invalid_argument("--control requires an absolute socket path");
+    // 配置文件是这一模式唯一的策略来源；
+    // 禁止叠加策略 CLI 参数，避免两套值的优先级含糊。
     if (seen.count("--policy")) {
         if (options.policy_path.empty() || options.policy_path.front() != '/' || !options.seconds)
             throw std::invalid_argument("--policy requires an absolute file and --run-for");

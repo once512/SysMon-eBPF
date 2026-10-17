@@ -41,6 +41,7 @@ int main(int argc, char **argv)
         }
         PolicyRuntime runtime(options.policy_path, std::move(initial));
         const auto &active = runtime.active();
+        // 这个管理端只提供 root 控制，不像 BPF 宿主那样安装 TASK_STORAGE 自保护。
         std::unique_ptr<ControlServer> control;
         if (!options.control_path.empty()) control = std::make_unique<ControlServer>(options.control_path);
         struct sigaction action{};
@@ -61,12 +62,16 @@ int main(int argc, char **argv)
                         if (command == ControlCommand::stop) stopping = 1;
                         else if (command == ControlCommand::reload) {
                             code = runtime.reload([&](const PolicyConfig &candidate) {
+                                // 先在副本上转换、验证候选；
+                                // 固定后端变化或忙队列拒绝时，不让活动 options 混入半份新配置。
                                 auto next = options;
                                 apply_fanotify_policy(candidate, next);
                                 if (!same_fanotify_backend(options, next))
                                     throw management::Error(management::Code::restart_required,
                                         "Changing fanotify target, event or analyzer requires restart");
                                 // 固定后端检查和资源准备在前；空闲时提交后只做不分配内存的移动赋值。
+                                // 本调用只有空闲时才提交裁决合同；
+                                // 随后 options 移动赋值不再分配内存，避免提交后另行失败。
                                 gate.reconfigure(next.decision);
                                 options = std::move(next);
                             }, gate.target_fd());

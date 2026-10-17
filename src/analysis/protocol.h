@@ -10,6 +10,8 @@ namespace analysis {
 constexpr std::uint32_t magic = 0x53434d41;
 constexpr std::uint16_t version = 3;
 // id=0 留给 Ready 握手，普通请求从非零 ID 开始；正文不包含 FD 数字，FD 通过辅助消息单独传递。
+// id 用于关联本实例内的请求，不是业务 PID；
+// 文件能力随附件 FD 传递，而不是把正文某个整数当作远端 FD。
 struct Request {
     std::uint32_t magic_value = magic;
     std::uint16_t abi = version;
@@ -39,6 +41,8 @@ inline const char *scan_error_name(ScanError error)
     }
     return nullptr;
 }
+// 这里验证原因与 errno 的组合，不验证 Response 的全部字段；
+// Ready/结果/ID/附件数量还需接收方校验。
 inline bool valid_scan_error(ScanError error, std::int32_t system_errno)
 {
     if (!scan_error_name(error) || system_errno < 0 || system_errno > 4095) return false;
@@ -46,6 +50,8 @@ inline bool valid_scan_error(ScanError error, std::int32_t system_errno)
         error == ScanError::read_failed || error == ScanError::resource_exhausted;
     return needs_errno ? system_errno > 0 : system_errno == 0;
 }
+// 默认 result=error 可防止未完成扫描直接变成 allow；
+// 真正的 error 回复还必须填写有效的非 none 原因。
 struct Response {
     std::uint32_t magic_value = magic;
     std::uint16_t abi = version;

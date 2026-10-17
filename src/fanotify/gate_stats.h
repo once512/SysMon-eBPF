@@ -18,6 +18,7 @@ struct GateStats {
     std::uint64_t analysis_denied = 0;
     std::uint64_t analyzer_error = 0;
     std::uint64_t analyzer_failures = 0;
+    // 工作进程离线/协议故障的请求回退，与工作进程正常返回的单文件扫描错误分别计数。
     std::uint64_t backend_error_requests = 0;
     std::array<std::uint64_t, analysis::scan_error_count> scan_errors{};
     analysis::ScanError last_scan_error = analysis::ScanError::none;

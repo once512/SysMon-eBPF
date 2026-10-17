@@ -19,6 +19,8 @@ class AnalysisClient {
     OwnedFd process_;
     unsigned int scan_limit_ = 0;
     pid_t pid_ = -1;
+    // 0 表示没有在途请求；
+    // 非 0 必须与唯一响应 ID 相同，用于拒绝重复、串号和迟到的报文。
     std::uint64_t active_ = 0;
     void reap();
     void wait_for_exit();
@@ -31,7 +33,11 @@ public:
     int fd() const { return channel_.get(); }
     pid_t pid() const { return pid_; }
     std::uint64_t active() const { return active_; }
+    // 提交借用队列中的事件 FD，发送端仍保留原引用；
+    // 一次最多一个 active 请求，失败不能进入在途状态。
     void submit(std::uint64_t id, int event_fd);
+    // nullopt 表示当前没有结果；
+    // 非法帧/断连抛异常，由权限门停止后端并选择回退，不在此处决定业务 allow。
     std::optional<analysis::Response> receive();
     // Kill only this unreaped child; never wait in the permission-processing loop.
     void stop();

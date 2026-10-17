@@ -27,6 +27,8 @@ PolicyConfig parse_policy(std::istream &input)
     std::set<std::string> writer_paths;
     std::size_t bytes = 0;
     std::string line;
+    // 逐行累计原始长度并拒绝 NUL；
+    // 先得到完整候选数据，再由后端访问文件/Map，解析本身没有挂载副作用。
     while (std::getline(input, line)) {
         bytes += line.size() + (input.eof() ? 0 : 1);
         if (bytes > max_bytes || line.find('\0') != std::string::npos) invalid();
@@ -39,6 +41,8 @@ PolicyConfig parse_policy(std::istream &input)
                 value.empty() || value.front() != '/' || value.size() > 4095 ||
                 !unique.insert(value).second || result.paths.size() == 256) invalid();
             result.paths.push_back(value);
+        // 这里去重的是路径文本；
+        // 硬链接是否指向同一 inode、是否配置冲突 UID，要到后端固定对象后才能判断。
         } else if (key == "allow-writer") {
             fields >> std::ws;
             if (fields.peek() != '"' || !(fields >> std::quoted(value)) ||
@@ -65,6 +69,7 @@ PolicyConfig parse_policy(std::istream &input)
                 }
             } else {
                 if (!(fields >> value)) invalid();
+                // from_chars 同时检查转换结果与结束位置，避免把 100ms 或 12abc 的合法前缀当作完整数值。
                 auto numeric = [&](unsigned int minimum, unsigned int maximum) {
                     unsigned int number = 0;
                     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
@@ -97,11 +102,15 @@ PolicyConfig parse_policy(std::istream &input)
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !result.revision) invalid();
             } else invalid();
         }
+        // 每行恰好消费允许的字段；
+        // 多余参数或行尾注释都拒绝，避免不同读取者产生不同解释。
         if (fields >> extra) invalid();
     }
     if (input.bad() || !version || !result.revision) invalid();
     if (!result.writers.empty() && version != 3) invalid();
     // 字段逐条解析后再校验整体约束，允许字段换序，但禁止混用静态决策与分析器专属字段。
+    // 整体约束在读完后统一检查，故字段可换序；
+    // 静态模式和分析模式的互斥不能只靠单行语法决定。
     if (!gate_keys.empty()) {
         if (version < 2 || gate.path.empty()) invalid();
         if (gate.analyzer.empty()) {
@@ -131,6 +140,8 @@ PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
     const auto reference = "/proc/self/fd/" + std::to_string(pinned.get());
     OwnedFd fd(open(reference.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC));
     if (fd.get() < 0) throw std::runtime_error("Cannot open pinned policy for reading");
+    // 原始字节另行保留用于 SHA-256；
+    // 摘要包含注释/空白，与解析后相同语义的配置不一定相同。
     std::string contents;
     char chunk[4096];
     for (;;) {
@@ -148,6 +159,8 @@ PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
         throw std::runtime_error("Policy changed while reading; retry with an atomic file replacement");
     std::istringstream input(contents);
     auto parsed = parse_policy(input);
+    // 摘要随成功加载的候选返回；
+    // 是否成为活动摘要由 PolicyRuntime 的后端提交结果决定。
     parsed.source_digest = content_digest(contents);
     return parsed;
 }

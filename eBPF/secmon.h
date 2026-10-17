@@ -8,6 +8,8 @@
 #define SECMON_BASELINE_MISMATCH 1U
 enum secmon_event_kind { SECMON_EXEC_CHECK = 1, SECMON_EXEC_SUCCESS = 2, SECMON_FILE_DENIED = 3, SECMON_SELF_DENIED_EVENT = 4 };
 // inode 号只在相应文件系统/设备身份内有意义，不能单独作为跨设备策略键。
+/* 同样的 ino 数字可以同时存在于不同文件系统； */
+/* 键还需设备身份，且用户态必须持有 inode 引用防止回收复用。 */
 struct file_key {
     unsigned int major;
     unsigned int minor;
@@ -18,6 +20,8 @@ struct file_key {
 #define SECMON_FILE_READONLY 1U
 #define SECMON_FILE_WRITER 2U
 #define SECMON_FILE_IDENTITY 4U
+/* writer_euid 只有 WRITER 位存在时才有效； */
+/* 默认零值不是“所有 root 程序自动可信”。 */
 struct file_policy_value {
     unsigned int flags;
     unsigned int writer_euid;

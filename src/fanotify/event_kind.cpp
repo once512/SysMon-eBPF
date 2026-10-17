@@ -12,6 +12,8 @@ PermissionEvent parse_permission_event(std::string_view text)
     if (text == "exec") return PermissionEvent::exec;
     throw std::invalid_argument("--event requires open|access|exec");
 }
+// 配置枚举在这里翻译成内核 FAN_* 位；
+// 不要把管理协议的 1/2/3 直接传给 fanotify_mark。
 std::uint64_t permission_mask(PermissionEvent event)
 {
     switch (event) {

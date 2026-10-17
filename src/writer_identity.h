@@ -4,6 +4,8 @@
 #include "owned_fd.h"
 #include "secmon.h"
 #include <string>
+// FD 维持对象寿命，key 供 Map 匹配；
+// 只保存 key 而丢掉 FD 会失去防 inode 回收复用的前提。
 struct PinnedPolicyFile {
     OwnedFd fd;
     file_key key;

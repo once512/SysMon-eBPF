@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+// reply 回调只借用事件 FD；
+// 本队列始终负责该 FD 的最终关闭，回调不应自行接管。
 PendingDecisions::PendingDecisions(DecisionConfig config, Reply reply)
     : config_(config), reply_(std::move(reply))
 {
@@ -30,9 +32,12 @@ void PendingDecisions::submit(OwnedFd fd, Clock::time_point now)
     // 先兑现已经到期的旧请求，再判断容量；已超时条目不应继续占据用户态 pending 预算。
     process_due(now);
     if (pending_.size() >= config_.max_pending) {
+        // 满队列的新事件仍必须回复；
+        // 它不进入 pending，函数退出后参数中的 OwnedFd 关闭其引用。
         reply_(fd.get(), {config_.overload_allow, DecisionReason::capacity});
         return;
     }
+    // uint64 请求号回绕为 0 时停止接收，不能把新请求编号重新当作旧响应的合法目标。
     if (!next_id_) throw std::runtime_error("Analysis request ID exhausted");
     // 接收时间与递增 ID 一起保存；ID 不复用，避免过期或重复响应错误地命中新请求。
     pending_.push_back({std::move(fd), next_id_++, now});
@@ -46,6 +51,8 @@ void PendingDecisions::process_due(Clock::time_point now)
     while (!pending_.empty()) {
         const auto received = pending_.front().received;
         // Expiration wins, including when a late wakeup passes both timestamps.
+        // 一次较晚唤醒可能同时越过 delay 和 timeout；
+        // 先检查 timeout，保证迟到的静态 allow 不胜过超时回退。
         if (now >= received + config_.timeout)
             reply_(pending_.front().fd.get(), {config_.timeout_allow, DecisionReason::timeout});
         else if (!config_.external && now >= received + config_.delay)
@@ -55,6 +62,8 @@ void PendingDecisions::process_due(Clock::time_point now)
     }
 }
 
+// 只拒绝已经读入本进程的请求；
+// 仍在内核队列中的请求不在这里，关闭 group 时由内核释放等待。
 void PendingDecisions::shutdown()
 {
     while (!pending_.empty()) {
@@ -78,6 +87,8 @@ int PendingDecisions::poll_timeout(int maximum_ms, Clock::time_point now) const
 std::optional<PendingDecisions::ReadyRequest> PendingDecisions::next_request() const
 {
     if (pending_.empty() || !config_.external) return std::nullopt;
+    // 这里只借出队首 FD 与 ID 给发送方，SCM_RIGHTS 成功后分析器持有另一个引用；
+    // 本队列仍保留原 FD。
     return ReadyRequest{pending_.front().id, pending_.front().fd.get()};
 }
 bool PendingDecisions::contains(std::uint64_t id) const
@@ -90,12 +101,17 @@ bool PendingDecisions::complete(std::uint64_t id, bool allow, bool error, Clock:
     process_due(now);
     const auto found = std::find_if(pending_.begin(), pending_.end(),
                                    [id](const auto &request) { return request.id == id; });
+    // process_due 可能刚刚处理掉同一个 ID；
+    // 此时忽略迟到结果，不能向已关闭或复用的 FD 再回复。
     if (found == pending_.end()) return false;
+    // 单文件分析 error 使用配置回退，而不是把 error 等同于扫描命中；
+    // 成功写出回复后才 erase 并关闭原 FD。
     reply_(found->fd.get(), {error ? config_.analyzer_error_allow : allow,
                            error ? DecisionReason::analyzer_error : DecisionReason::analysis, scan_error, scan_errno});
     pending_.erase(found);
     return true;
 }
+// 这是后端不可用时对全部已交付请求的回退，不意味着对尚未读出的内核请求逐一处理过。
 void PendingDecisions::fail_analysis()
 {
     while (!pending_.empty()) {

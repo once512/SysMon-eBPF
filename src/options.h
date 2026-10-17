@@ -13,4 +13,6 @@ struct Options {
 };
 enum class CliAction { run, help, stop, reload, status };
 // Throws std::invalid_argument for malformed options; performs no BPF/socket I/O.
+// run 才进入 BPF 生命周期；
+// help/stop/reload/status 在主入口提前处理，不顺便 attach 一套监控。
 CliAction parse_options(int argc, char **argv, Options &options);

@@ -34,9 +34,13 @@ Consistency check_consistency(const Reply &b1, const Reply &f1, const Reply &b2,
     }
     if (b1.backend != Backend::bpf || b2.backend != Backend::bpf ||
         f1.backend != Backend::fanotify || f2.backend != Backend::fanotify) return Consistency::wrong_backend;
+    // 必须先排除采样期间的重启/提交，才能比较共同活动来源；
+    // 相同候选磁盘文件不能替代这一步。
     if (!stable(b1, b2) || !stable(f1, f2)) return Consistency::unstable;
     if (!(b2.flags & configured) || !(f2.flags & configured)) return Consistency::unconfigured;
     if (b2.revision != f2.revision) return Consistency::revision_mismatch;
+    // 相同 revision 仍可能来自不同字节；
+    // 摘要只核对配置来源，不证明两端路径解析到同一 inode。
     if (b2.source_digest != f2.source_digest) return Consistency::source_mismatch;
     if (expected_revision && b2.revision != expected_revision) return Consistency::unexpected_revision;
     return Consistency::consistent;

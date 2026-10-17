@@ -25,11 +25,15 @@ Response scan(int fd, std::uint64_t id, const std::string &marker, std::uint32_t
     if (marker.empty() || marker.size() > 256 || !limit || limit > 1024 * 1024)
         return failed(ScanError::invalid_input);
     if (flags < 0) return failed(ScanError::bad_descriptor, errno);
+    // O_PATH 只有定位能力而不能读取内容；
+    // 同时拒绝可写 FD，避免让扫描协议无意授予修改对象的能力。
     if ((flags & O_ACCMODE) != O_RDONLY || (flags & O_PATH)) return failed(ScanError::unsupported_descriptor);
     if (fstat(fd, &before)) return failed(ScanError::metadata_failed, errno);
     if (!S_ISREG(before.st_mode) || before.st_size < 0) return failed(ScanError::unsupported_descriptor);
     if (static_cast<unsigned long long>(before.st_size) > limit) return failed(ScanError::oversized);
     std::string contents;
+    // 先按观测大小预留缓冲只是减少扩容，不信任这个大小永远不变；
+    // 读取环节仍有 limit+1 的硬边界。
     contents.reserve(static_cast<std::size_t>(before.st_size));
     char bytes[4096];
     // 最多额外读取一个字节探测增长超限；将片段累计后匹配，因此标记跨越 4096 字节读取边界也能识别。
@@ -47,6 +51,8 @@ Response scan(int fd, std::uint64_t id, const std::string &marker, std::uint32_t
     if (contents.size() > limit) return failed(ScanError::oversized);
     if (fstat(fd, &after)) return failed(ScanError::metadata_failed, errno);
     // 找到标记直接拒绝；未找到时还需确认完整读到稳定大小，不能只因某次读取没看到标记就允许。
+    // 命中标记即选择 deny，不要求元数据稳定；
+    // 只有准备 allow 时才要求完整读到的大小与前后元数据一致。
     if (contents.find(marker) != std::string::npos) response.result = Result::deny;
     else if (before.st_size == after.st_size && before.st_mtim.tv_sec == after.st_mtim.tv_sec &&
              before.st_mtim.tv_nsec == after.st_mtim.tv_nsec &&

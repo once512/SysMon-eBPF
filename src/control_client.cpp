@@ -35,6 +35,8 @@ static management::Reply query(const std::string &path, management::Command comm
     const auto address = management::channel::unix_address(path);
     if (connection.get() < 0 || connect(connection.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) ||
         !management::channel::root_peer(connection.get())) throw std::runtime_error("Cannot connect to root control service");
+    // 版本放在请求文本中，服务据此选择响应长度；
+    // 新客户端要求当前版本，不把旧响应静默当作完整状态。
     const std::string message = std::string(management::command_name(command)) + "-v3";
     if (send(connection.get(), message.data(), message.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(message.size()))
         throw std::runtime_error("Cannot send management request");
@@ -43,9 +45,12 @@ static management::Reply query(const std::string &path, management::Command comm
     management::Reply reply;
     if (management::channel::receive_without_fds(connection.get(), &reply, sizeof(reply)) != sizeof(reply))
         throw std::runtime_error("Unexpected management response size");
+    // 先验证长度、魔数、枚举和计数关系，再允许 JSON 渲染索引枚举数组或解释字段。
     management::validate_reply(reply, command);
     ucred peer{};
     socklen_t size = sizeof(peer);
+    // SO_PEERCRED 给出连接的真实服务进程；
+    // 校验报文 pid，防止把其他实例自报的状态当作本端响应。
     if (getsockopt(connection.get(), SOL_SOCKET, SO_PEERCRED, &peer, &size) ||
         reply.pid != static_cast<std::uint32_t>(peer.pid)) throw std::runtime_error("Management peer PID mismatch");
     return reply;

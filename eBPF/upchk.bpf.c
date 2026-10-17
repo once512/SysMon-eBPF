@@ -12,6 +12,8 @@ struct {
     __type(value, struct cred_baseline);
 } cred_map SEC(".maps");
 
+/* 键按线程区分：同进程各 TID 可独立退出； */
+/* start_ns 再防止同一个数字 TID 后续被另一任务复用。 */
 static __always_inline struct task_key task_key_for(struct task_struct *task)
 {
     struct task_key key = {};
@@ -20,6 +22,8 @@ static __always_inline struct task_key task_key_for(struct task_struct *task)
     key.start_ns = BPF_CORE_READ(task, start_boottime);
     return key;
 }
+/* 读取 task->cred 的已提交有效凭证； */
+/* 不把 real_cred、准备中的 new cred 与当前操作身份混为一谈。 */
 static __always_inline struct cred_baseline read_creds(struct task_struct *task)
 {
     struct cred_baseline base = {};
@@ -56,6 +60,8 @@ SEC("tp_btf/sched_process_exit")
 int BPF_PROG(on_exit, struct task_struct *task)
 {
     struct task_key key = task_key_for(task);
+    /* 此处的 0 是跟踪程序正常结束，不是批准退出； */
+    /* 键缺失时删除失败也无需据此阻止任务生命周期。 */
     bpf_map_delete_elem(&cred_map, &key);
     return 0;
 }
@@ -73,6 +79,8 @@ static __always_inline u32 credential_flags(struct task_struct *task)
 {
     struct task_key key = task_key_for(task);
     struct cred_baseline current = read_creds(task);
+    /* lookup 返回 Map 内值的指针而不是复制品； */
+    /* 先判断非空再访问字段，才能通过 verifier 的指针检查。 */
     struct cred_baseline *base = bpf_map_lookup_elem(&cred_map, &key);
     /* 挂载之前就存在的线程没有历史记录，首次见到只能建立观测基线，不能推导此前是否发生过攻击。 */
     if (!base) {

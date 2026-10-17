@@ -10,5 +10,7 @@
 namespace management::channel {
 sockaddr_un unix_address(const std::string &path);
 bool root_peer(int fd);
+// 它不等待可读：调用方须先 poll；
+// 即使异常报文带来了真实 FD，也会先关闭附件再抛错。
 ssize_t receive_without_fds(int fd, void *data, std::size_t capacity);
 }

@@ -36,6 +36,8 @@ int consume(void *, void *data, std::size_t size)
     }
     // 将回调缓冲复制到本地结构再读取，不假设传入地址满足宿主 C++ 结构的对齐要求。
     exec_event e{};
+    // 回调中的 data 只在消费期间借用；
+    // 复制出完整事件后再按 kind 解释，不把缓冲区地址长期保存。
     std::memcpy(&e, data, sizeof(e));
     if (e.version != SECMON_ABI_VERSION || e.size != sizeof(e)) {
         std::cerr << "Event ABI mismatch\n";
@@ -50,6 +52,8 @@ int consume(void *, void *data, std::size_t size)
                   << ",\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
         return 0;
     }
+    // 文件身份输出设备号/inode 而不是猜测完整路径；
+    // 事件丢失影响审计完整性，但不会撤销已经作出的内核拒绝。
     if (e.kind == SECMON_FILE_DENIED) {
         std::cout << "{\"event\":\"file_denied\",\"timestamp_ns\":" << e.timestamp_ns
                   << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
@@ -60,6 +64,7 @@ int consume(void *, void *data, std::size_t size)
                   << ",\"errno\":13,\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
         return 0;
     }
+    // 检查事件与完成事件不是一一对应：失败 exec 没有完成事件，解释器链也可能产生多次安全检查。
     const char *kind = e.kind == SECMON_EXEC_CHECK ? "exec_check" :
                        e.kind == SECMON_EXEC_SUCCESS ? "exec_success" : nullptr;
     if (!kind) {

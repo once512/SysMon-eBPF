@@ -15,6 +15,8 @@ class ControlServer {
     OwnedFd directory_;
     OwnedFd socket_;
     OwnedFd pending_; // 最多保留一个未交付命令的连接，不在业务循环里等待其发送。
+    // 这里只是待发送连接的软截止时间，下一次 dispatch 才回收；
+    // 不能把它当作严格的墙钟超时保证。
     std::chrono::steady_clock::time_point expires_{};
     std::string name_;
     bool bound_ = false;
@@ -26,5 +28,7 @@ public:
     ControlServer &operator=(const ControlServer &) = delete;
     // Nonblocking dispatch: idle clients expire without delaying permission decisions.
     // Acknowledge only after the handler completes.
+    // 每次最多推进一个 root 连接，调用本身不等待命令到达；
+    // handler 可以执行重载，因此须由宿主串行调用。
     void dispatch(const std::function<management::Reply(ControlCommand)> &handler);
 };

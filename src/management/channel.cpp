@@ -29,6 +29,8 @@ bool root_peer(int fd)
 ssize_t receive_without_fds(int fd, void *data, std::size_t capacity)
 {
     iovec payload{data, capacity};
+    // 辅助数据缓冲必须满足 cmsghdr 对齐；
+    // 即使管理协议禁带 FD，recvmsg 仍可能已安装对端发送的引用。
     alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(int) * 8)]{};
     msghdr message{};
     message.msg_iov = &payload;
@@ -39,6 +41,8 @@ ssize_t receive_without_fds(int fd, void *data, std::size_t capacity)
     do { count = recvmsg(fd, &message, MSG_DONTWAIT | MSG_CMSG_CLOEXEC); }
     while (count < 0 && errno == EINTR);
     if (count < 0) throw std::runtime_error("Management receive failed");
+    // 先遍历并关闭附件，再统一拒绝报文；
+    // 若直接看到第一个异常就抛错，可能遗漏同报文中的其他 FD。
     bool attached = false;
     for (auto *item = CMSG_FIRSTHDR(&message); item; item = CMSG_NXTHDR(&message, item)) {
         attached = true;

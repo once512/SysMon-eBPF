@@ -12,6 +12,8 @@
 
 // A single inode mark with bounded decisions and an optional external scanner.
 class PermissionGate {
+    // 析构按成员声明的逆序进行：先销毁 pending，再关闭 group，最后才回收分析进程；
+    // 不要随意调换。
     std::unique_ptr<AnalysisClient> analyzer_; // Destroy only after group closure.
     OwnedFd target_; // Pin before marking; release after the fanotify group.
     OwnedFd group_;
@@ -26,14 +28,22 @@ public:
                    const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {});
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
+    // pending 的回复 lambda 捕获当前 this；
+    // 若允许移动对象，回调可能继续访问旧地址。
     PermissionGate(PermissionGate &&) = delete; // The reply callback captures this.
     PermissionGate &operator=(PermissionGate &&) = delete;
     // Process at most one incoming event. False means poll timed out or was interrupted.
+    // timeout_ms 是本轮等待上限，实际等待还受最近请求截止时间限制；
+    // 返回 false 不表示分析器离线。
     bool poll_once(int timeout_ms);
     void reconfigure(DecisionConfig config);
+    // 正常退出先回复已交付队列，再停止分析器；
+    // 析构关闭 group 会释放仍留在内核中的等待。
     void shutdown() { pending_.shutdown(); if (analyzer_) analyzer_->stop(); }
     int target_fd() const { return target_.get(); } // Borrowed; never close or read.
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
+    // 这是监督器最近观测到的通信状态；
+    // 查询不会主动 ping，进程刚刚死亡而尚未处理断连时可能仍显示在线。
     bool analyzer_online() const { return analyzer_ && analyzer_->online(); }
     std::size_t pending_count() const { return pending_.size(); }
     const GateStats &stats() const { return stats_; }

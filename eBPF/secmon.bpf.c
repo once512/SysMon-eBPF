@@ -27,6 +27,8 @@ struct {
 /* PERCPU_ARRAY 每个可能 CPU 各有一份计数，减少 CPU 之间共享写入；宿主读取时必须汇总所有副本。 */
 static __always_inline void count_stat(u32 index)
 {
+    /* PERCPU_ARRAY lookup 返回当前 CPU 的槽位； */
+    /* 无需把每次事件计数串行化到一个共享全局计数器。 */
     u64 *value = bpf_map_lookup_elem(&stats, &index);
     if (value)
         (*value)++;
@@ -67,6 +69,8 @@ static __always_inline void emit_exec(struct task_struct *task,
     e->file_mode = BPF_CORE_READ(bprm, file, f_inode, i_mode);
     e->flags = flags;
     bpf_get_current_comm(e->comm, sizeof(e->comm));
+    /* filename 仅用于有界审计展示，过长会截断； */
+    /* 文件授权不能依赖这里截断后的路径文本。 */
     bpf_probe_read_kernel_str(e->filename, sizeof(e->filename),
                               BPF_CORE_READ(bprm, filename));
     /* submit 后记录归消费者所有，本程序不能继续写；每次成功 reserve 都应走 submit 或 discard。 */
@@ -77,6 +81,8 @@ static __always_inline void emit_exec(struct task_struct *task,
 SEC("lsm/bprm_check_security")
 int BPF_PROG(on_exec_check, struct linux_binprm *bprm, int ret)
 {
+    /* 对可串联的 BPF LSM 程序，非零 ret 代表前面的拒绝； */
+    /* 当前审计器不能用返回 0 覆盖它。 */
     if (ret)
         return ret;
     struct task_struct *task = bpf_get_current_task_btf();
@@ -92,6 +98,8 @@ int BPF_PROG(on_exec_complete, struct task_struct *task, pid_t old_pid,
 {
     /* de_thread() may change both identity and start time. Remove by the
      * original identity at sched_prepare_exec, before that transformation. */
+    /* 完成跟踪点只观察已发生的 exec，返回值不能推翻执行； */
+    /* 它同时建立转换后线程身份的观测基线。 */
     save_baseline(task);
     emit_exec(task, bprm, SECMON_EXEC_SUCCESS, (u32)old_pid, 0);
     return 0;

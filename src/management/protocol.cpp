@@ -29,6 +29,8 @@ const char *command_name(Command command)
 }
 void validate_reply(const Reply &r, Command expected)
 {
+    // 这是外部输入边界，错误值一律先拒绝；
+    // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
         (r.flags & ~15U) || (r.fallbacks & ~7U) || r.protected_paths > 256 || r.writer_paths > 64 || r.reserved_v3 ||
@@ -39,6 +41,7 @@ void validate_reply(const Reply &r, Command expected)
     // 原因拆分与总错误数保持守恒；用减法边界检查避免恶意计数触发求和溢出。
     if (r.scan_errors[0] || r.backend_error_requests > r.analysis_errors)
         throw std::runtime_error("Invalid management error accounting");
+    // 先用总量减去已计数部分，再比较下一项，避免攻击性 uint64 计数相加回绕后绕过守恒校验。
     auto counted = r.backend_error_requests;
     for (std::size_t i = 1; i < r.scan_errors.size(); ++i) {
         if (r.scan_errors[i] > r.analysis_errors - counted)
@@ -62,6 +65,7 @@ std::string reply_json(const Reply &r)
     out << ",\"source_sha256\":";
     if (r.flags & configured) out << '\"' << digest_hex(r.source_digest) << '\"';
     else out << "null";
+    // 按后端输出实际支持的字段，不给 BPF 状态填造 fanotify 的裁决业务计数。
     if (r.backend == Backend::bpf)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")
             << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths;

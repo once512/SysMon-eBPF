@@ -30,6 +30,7 @@ Packet receive_packet(int channel, void *data, std::size_t capacity)
         if (errno == EAGAIN || errno == EWOULDBLOCK) return {Io::would_block, 0, {}};
         throw std::system_error(errno, std::generic_category(), "analysis recvmsg");
     }
+    // 非阻塞未就绪与对端关闭是两种状态：前者继续事件循环，后者让监督器进入故障处理。
     packet.status = count ? Io::ready : Io::closed;
     packet.size = static_cast<std::size_t>(count);
     bool unexpected = false;
@@ -38,6 +39,8 @@ Packet receive_packet(int channel, void *data, std::size_t capacity)
             unexpected = true;
             continue;
         }
+        // cmsg_len 含控制头，减去 CMSG_LEN(0) 才是 FD 数组字节数；
+        // 不能把头部或对齐填充当作 FD。
         const auto bytes = item->cmsg_len - CMSG_LEN(0);
         if (bytes % sizeof(int)) unexpected = true;
         for (std::size_t offset = 0; offset + sizeof(int) <= bytes; offset += sizeof(int)) {
@@ -59,6 +62,7 @@ bool send_packet(int channel, const void *data, std::size_t size, int fd)
     msghdr message{};
     message.msg_iov = &vector;
     message.msg_iovlen = 1;
+    // FD 附件是可选的：宿主发分析请求附一个文件引用，工作进程发 Ready/结果不应附任何 FD。
     if (fd >= 0) {
         message.msg_control = control;
         message.msg_controllen = sizeof(control);
@@ -73,6 +77,8 @@ bool send_packet(int channel, const void *data, std::size_t size, int fd)
     do { count = sendmsg(channel, &message, MSG_DONTWAIT | MSG_NOSIGNAL); }
     while (count < 0 && errno == EINTR);
     if (count < 0) {
+        // 非阻塞发送没有空间时明确返回未发送；
+        // 由监督器决定故障回退，不在权限处理循环中等待队列腾空。
         if (errno == EAGAIN || errno == EWOULDBLOCK) return false;
         throw std::system_error(errno, std::generic_category(), "analysis sendmsg");
     }

@@ -3,6 +3,7 @@
 /* Task local storage is attached through a pidfd, independent of PID reuse. */
 struct {
     __uint(type, BPF_MAP_TYPE_TASK_STORAGE);
+    /* TASK_STORAGE 按 task 生命周期分配，不能像固定数组一样预先给所有潜在任务分配条目。 */
     __uint(map_flags, BPF_F_NO_PREALLOC);
     __type(key, int);
     __type(value, u32);
@@ -20,6 +21,8 @@ static __always_inline int guard_task(struct task_struct *target, u32 operation,
     if (BPF_CORE_READ(current, group_leader) == leader) return 0;
     count_stat(SECMON_SELF_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    /* 先决定拒绝，再尽力写审计； */
+    /* ring buffer 无空间时仍返回 EPERM，不能把记录成功当成拒绝前提。 */
     if (e) {
         __builtin_memset(e, 0, sizeof(*e));
         e->version = SECMON_ABI_VERSION;

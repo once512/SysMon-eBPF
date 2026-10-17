@@ -51,7 +51,11 @@ int main(int argc, char **argv)
         PolicyConfig initial;
         initial.paths = options.paths;
         if (!options.policy_path.empty()) initial = load_policy(options.policy_path);
+        // runtime 保存配置与提交历史；
+        // protected_files 保存实际 inode 资源，两者职责不同，重载回调负责协调。
         PolicyRuntime runtime(options.policy_path, std::move(initial));
+        // 引用绑定的是协调器内部的配置对象；
+        // 成功重载会移动赋值该对象，因此后续读取看到新版本。
         const auto &active = runtime.active();
         if (active.fanotify) std::cerr << "secmon applies protect/allow-writer entries; run secmon-fanotify separately for fanotify directives\n";
         utsname info{};
@@ -81,6 +85,8 @@ int main(int argc, char **argv)
             throw std::runtime_error("BPF load failed; inspect libbpf diagnostics and privileges");
         if (control) {
             // TASK_STORAGE 的用户态 Map 更新使用 pidfd 作为 key，不直接把 getpid 的整数当作生命周期身份。
+            // pidfd 是当前进程的稳定内核引用；
+            // TASK_STORAGE 的用户态 key 使用这个 FD，而不是一个可复用的 PID 数字。
             OwnedFd self(static_cast<int>(syscall(SYS_pidfd_open, getpid(), 0)));
             unsigned int enabled = 1;
             if (self.get() < 0) throw std::runtime_error("Cannot open self pidfd");
@@ -89,6 +95,8 @@ int main(int argc, char **argv)
                                     &enabled, BPF_NOEXIST))
                 throw std::runtime_error("Cannot install task-local self-protection policy");
         }
+        // 首次 attach 前先发布完整文件策略，避免挂载完成后再逐条补规则；
+        // 逐个 hook 的 attach 本身仍非原子。
         protected_files.install(bpf_map__fd(skel->maps.protected_files), active);
         // ring_buffer__new 注册消费回调；它不挂载 BPF，只有后面的 attach 才开始进入安全/跟踪钩子。
         std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring(
@@ -124,6 +132,8 @@ int main(int argc, char **argv)
                     if (code == management::Code::ok)
                         std::cerr << "Policy active revision=" << active.revision << '\n';
                 }
+                // 状态回复在同一事件循环中生成，不与另一条重载线程并发拼接字段；
+                // 不读取磁盘上的未应用候选。
                 auto reply = runtime.snapshot(management::Backend::bpf);
                 reply.protected_paths = active.paths.size();
                 reply.writer_paths = active.writers.size();
@@ -132,6 +142,8 @@ int main(int argc, char **argv)
                 return reply;
             });
             if (stopping) break;
+            // poll 在用户态等待 ring buffer 并调用 consume；
+            // 它不是 BPF 执行入口，LSM 程序由业务操作在内核触发。
             const int result = ring_buffer__poll(ring.get(), 250);
             if (result < 0 && result != -EINTR) throw std::runtime_error("Ring buffer poll failed");
             if (!std::cout) throw std::runtime_error("Event output failed");

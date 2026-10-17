@@ -11,6 +11,7 @@ namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
 constexpr std::uint16_t version = 3;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
+// 这些 code 描述管理操作结果，不能拿来代替 fanotify 的 Result 或内核钩子返回的负 errno。
 enum class Code : std::uint32_t {
     ok = 0, no_policy = 1, not_newer = 2, invalid_policy = 3,
     prepare_failed = 4, busy = 5, restart_required = 6, internal_error = 7
@@ -27,6 +28,8 @@ struct Reply {
     Backend backend = Backend::bpf;
     std::uint32_t flags = 0;
     std::uint64_t revision = 0;
+    // 候选版本仅在成功读出配置后才可知；
+    // 读取/语法失败时为 0，活动 revision 仍保留旧值。
     std::uint64_t last_attempt_revision = 0;
     std::uint64_t instance_ns = 0;
     std::uint64_t uptime_ms = 0;
@@ -49,6 +52,8 @@ struct Reply {
     std::uint32_t fallbacks = 0; // bit 0/1/2 对应 timeout/overload/analyzer error 的 allow。
     std::int32_t worker_pid = -1;
     std::uint32_t scan_limit = 0;
+    // 当前 status 的 code 通常为 ok，但 last_code 保留最近一次重载结果；
+    // 查询不会清除诊断历史。
     Code last_code = Code::ok;
     std::uint32_t reserved = 0;
     ContentDigest source_digest{};
@@ -61,6 +66,8 @@ struct Reply {
     std::uint32_t writer_paths = 0;
     std::uint32_t reserved_v3 = 0;
 };
+// 追加字段应放在已有布局之后；
+// 这些断言同时保护 v1/v2 前缀边界，不能只修改一端的 sizeof。
 static_assert(sizeof(Reply) == 296);
 static_assert(offsetof(Reply, last_scan_error) == 200);
 static_assert(offsetof(Reply, writer_paths) == 288);
@@ -72,6 +79,8 @@ public:
 };
 const char *code_name(Code code);
 const char *command_name(Command command);
+// expected 绑定本次请求的命令，拒绝把 reload 响应当作 status；
+// 校验失败时不能继续渲染字段。
 void validate_reply(const Reply &reply, Command expected);
 std::string reply_json(const Reply &reply);
 }

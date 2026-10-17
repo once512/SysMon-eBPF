@@ -12,6 +12,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
     auto &paths = options.paths;
     auto &control_path = options.control_path;
     auto &run_seconds = options.run_seconds;
+    // 管理命令在这里被识别为独立动作，后续入口会直接走客户端，不创建 BPF 对象。
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--help" && argc == 2) {
@@ -55,6 +56,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
             throw std::invalid_argument("Invalid command line");
         }
     }
+    // 互斥校验集中在参数读取完成后，避免 --check 意外带上会改变内核状态的运行选项。
     if ((check && (!paths.empty() || !control_path.empty() || run_seconds || !options.policy_path.empty())) ||
         (!options.policy_path.empty() && !paths.empty()) || paths.size() > 256) {
         std::cerr << "--check cannot install policies; --policy and --protect-file are mutually exclusive; at most 256 files are supported\n";

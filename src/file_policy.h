@@ -17,5 +17,7 @@ public:
     ~ProtectedFiles() = default; // 每个 FD 都由独立 RAII 对象持有，候选失败时自动释放。
     // Build a complete candidate, atomically replace outer-map slot 0, then release old pins.
     // Failure before the swap leaves the active map and pins untouched.
+    // 调用者借出外层 Map FD，本对象不负责关闭它；
+    // 成功返回表示已发布整份候选，不表示所有在途系统调用已结束。
     void install(int map_fd, const PolicyConfig &policy);
 };

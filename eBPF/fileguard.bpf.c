@@ -21,6 +21,8 @@ struct {
 /* 一次取出当前内层 Map 引用；切换前已取到旧引用的在途 BPF 程序可继续访问它，内核管理其生命周期。 */
 static __always_inline void *active_file_policy(void)
 {
+    /* ARRAY_OF_MAPS 这里只有一个活动槽； */
+    /* BPF 得到的是后续 lookup 可用的 Map 引用，不是用户态管理 FD。 */
     u32 slot = 0;
     return bpf_map_lookup_elem(&protected_files, &slot);
 }
@@ -36,7 +38,9 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     key.major = dev >> 20;
     key.minor = dev & ((1U << 20) - 1);
     key.ino = BPF_CORE_READ(inode, i_ino);
+    /* 目标 inode 与调用程序身份必须查同一个 policy 快照，否则重载中可能混用旧目标规则与新主体授权。 */
     struct file_policy_value *entry = bpf_map_lookup_elem(policy, &key);
+    /* 这里查的是目标集合：未选中的 inode 不施加本层限制，不是给未知调用程序授予写权限。 */
     if (!entry) return 0;
     // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
     if (!(entry->flags & SECMON_FILE_IDENTITY)) {
@@ -50,6 +54,8 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
         count_stat(SECMON_DROPPED);
         return -13; /* EACCES, independent of audit delivery. */
     }
+    /* 同一事件结构还用于其他事件种类； */
+    /* 先清零所有未使用字段和填充，避免把无关内存作为审计数据发出。 */
     __builtin_memset(e, 0, sizeof(*e));
     e->version = SECMON_ABI_VERSION;
     e->size = sizeof(*e);
@@ -68,6 +74,8 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     bpf_ringbuf_submit(e, 0);
     return -13;
 }
+/* 通用入口每次只取一份活动表； */
+/* rename 需要检查两个操作数，因此另行显式传递同一个快照。 */
 static __always_inline int guard_inode(struct inode *inode, u32 operation)
 {
     return guard_inode_policy(inode, operation, active_file_policy());
@@ -100,6 +108,8 @@ int BPF_PROG(guard_file_truncate, struct file *file, int ret)
     if (ret) return ret;
     return guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_TRUNCATE);
 }
+/* unlink 检查的是将被删除的 dentry inode，不是 dir； */
+/* 保护对象不等于递归保护其父目录。 */
 SEC("lsm/inode_unlink")
 int BPF_PROG(guard_unlink, struct inode *dir, struct dentry *dentry, int ret)
 {
@@ -149,6 +159,8 @@ int BPF_PROG(guard_mprotect, struct vm_area_struct *vma, unsigned long reqprot,
              unsigned long prot, int ret)
 {
     if (ret) return ret;
+    /* 匿名 VMA 没有 file，直接跳过； */
+    /* 对文件共享 VMA 增加写权限时，再按原文件 inode 判断。 */
     struct file *file = BPF_CORE_READ(vma, vm_file);
     /* VM_SHARED=0x8, PROT_WRITE=0x2. */
     return (file && (prot & 2) && (BPF_CORE_READ(vma, vm_flags) & 8)) ?

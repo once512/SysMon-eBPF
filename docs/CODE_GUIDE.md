@@ -123,3 +123,13 @@ sudo python3 tests/self_protection.py --build-dir build
 ### 程序对象授权
 
 [src/writer_identity.cpp](../src/writer_identity.cpp) 固定 root 所有的执行文件对象，[eBPF/writer_identity.bpf.c](../eBPF/writer_identity.bpf.c) 在文件操作时匹配当前 mm 的执行对象和有效 UID。它与目标保护共用一份候选 Map；先阅读 [授权边界](WRITER_IDENTITY.md)，区分对象匹配与完整可信应用识别。
+
+## 从函数内注释串起三条完整路径
+
+本轮进一步在手写源码/头文件中补充函数契约、参数单位、资源转移与失败语义，不只提供文件顶部的模块说明。可以选一条路径顺序读，遇到陌生接口就看紧邻调用处的注释：
+
+1. **内核拒绝路径**：[fileguard.bpf.c](../eBPF/fileguard.bpf.c) 的 `guard_inode_policy` → [writer_identity.bpf.c](../eBPF/writer_identity.bpf.c) 的 `authorized_writer` → ring buffer 拒绝事件。注意目标集合查询未命中与调用主体查询未命中含义不同；辅助函数的逻辑 0 也不同于 LSM 的放行返回值。先理解 Map 同一快照，再看 rename 的两个操作数。
+2. **fanotify 请求路径**：[gate.cpp](../src/fanotify/gate.cpp) 的 `poll_once` → [decisions.cpp](../src/fanotify/decisions.cpp) 的 `submit`/`next_request` → [client.cpp](../src/analysis/client.cpp) 的 `submit` → [worker_main.cpp](../src/analysis/worker_main.cpp) → [scanner.cpp](../src/analysis/scanner.cpp) → `service_analysis`/`complete`/`respond`。沿途追踪原事件 FD、SCM_RIGHTS 重复引用、请求 ID、截止时间和迟到结果，最后确认由谁关闭每个 FD。
+3. **策略替换路径**：[policy_runtime.cpp](../src/policy_runtime.cpp) 的 `reload` → [policy_config.cpp](../src/policy_config.cpp) 的 `load_policy`/`parse_policy` → [file_policy.cpp](../src/file_policy.cpp) 的 `install` → 外层 Map 引用切换 → 活动配置移动赋值。分别看配置读取失败、候选准备失败和成功提交后的状态变化；不要把候选日志当作活动策略已经切换。
+
+接口旁也补充了返回值的边界：`poll_once(false)` 不等于后端离线，`receive_packet(ready)` 不等于协议合法，`scan(allow)` 不等于恶意内容识别完成，`snapshot` 不会主动探测分析器。生成的 vmlinux.h、skeleton 和第三方代码仍按生成/供应方来源阅读，学习入口优先选择手写源码。

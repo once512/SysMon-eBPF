@@ -38,6 +38,8 @@ int main(int argc, char **argv)
         return 2;
     }
     try {
+        // 保持 B1→F1→B2→F2 顺序，两个稳定观测区间才有重叠；
+        // 不能为了并行提速而随意调整。
         const auto b1 = query_status(bpf_socket);
         const auto f1 = query_status(fanotify_socket);
         const auto b2 = query_status(bpf_socket);

@@ -20,6 +20,8 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     const auto &paths = config.paths;
     if (config.writers.size() > 64) throw std::runtime_error("Too many authorized writers");
     if (paths.size() > 256) throw std::runtime_error("Too many protected paths");
+    // candidate 是未发布的事务资源集合；
+    // 异常只销毁候选，当前对象仍持有活动策略的全部 inode。
     ProtectedFiles candidate;
     // 先分配保存 FD 的空间，再逐个 open；接管 FD 时不再触发 vector 扩容，减少异常路径泄漏风险。
     candidate.descriptors_.reserve(paths.size() + config.writers.size());
@@ -29,6 +31,8 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     if (policy_map.get() < 0) throw std::runtime_error("Cannot create candidate policy map");
     for (const auto &path : paths) {
         auto pinned = pin_policy_file(path, false);
+        // 移动 FD 后仍可读取 pinned.key；
+        // 键是值数据，FD 则已有唯一的新所有者。
         candidate.descriptors_.push_back(std::move(pinned.fd));
         const auto key = pinned.key;
         file_policy_value policy{SECMON_FILE_READONLY, 0};
@@ -40,6 +44,8 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     for (const auto &writer : config.writers) {
         auto pinned = pin_policy_file(writer.path, true);
         candidate.descriptors_.push_back(std::move(pinned.fd));
+        // 先读候选表已有值以合并 protect/writer 标志；
+        // 不能直接覆盖，否则重合 inode 会丢失原角色。
         file_policy_value value{};
         // 同一 inode 可同时是 protect 对象和 writer；别名重复且 UID 不同则拒绝整个候选。
         if (bpf_map_lookup_elem(policy_map.get(), &pinned.key, &value) && errno != ENOENT)
@@ -55,6 +61,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     }
     const unsigned int slot = 0;
     // 外层 Map update 的 value 是内层 Map FD；内核保存对象引用，成功后可关闭宿主的这个管理 FD。
+    // 注意三种不同结果：用户态更新外层传 FD，用户态查询外层得到 Map ID，BPF 查询外层得到 Map 指针。
     const int candidate_fd = policy_map.get();
     if (bpf_map_update_elem(map_fd, &slot, &candidate_fd, BPF_ANY))
         throw std::runtime_error("Cannot activate candidate policy map");

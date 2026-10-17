@@ -6,6 +6,8 @@ management::Reply fanotify_status(const PolicyRuntime &runtime, const FanotifyOp
                                  const PermissionGate &gate)
 {
     auto reply = runtime.snapshot(management::Backend::fanotify);
+    // 只借用已有计数；
+    // 查询不会处理超时或读取工作进程回复，所以状态可能反映最近一次事件循环观察。
     const auto &stats = gate.stats();
     reply.allowed = stats.allowed;
     reply.denied = stats.denied;

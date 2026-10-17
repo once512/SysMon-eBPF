@@ -40,12 +40,16 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
     int pair[2];
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, pair))
         throw std::system_error(errno, std::generic_category(), "analysis socketpair");
+    // 父端与子端先各自托管；
+    // spawn 动作把子端复制成 FD 3，父进程的这份子端引用在构造结束时关闭。
     channel_ = OwnedFd(pair[0]);
     OwnedFd worker(pair[1]);
     {
         SpawnActions actions;
         int error = 0;
         // 保留第一个系统调用错误，动作表由作用域对象统一清理。
+        // 保留最先出现的动作准备错误，后续不执行 spawn；
+        // 动作表对象析构时释放已构造的内部资源。
         auto action = [&](int result) { if (!error) error = result; };
         // 子进程只保留约定的 IPC FD 3；关闭其余高位 FD，不能让降权进程继承 group/Map/控制 socket 权限。
         action(posix_spawn_file_actions_adddup2(actions.get(), worker.get(), 3));
@@ -63,6 +67,8 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
         if (error) { pid_ = -1; throw std::system_error(error, std::generic_category(), "spawn analysis worker"); }
     }
     try {
+        // channel 负责通信，pidfd 负责定位和终止子进程；
+        // 两个句柄用途不同，通信断开不等于进程已被回收。
         process_ = OwnedFd(static_cast<int>(syscall(SYS_pidfd_open, pid_, 0)));
         if (process_.get() < 0) throw std::system_error(errno, std::generic_category(), "analysis pidfd_open");
         // 启动握手有 1 秒期限，校验 Ready 必须无 FD、id=0，确认降权完成后才允许宿主建立 mark。
@@ -112,6 +118,8 @@ void AnalysisClient::stop()
     if (process_.get() >= 0) syscall(SYS_pidfd_send_signal, process_.get(), SIGKILL, nullptr, 0);
     reap();
 }
+// 这段有界等待用于构造失败/析构收尾；
+// 权限事件处理路径只用 WNOHANG，不能等子进程退出再裁决。
 void AnalysisClient::wait_for_exit()
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
@@ -134,6 +142,8 @@ void AnalysisClient::submit(std::uint64_t id, int event_fd)
     request.id = id;
     if (!analysis::send_packet(channel_.get(), &request, sizeof(request), event_fd))
         throw std::runtime_error("Analysis request channel full");
+    // 只有发送成功才登记在途 ID；
+    // 若 channel 满导致发送失败，不能假装分析器已经接收了该事件。
     active_ = id;
 }
 std::optional<analysis::Response> AnalysisClient::receive()
@@ -152,6 +162,8 @@ std::optional<analysis::Response> AnalysisClient::receive()
         (response.result != analysis::Result::allow && response.result != analysis::Result::deny &&
          response.result != analysis::Result::error))
         throw std::runtime_error("Invalid or stale analysis response");
+    // 完整校验成功才解除在途状态；
+    // 单文件 error 也是一份有效响应，不会仅因此把工作进程判为离线。
     active_ = 0;
     return response;
 }

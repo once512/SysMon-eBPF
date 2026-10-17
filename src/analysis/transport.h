@@ -15,6 +15,12 @@ struct Packet {
 };
 // Nonblocking SOCK_SEQPACKET messages. Received FDs are always CLOEXEC/owned,
 // including malformed packets, so rejecting a message cannot leak an FD.
+// data 指向调用者的正文缓冲，capacity 是字节容量；
+// 返回的 Packet 只拥有附件 FD，不拥有 data。
+// ready 只表示收到了报文，绝不代表协议合法；
+// 上层仍必须验证 packet.size 和附件数量。
 Packet receive_packet(int channel, void *data, std::size_t capacity);
+// 函数借用 fd，成功发送也不会关闭它；
+// 返回 false 代表暂时未发送，异常代表传输错误。
 bool send_packet(int channel, const void *data, std::size_t size, int fd = -1);
 }

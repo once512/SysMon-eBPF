@@ -36,6 +36,8 @@ int pin_file(const std::string &path)
     }
     return fd;
 }
+// group FD 是监听/回复通道；
+// 事件 FD 是具体文件对象引用，不能把两者互换传给分析器。
 int create_group()
 {
     // FAN_CLASS_CONTENT 支持权限裁决；NONBLOCK 只让监听端读取不阻塞，请求方仍等待裁决。
@@ -53,6 +55,8 @@ PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, P
     : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
       pending_(config, [this](int fd, Verdict verdict) { respond(fd, verdict); })
 {
+    // 配置若就是被标记对象，重载读取它会等待本监听器给自己裁决；
+    // 必须在添加 mark 前排除。
     if (!policy_path.empty()) {
         OwnedFd policy(open(policy_path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
         struct stat source{}, target{};
@@ -74,6 +78,8 @@ bool PermissionGate::poll_once(int timeout_ms)
     // 同时等待内核事件与分析结果，不能在这里同步读取大文件，否则整个权限服务会被一个分析拖住。
     pollfd ready[] = {{group_.get(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
     const int wait_ms = pending_.poll_timeout(timeout_ms, PendingDecisions::Clock::now());
+    // 分析器 channel 与 fanotify group 一起等待；
+    // 队列给出的更短截止时间防止 poll 阻塞过头。
     const int result = poll(ready, 2, wait_ms);
     if (result < 0) {
         if (errno == EINTR) return false;
@@ -97,6 +103,8 @@ bool PermissionGate::poll_once(int timeout_ms)
         fail("fanotify read");
     }
     if (size != sizeof(event)) throw std::runtime_error("Short fanotify metadata record");
+    // 一旦 read 返回完整 metadata 就接管其 FD；
+    // 后面的版本/掩码检查抛错时，也有对象负责回收。
     OwnedFd event_fd(event.fd);
     if (event.vers != FANOTIFY_METADATA_VERSION || event.event_len != sizeof(event) ||
         event.metadata_len != sizeof(event))
@@ -109,6 +117,8 @@ bool PermissionGate::poll_once(int timeout_ms)
     }
     if (event.fd < 0 || event.mask != mask_)
         throw std::runtime_error("Unexpected fanotify permission event");
+    // 这里转移事件 FD 所有权，而不只是复制整数；
+    // submit 返回后 gate 的局部 OwnedFd 已为空。
     pending_.submit(std::move(event_fd), PendingDecisions::Clock::now());
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());
     service_analysis();
@@ -126,6 +136,8 @@ void PermissionGate::respond(int fd, Verdict verdict)
     if (written != sizeof(response)) throw std::runtime_error("Short fanotify response");
     if (verdict.allow) ++stats_.allowed;
     else ++stats_.denied;
+    // allowed/denied 统计实际回复总量；
+    // 下面的 reason 是同一批回复的分类，不能再累加成额外请求数。
     switch (verdict.reason) {
     case DecisionReason::timeout: ++stats_.timed_out; break;
     case DecisionReason::capacity: ++stats_.overloaded; break;
@@ -151,6 +163,8 @@ void PermissionGate::service_analysis()
 {
     pending_.process_due(PendingDecisions::Clock::now());
     if (!analyzer_) return;
+    // 离线是已观测通道状态，不会自动重启；
+    // receive 在这里仅尝试非阻塞回收先前停止的子进程。
     if (!analyzer_->online()) {
         analyzer_->receive(); // Reap a previously killed child without blocking.
         pending_.fail_analysis();
@@ -177,6 +191,8 @@ void PermissionGate::service_analysis()
     if (response)
         pending_.complete(response->id, response->result == analysis::Result::allow,
                           response->result == analysis::Result::error, PendingDecisions::Clock::now(), response->error, response->system_errno);
+    // 同一时刻最多向一个工作进程派发一个请求；
+    // 未派发的条目仍排队并受各自接收时间的超时约束。
     if (!analyzer_->active()) {
         auto request = pending_.next_request();
         if (request) {
