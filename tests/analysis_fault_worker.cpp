@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: MIT
+// Test-only peer that deliberately violates the analyzer reply protocol.
+#include "analysis/protocol.h"
+#include "analysis/transport.h"
+#include <cstring>
+#include <poll.h>
+#include <string>
+#include <sys/socket.h>
+#include <unistd.h>
+
+int main(int argc, char **argv)
+{
+    if (argc != 9) return 2;
+    const std::string mode(argv[4]);
+    while (true) {
+        pollfd ready{3, POLLIN, 0};
+        if (poll(&ready, 1, 5000) <= 0) return 3;
+        analysis::Request request;
+        auto packet = analysis::receive_packet(3, &request, sizeof(request));
+        if (packet.status != analysis::Io::ready || packet.fds.size() != 1) return 4;
+        analysis::Response reply;
+        reply.id = request.id;
+        reply.result = analysis::Result::allow;
+        if (mode == "delay") {
+            usleep(200000);
+            analysis::send_packet(3, &reply, sizeof(reply));
+            continue;
+        }
+        if (mode == "wrong-id") ++reply.id;
+        else if (mode == "wrong-version") ++reply.abi;
+        else if (mode == "wrong-size") ++reply.size;
+        else if (mode == "wrong-bytes") reply.bytes_scanned = 2 * 1024 * 1024;
+        else if (mode == "wrong-verdict") reply.result = static_cast<analysis::Result>(99);
+        else if (mode == "exit") return 7;
+        else if (mode == "late") usleep(300000);
+        else if (mode == "short") {
+            analysis::send_packet(3, &reply, 1);
+            poll(nullptr, 0, 5000);
+            return 0;
+        } else if (mode == "extra-fds") {
+            // Nine copies exceed the receiver's eight-FD ancillary budget.
+            alignas(cmsghdr) char control[CMSG_SPACE(sizeof(int) * 9)]{};
+            iovec vector{&reply, sizeof(reply)};
+            msghdr message{};
+            message.msg_iov = &vector;
+            message.msg_iovlen = 1;
+            message.msg_control = control;
+            message.msg_controllen = sizeof(control);
+            auto *item = CMSG_FIRSTHDR(&message);
+            item->cmsg_level = SOL_SOCKET;
+            item->cmsg_type = SCM_RIGHTS;
+            item->cmsg_len = CMSG_LEN(sizeof(int) * 9);
+            int fds[9];
+            for (int &fd : fds) fd = packet.fds[0].get();
+            std::memcpy(CMSG_DATA(item), fds, sizeof(fds));
+            sendmsg(3, &message, MSG_NOSIGNAL);
+            poll(nullptr, 0, 5000);
+            return 0;
+        }
+        analysis::send_packet(3, &reply, sizeof(reply));
+        if (mode == "duplicate") analysis::send_packet(3, &reply, sizeof(reply));
+        poll(nullptr, 0, 5000); // Supervisor must stop/reap the bad peer.
+        return 0;
+    }
+}

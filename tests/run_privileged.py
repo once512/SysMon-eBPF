@@ -16,6 +16,7 @@ TESTS = (
     ('fanotify-deferred', 'fanotify_deferred.py'),
     ('fanotify-events', 'fanotify_events.py'),
     ('fanotify-analysis', 'fanotify_analysis.py'),
+    ('analysis-faults', 'fanotify_analysis_faults.py'),
     ('policy-layers', 'policy_composition.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
