@@ -1,6 +1,6 @@
 # fanotify 单文件权限裁决实验
 
-这是独立的 `secmon-fanotify` 可执行程序，不会加载 BPF，也不会修改 `secmon` 的现有策略。目标是先验证本机内核与文件系统上的同步权限裁决、对象身份、有限等待队列及退出行为，作为后续分析组件的实验基础。
+fanotify 已作为对象编入统一 secmon 主服务。本文使用 `secmon --fanotify-only` 诊断模式单独研究权限门，不加载本次进程的 BPF；正常部署直接使用 secmon 加共用配置即可同时启用两个模块。实验范围为本机内核与文件系统上的同步权限裁决、对象身份、有界等待队列及退出行为。
 
 ## 运行
 
@@ -8,7 +8,7 @@
 
 ```bash
 printf 'demo\n' > /tmp/secmon-fanotify-demo
-sudo ./build/secmon-fanotify --file /tmp/secmon-fanotify-demo --decision deny --run-for 20
+sudo ./build/secmon --fanotify-only --file /tmp/secmon-fanotify-demo --decision deny --run-for 20
 ```
 
 看到 `Fanotify active` 后，在另一个终端运行：
@@ -25,7 +25,7 @@ cat /tmp/secmon-fanotify-demo
 
 | 文件 | 阅读内容 |
 | --- | --- |
-| `src/fanotify/main.cpp` | 信号、运行期限、关闭组后输出统计 |
+| `src/service.cpp` / `src/fanotify/monitor.cpp` | 共用信号/运行期限/管理和主循环；权限门对象管理与结束统计 |
 | `src/fanotify/options.h/.cpp` | 参数及边界校验 |
 | `src/fanotify/event_kind.h/.cpp` | 打开、读取、执行打开事件的显式选择 |
 | `src/fanotify/decisions.h/.cpp` | 截止时间、容量回退、队列与事件 FD 所有权 |
@@ -55,7 +55,7 @@ cat /tmp/secmon-fanotify-demo
 执行打开权限事件不能代表脚本内容的完整执行控制；读取权限事件也不覆盖所有数据访问方式。三种事件的结果均受原有文件权限与其他安全模块约束，不能当作完整保险箱。
 
 ```bash
-sudo ./build/secmon-fanotify --file /absolute/path/test-file --event access --decision deny --run-for 20
+sudo ./build/secmon --fanotify-only --file /absolute/path/test-file --event access --decision deny --run-for 20
 sudo python3 tests/fanotify_events.py --build-dir build
 ```
 
@@ -64,7 +64,7 @@ sudo python3 tests/fanotify_events.py --build-dir build
 ## 延迟、截止时间和容量
 
 ```bash
-sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision allow --run-for 20 \
+sudo ./build/secmon --fanotify-only --file /absolute/path/test-file --decision allow --run-for 20 \
   --decision-delay-ms 1000 --request-timeout-ms 100 \
   --timeout-decision deny --max-pending 4 --overload-decision deny
 ```

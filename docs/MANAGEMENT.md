@@ -1,15 +1,15 @@
 # 活动状态与结构化管理结果
 
-两个宿主现在支持 root 管理查询：
+主服务只有一个 root 管理 socket：
 
 ```bash
-sudo ./build/secmon --status /run/secmon/bpf.sock
-sudo ./build/secmon-fanotify --status /run/secmon/fanotify.sock
-# 三种管理命令均输出 JSON；失败同时非零退出：
-sudo ./build/secmon-fanotify --reload /run/secmon/fanotify.sock
+sudo ./build/secmon --policy /run/secmon/policy.conf --control /run/secmon/control.sock
+sudo ./build/secmon --status /run/secmon/control.sock
+sudo ./build/secmon --reload /run/secmon/control.sock
+sudo ./build/secmon --stop /run/secmon/control.sock
 ```
 
-BPF 的管理端仍由 `--self-protect SOCKET` 创建；fanotify 由 `--control SOCKET` 创建，后者不自动启用 BPF 任务保护。两个端点共用协议，路径决定目标，JSON 的 backend 明确实际服务类型。目录须 root 所有且无组/其他用户权限，服务和客户端校验 SO_PEERCRED 的 root 身份。
+`--control` 与 `--self-protect` 指定同一个管理端点；BPF 启用时同时保护整个主服务。诊断模式 `--fanotify-only` 没有 BPF 自保护。目录须 root 所有且无组/其他用户权限，服务和客户端通过 SO_PEERCRED 校验 root 身份。backend 为 bpf、fanotify 或 combined，combined 在同一响应中同时包含两模块字段，pid/revision/摘要/重载历史只有一份。
 
 ## 查询说明的是哪份状态
 
@@ -27,11 +27,11 @@ BPF 的管理端仍由 `--self-protect SOCKET` 创建；fanotify 由 `--control 
 | reloads / rejections | 本次服务内成功/拒绝的重载数量，查询不修改它们 |
 | last_code / last_attempt_revision | 最近一次重载结果、完整读出候选配置后的版本；未成功读取候选时版本为 0 |
 
-pid 与 instance_ns 一起用于识别当前实例，不是持久 UUID、任务启动时间或跨 PID namespace 的授权标识。重启后计数和历史归零，未实现持久防回滚。比较 revision 与 source_sha256 才能核对活动版本及原始配置内容；摘要不是签名、授权或跨进程原子提交。配置字节相同也不证明路径解析到了同一 inode 或处于同一命名空间。
+pid 与 instance_ns 一起用于识别当前实例，不是持久 UUID、任务启动时间或跨 PID namespace 的授权标识。重启后计数和历史归零，未实现持久防回滚。比较 revision 与 source_sha256 才能核对活动版本及原始配置内容；摘要不是签名或授权。配置字节相同也不证明路径解析到了同一 inode 或处于同一命名空间。
 
-BPF 另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
+启用 BPF 时另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
 
-fanotify 另返回当前事件、裁决模式、延迟/超时/容量、三种回退设置、已交付 pending 与峰值、累计允许/拒绝/分析错误/后端故障/内核溢出。analyzer_online 表示宿主**已观测**的通道状态，不是瞬时进程健康保证；查询本身不做 ping/reap。analyzer_pid 可能是尚未回收的原子进程 PID，不能把该数字当成独立授权的发信号目标。内部终止仍使用 pidfd。
+启用 fanotify 时另返回当前事件、裁决模式、延迟/超时/容量、三种回退设置、已交付 pending 与峰值、累计允许/拒绝/分析错误/后端故障/内核溢出。analyzer_online 表示宿主**已观测**的通道状态，不是瞬时进程健康保证；查询本身不做 ping/reap。analyzer_pid 可能是尚未回收的原子进程 PID，不能把该数字当成独立授权的发信号目标。内部终止仍使用 pidfd。
 
 ## 稳定错误码
 
@@ -43,7 +43,7 @@ fanotify 另返回当前事件、裁决模式、延迟/超时/容量、三种回
 | invalid_policy | 配置读取、权限、格式或配置自身 inode 排除检查失败 |
 | prepare_failed | 候选解析成功，但目标固定/Map 准备或提交等后端操作失败 |
 | busy | fanotify 已交付队列或分析器仍有活动请求，可排空后重试同一候选版本 |
-| restart_required | fanotify 目标、事件、模式或扫描器固定设置改变，需重启 |
+| restart_required | fanotify 模块启用/禁用、目标、事件、模式或扫描器固定设置改变，需重启 |
 | internal_error | 保留给内部错误；不应按正常配置拒绝处理 |
 
 拒绝时活动 revision 保持原值。JSON 包含机器可读原因，服务 stderr 保留详细异常文本。连接失败、协议不兼容、响应超时等传输错误只写 stderr 并非零退出，没有可确认的 JSON 状态；不能因此推断重载一定没有发生，应重新查询实际活动版本。
@@ -66,7 +66,7 @@ ctest --test-dir build --output-on-failure
 sudo python3 tests/run_privileged.py --build-dir build --only management-live management-faults
 ```
 
-前者验证协议字段、JSON 和无配置运行状态。真实专题覆盖：磁盘文件损坏/缺失时的状态、两个服务独立版本、配置/版本/准备/忙/需重启错误、忙时原请求完成、查询 FD 稳定、未知/超长/带 FD 命令、非 root 对端、历史后缀命令拒绝，以及伪 root 服务返回错误长度、枚举、身份或附带 FD 时客户端拒绝。
+前者验证协议字段、JSON 和无配置运行状态。真实专题覆盖：磁盘文件损坏/缺失时的状态、诊断实例的独立状态及联合服务统一版本、配置/版本/准备/忙/需重启错误、忙时原请求完成、查询 FD 稳定、未知/超长/带 FD 命令、非 root 对端、历史后缀命令拒绝，以及伪 root 服务返回错误长度、枚举、身份或附带 FD 时客户端拒绝。
 
 
 可选持续管理负载（每个场景指定秒数，共静态 open、分析 open、分析 access 三项）：
@@ -81,42 +81,23 @@ sudo python3 tests/run_privileged.py --build-dir build --only management-live ma
 
 管理服务接收命令采用非阻塞推进：最多保留一个尚未发送消息的连接，空闲约 100ms 后在后续循环中回收；不在权限事件循环内 poll 等待客户端。正常连接可以稍后提交报文。到期回收受宿主循环调度影响，不是绝对墙钟期限；root 控制专题用独立 helper 验证静默连接不会令 dispatch 阻塞，真实服务验证静默连接期间仍可裁决、查询并回收 FD。
 
-## 双后端活动来源核对
-
-新增只读工具：
+## 单服务活动策略核对
 
 ```bash
-sudo ./build/secmon-policyctl --bpf-socket /run/secmon/bpf.sock \
-    --fanotify-socket /run/secmon/fanotify.sock --expect-revision 7
+sudo ./build/secmon-policyctl --socket /run/secmon/control.sock --expect-revision 7
 ```
 
-工具不读候选文件，也不发送 reload。按 BPF₁ → fanotify₁ → BPF₂ → fanotify₂ 查询，分别检查两次间 pid/instance/revision/source_sha256/成功重载数是否稳定。若稳定，两段观测区间在 fanotify₁..BPF₂ 相交，再比较共同来源；拒绝次数和业务计数变化不算策略变化。
+工具只查询一次主服务的活动快照，不读候选文件或发送 reload。JSON 为 `{ "code": "ok", "status": { ... } }`；可返回 unconfigured、unexpected_revision、query_failed 或 transport_error。退出码 0 表示核对成功，1 表示核对/传输失败，2 表示参数错误。未配置策略文件的诊断实例仍可通过 secmon --status 查看，但此工具报告 unconfigured。
 
-| code | 含义 |
-| --- | --- |
-| consistent | 活动版本和原始配置字节相同，且满足可选预期版本 |
-| revision_mismatch | 两后端活动版本不同 |
-| source_mismatch | 版本相同但原始配置摘要不同，包括注释/空白差异 |
-| unstable | 采样期间有成功提交、实例或活动来源变化，应重试查询 |
-| unconfigured | 至少一端是命令行模式，没有共同配置来源可核对 |
-| unexpected_revision | 两端来源一致，但不是指定的预期版本 |
-| wrong_backend | socket 指向的服务类型与参数角色不符 |
-| query_failed | 服务返回了非 ok 状态 |
-| transport_error | 连接/身份/帧校验或等待失败，不能确认完整状态 |
-
-输出的 scope 固定为 active_configuration_bytes，附带后两次有效状态；传输错误只有 code/scope。退出码 0 表示 consistent，1 表示分歧/不稳定/查询失败，2 表示参数错误。客户端只接受本包当前完整布局，遇到不匹配就失败，不协商或降级。
-
-这是只读来源核对，不是原子发布、签名验证、分析器健康检查、内核 Map 外部修改检测或路径对象一致性证明。即使 consistent，也只说明观测到的活动配置字节；要判断运行健康还需检查附带状态。跨命名空间管理坐标仍按项目已有边界处理。
-
-`src/management/consistency.h/.cpp` 是纯快照判定，入口 `src/management/main.cpp` 只负责参数与采集；确定性测试覆盖采样不稳定，真实双后端专题覆盖版本/摘要分歧、预期版本、端点反置和只读资源回收。
+BPF 与 fanotify 共用 PolicyRuntime，不再需要两个 socket、四次采样或跨进程 revision/摘要比较。原有 --bpf-socket/--fanotify-socket 参数已移除；一次快照仍不是所有业务计数的全系统暂停或内核全局原子屏障。
 
 ```bash
-sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
+sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency unified-service
 ```
 
 ## 授权条数
 
-BPF 状态的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不应用 writer，JSON 不提供此字段。
+BPF 状态的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不按 writer 绕过裁决；仅 fanotify 的诊断模式不提供此字段。
 
 ## 同包交付与布局检查
 

@@ -1,6 +1,6 @@
 # BPF 与 fanotify 策略组合实验
 
-`secmon` 和 `secmon-fanotify` 当前是两个独立程序，各自拥有加载资源和退出流程。组合实验验证它们同时作用于同一个临时文件时的行为，不提供新的产品级保险箱接口。
+正常部署的 BPF 与 fanotify 属于同一 secmon 进程的两个对象，共用启动/停止与策略提交。这里的机制实验刻意分别启动 `secmon --bpf-only` 和 `secmon --fanotify-only` 诊断实例，以研究两层的独立裁决与资源解除；这不是产品部署方式，也不提供新的完整保险箱接口。同进程联合行为另由 unified-service 专题验证，见 [单服务结构](UNIFIED_SERVICE.md)。
 
 ```bash
 sudo python3 tests/policy_composition.py --build-dir build

@@ -7,18 +7,19 @@
 | 文件 | 职责 | 阅读重点 |
 | --- | --- | --- |
 | `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助、停止和重载；解析过程不访问 BPF 或 socket |
-| `src/main.cpp` | 环境检查、BPF 生命周期、轮询与退出 | 按 open → load → 写入策略 → attach 顺序启动；声明顺序决定资源释放顺序 |
+| `src/main.cpp` / `src/service.cpp` | 唯一入口与主服务协调 | main 处理参数/管理动作，MonitorService 持有两模块、一个运行策略和管理端 |
+| `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
 | `src/events.h` / `src/events.cpp` | ABI 校验、JSONL 输出、统计汇总 | 先校验记录长度和版本，再按事件类型输出；每 CPU 统计需要逐 CPU 求和 |
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
-| `src/policy_config.h` / `src/policy_config.cpp` | 有界版本配置读取与解析 | root 文件权限、严格格式、运行 revision 与格式 version 分开 |
+| `src/policy_config.h` / `src/policy_config.cpp` | 有界版本配置读取与解析 | root 文件权限、严格的唯一字段集合、运行 revision；不接受 version 指令 |
 | `src/file_policy.h` / `src/file_policy.cpp` | 固定文件对象并完整切换 Map 策略 | 候选 HASH 填满后切换外层 Map 引用；失败保留旧策略与 inode FD；退出时当前句柄比链接活得更久 |
 | `src/control.h` / `src/control.cpp` | root 管理服务端 | 私有目录 FD 固定创建与清理位置；`SO_PEERCRED` 验证身份；完整 `stop` / `reload` 消息；操作完成后确认 |
 
 `src/control_client.h/.cpp` 单独提供管理客户端；`src/management/channel.h/.cpp` 共用地址、对端身份和无附件接收规则。`src/fanotify/gate_stats.h` 是不依赖权限门实现的统计模型。
 
-头文件暴露接口与资源所有权，系统调用和协议细节放在对应 `.cpp`。`main.cpp` 通过这些接口协调运行，避免再次把各个功能实现堆回入口。
+头文件暴露接口与资源所有权，系统调用和协议细节放在对应 `.cpp`。`MonitorService` 通过这些接口协调运行，避免再次把各个功能实现堆回入口。
 
-正常退出时先 detach，再消费剩余事件并报告统计。异常退出依赖 RAII：ring buffer、skeleton、固定文件句柄、控制 socket 依次释放。调整局部变量声明位置时，必须检查这一顺序，尤其不能在 BPF 链接仍存在时提前释放固定 inode 的句柄。
+正常退出时先处理 fanotify 已交付请求并停止分析器，再 detach BPF、消费剩余审计事件并报告统计。异常退出依赖对象逆序析构；BpfMonitor 内部按 ring buffer、skeleton、固定 inode 集合释放。研究资源顺序时应同时读服务成员与模块成员的声明。
 
 ## 内核侧：跟踪一次执行
 
@@ -56,7 +57,7 @@ sudo python3 tests/self_protection.py --build-dir build
 
 ## 后续研究方向
 
-现已提供独立的单文件 fanotify 原型，源码位于 `src/fanotify/`，详见 [fanotify 学习实验](FANOTIFY_LAB.md)。已加入接收后的请求超时、用户态并发预算和对应实验；后续可研究真实内核队列溢出，再考虑接入现有策略。fanotify 不能作为所有写入操作的通用阻断入口；详细设计和已验证范围见 `DESIGN.md`。
+现已在统一主进程内提供单文件 fanotify 原型，源码位于 `src/fanotify/`，详见 [fanotify 学习实验](FANOTIFY_LAB.md)。已加入接收后的请求超时、用户态并发预算和对应实验；后续可研究真实内核队列溢出，继续扩展现有联合策略。fanotify 不能作为所有写入操作的通用阻断入口；详细设计和已验证范围见 `DESIGN.md`。
 
 同时研究两个策略模块时，可参照 [策略组合实验](POLICY_LAYERS.md) 的状态矩阵，区分单层退出与所有防护退出。
 
@@ -82,7 +83,7 @@ sudo python3 tests/self_protection.py --build-dir build
 
 文件策略的配置格式、切换顺序和资源所有权详见 [策略配置导读](POLICY_CONFIG.md)。
 
-`src/fanotify/policy.h/.cpp` 负责共享格式到 fanotify 运行类型的转换，及不能在线变更的 mark/分析器身份比较。共享的 `policy_config` 与 `control` 模块同时编入两个宿主；fanotify 的 reconfigure 仅在已交付请求队列与分析器空闲时生效。
+`src/fanotify/policy.h/.cpp` 负责共享格式到 fanotify 运行类型的转换，及不能在线变更的 mark/分析器身份比较。共享的 `policy_config` 与 `control` 模块供唯一主服务使用；fanotify 的 prepare 仅在已交付请求队列与分析器空闲时通过，commit 是验证后的无异常提交。
 
 
 ## 有内核监控经验时如何读这些中文注释
@@ -90,7 +91,7 @@ sudo python3 tests/self_protection.py --build-dir build
 手写的内核代码、宿主、分析器、测试和构建脚本均提供中文入口说明；关键接口旁进一步说明数据流、资源所有权和边界。建议按以下路径阅读：
 
 1. [共享 ABI](../eBPF/secmon.h) → [BPF 总入口](../eBPF/secmon.bpf.c)：先认识 BTF/CO-RE、SEC、Map、helper 和 verifier，再跟踪 reserve → 填充 → submit → [用户态 consume](../src/events.cpp)。
-2. [宿主生命周期](../src/main.cpp)：对照传统内核模块的初始化/退出，区分 skeleton open、内核 load/verifier、attach 和 detach，关注固定 inode 与链接的释放顺序。
+2. [BPF 模块生命周期](../src/bpf/monitor.cpp)：对照传统内核模块的初始化/退出，区分 skeleton open、内核 load/verifier、attach 和 detach，关注固定 inode 与链接的释放顺序。
 3. [凭证记录](../eBPF/upchk.bpf.c) → [文件保护](../eBPF/fileguard.bpf.c) → [任务保护](../eBPF/selfguard.bpf.c)：分别看观测钩子、可拒绝的 LSM 钩子，以及 task 指针为何要保留 verifier 类型信息。
 4. [fanotify 权限门](../src/fanotify/gate.cpp) → [裁决队列](../src/fanotify/decisions.cpp)：区分 group、inode mark 和事件 FD，追踪请求方等待 → 读取事件 → 排队/分析 → 写 response → 关闭 FD。
 5. [分析器监督](../src/analysis/client.cpp) → [FD 传输](../src/analysis/transport.cpp) → [工作进程](../src/analysis/worker_main.cpp) → [扫描器](../src/analysis/scanner.cpp)：理解 SCM_RIGHTS 转交对象引用、降权顺序、Ready 握手、超时与错误回退。
@@ -106,7 +107,7 @@ sudo python3 tests/self_protection.py --build-dir build
 
 `src/fanotify/stats.h/.cpp` 统一输出累计裁决统计及原因拆分，`analysis::ScanError` 在分析协议中定义。管理状态复用同一份 GateStats，避免末次日志与实时查询出现两套计数口径。
 
-新增 `secmon-policyctl`：`src/management/main.cpp` 顺序采集两轮状态，`consistency.h/.cpp` 纯函数判断稳定来源与分歧。这里核对的是活动配置字节，不会将其等同于完整健康或跨后端事务。
+`secmon-policyctl` 的入口 src/management/main.cpp 只读查询一个服务，检查是否配置及可选预期 revision；不再保留跨进程四快照比较。完整启动/联合重载阅读路径见 [单服务结构](UNIFIED_SERVICE.md)。
 
 ## 同包构建与运行策略编号
 

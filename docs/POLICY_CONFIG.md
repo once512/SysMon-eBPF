@@ -1,6 +1,6 @@
 # 文件策略配置与在线切换
 
-本模块提供一套共享配置字段，包含 BPF 文件保护/执行对象授权和 fanotify 裁决设置。两个宿主各自应用对应字段，通过 revision 管理在线更新顺序。组件绑定发布，不维护历史配置格式，配置中没有 version 指令。
+本模块提供一套共享配置字段，包含 BPF 文件保护/执行对象授权和 fanotify 裁决设置。一个主服务的两个模块应用对应字段，通过共用 revision 管理在线更新顺序。组件绑定发布，不维护历史配置格式，配置中没有 version 指令。
 
 ## 运行示例
 
@@ -15,7 +15,7 @@ sudo ./build/secmon --reload /run/secmon/control.sock
 sudo ./build/secmon --stop /run/secmon/control.sock
 ```
 
-`--policy` 与 `--protect-file` 互斥。没有 `--self-protect` 时也能加载配置，但没有管理 socket，不能在线重载。`--reload` 只发送命令，服务始终重新读取启动时指定的配置路径；客户端不能指定另一个配置文件。
+`--policy` 与 `--protect-file` 互斥。没有 `--control` 或 `--self-protect` 时也能加载配置，但没有管理 socket，不能在线重载。`--reload` 只发送命令，服务始终重新读取启动时指定的配置路径；客户端不能指定另一个配置文件。
 
 服务完成切换后回复结构化结果；CLI 输出 JSON，成功 code=ok，拒绝则带稳定错误码并非零退出，详细原因写服务的 stderr。停止和查询使用同一响应格式。连接中断或客户端等待超时不代表切换一定没有发生，应检查服务的 `Policy active revision=N` 记录。重试相同版本会被拒绝。
 
@@ -36,7 +36,7 @@ protect "/another/file"
 
 父目录和路径中间组件不采用逐级 `openat2` 限制，不保证配置是不可变快照。配置签名、持久防回滚与可信发布者身份尚未实现；进程重新启动后不会记住此前最大 revision。
 
-## 为什么切换不会留下半份策略
+## BPF 候选 Map 如何完整切换
 
 1. `policy_config.cpp` 读取并完整解析候选配置，当前版本不变。
 2. `file_policy.cpp` 创建新的 320 项 HASH Map，为所有目标持有 `O_PATH` FD，并填充新 Map。任一步失败由候选对象析构回收资源，旧 Map 不变。
@@ -68,7 +68,7 @@ sequenceDiagram
 
 ## 阅读与验证
 
-建议按 `src/policy_config.h/.cpp` → `src/file_policy.h/.cpp` → `eBPF/fileguard.bpf.c` → `src/control.h/.cpp` → `src/main.cpp` 阅读。配置解析、文件对象和 Map 所有权、root 管理通道、生命周期协调各有独立职责。
+建议按 `src/policy_config.h/.cpp` → `src/file_policy.h/.cpp` → `eBPF/fileguard.bpf.c` → `src/control.h/.cpp` → `src/bpf/monitor.cpp` → `src/service.cpp` 阅读。配置解析、文件对象和 Map 所有权、root 管理通道、生命周期协调各有独立职责。
 
 ```bash
 ctest --test-dir build --output-on-failure
@@ -80,21 +80,17 @@ sudo python3 tests/run_privileged.py --build-dir build --only policy-reload
 
 ## 共用配置与 fanotify 重载
 
-[共用配置示例](../examples/unified-policy.conf) 包含 `protect` 和 `fanotify-*`。启动两个进程使用不同的管理 socket：
+[共用配置示例](../examples/unified-policy.conf) 包含 `protect` 和 `fanotify-*`，一条命令启用两个对象：
 
 ```bash
-sudo ./build/secmon --policy /run/secmon/policy.conf --self-protect /run/secmon/bpf.sock
-sudo ./build/secmon-fanotify --policy /run/secmon/policy.conf --run-for 3600 --control /run/secmon/fanotify.sock
-# 发布新文件并递增 revision 后，分别更新：
-sudo ./build/secmon --reload /run/secmon/bpf.sock
-sudo ./build/secmon-fanotify --reload /run/secmon/fanotify.sock
-# 结束 fanotify 服务：
-sudo ./build/secmon-fanotify --stop /run/secmon/fanotify.sock
+sudo ./build/secmon --policy /run/secmon/policy.conf --control /run/secmon/control.sock
+sudo ./build/secmon --reload /run/secmon/control.sock
+sudo ./build/secmon --stop /run/secmon/control.sock
 ```
 
-`secmon` 应用 `protect` 和 `allow-writer`；`secmon-fanotify` 只应用 `fanotify-*`。两者都完整校验文件格式。这里只统一配置源和管理协议，没有跨进程提交事务：一个服务更新成功、另一个拒绝时，可能分别运行不同 revision，可通过各自 `--status SOCKET` 查询活动版本与最近重载结果（详见 [管理接口](MANAGEMENT.md)）。两种命令使用同一管理协议，socket 路径决定目标服务。
+MonitorService 只维护一份活动策略、一个管理通道。联合重载先检查 fanotify 固定后端和空闲状态，再准备并切换 BPF Map，随后执行不会抛异常的 fanotify 值提交，最后提交共用 revision。fanotify 检查失败或 BPF 准备/提交失败时两模块都保持旧策略。不同内核钩子和在途调用仍可跨越切换时刻，不承诺全局原子性。
 
-fanotify 使用 `--policy` 后，只能额外指定 `--run-for` 和可选的 `--control`，不能混入原有策略命令行。`--control` 仅提供 root 管理，不启用 BPF 任务自保护；可在原有命令行模式使用管理停止，但重载要求启动时指定配置。
+使用 `--policy` 时不能混入 `--protect-file` 或逐项 fanotify 策略参数；可以指定管理 socket 和可选运行时长。未指定 --run-for 时服务持续运行。没有 fanotify 字段时默认仅运行 BPF；在线新增或移除 fanotify 模块必须重启。诊断用 --bpf-only/--fanotify-only 明确只运行指定模块，正常部署不需要分别启动。
 
 | 字段 | 默认/约束 | 在线更新 |
 | --- | --- | --- |
@@ -111,7 +107,7 @@ fanotify 使用 `--policy` 后，只能额外指定 `--run-for` 和可选的 `--
 | `fanotify-overload-decision` | deny，可选 allow/deny | 可更新 |
 | `fanotify-error-decision` | 分析模式 deny，可选 allow/deny；静态模式禁用 | 可更新 |
 
-每个 fanotify 字段最多一次。只有 `fanotify-file` 而没有静态裁决或完整分析设置会被拒绝；没有任何 fanotify 字段的配置可供 BPF 使用，但不能启动 fanotify 服务。
+每个 fanotify 字段最多一次。只有 `fanotify-file` 而没有静态裁决或完整分析设置会被拒绝；没有任何 fanotify 字段的配置可供 BPF 使用，但不能用于 --fanotify-only 诊断模式。
 
 fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已交付请求队列或分析器仍有活动请求时拒绝重载，并保留原 revision，待请求处理完可重试同一候选版本。检查和切换发生在同一事件循环中。尚在内核队列中、切换后才读取的事件使用新设置；这不是按系统调用开始时间划分版本。
 
@@ -121,10 +117,12 @@ fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已
 
 ## 新增学习入口与验证
 
-`src/fanotify/policy.h/.cpp` 将共享格式转换成运行类型并校验不可在线变更的后端身份；`PendingDecisions::reconfigure` 只在队列为空时替换规则，避免改变旧请求合同；`PermissionGate::reconfigure` 同时检查分析器活动请求。
+`src/fanotify/policy.h/.cpp` 将共享格式转换成运行类型并校验不可在线变更的后端身份；FanotifyMonitor::prepare 通过 PermissionGate::validate_reconfigure 检查队列和分析器空闲，commit 只执行已验证的无异常赋值；两阶段之间不推进事件循环，避免改变旧请求合同。
 
-`fanotify-policy` 权限专题验证两个服务读取同一文件、BPF 拒绝不被 fanotify 更新解除、静态裁决切换、忙队列拒绝后重试、固定后端变更拒绝、配置硬链接避免自阻塞、重复更新 FD 稳定，以及真实扫描器故障后的错误回退更新。原有无特权时钟测试验证被拒绝更新的请求仍按原时间与裁决处理。
+`fanotify-policy` 权限专题使用单模块诊断实例验证共用字段格式、BPF 拒绝不被 fanotify 更新解除、静态裁决切换、忙队列拒绝后重试、固定后端变更拒绝、配置硬链接避免自阻塞、重复更新 FD 稳定，以及真实扫描器故障后的错误回退更新。原有无特权时钟测试验证被拒绝更新的请求仍按原时间与裁决处理。
 
 ## 程序对象修改授权
 
 新增 `allow-writer "/absolute/program" EUID`，最多 64 条，与最多 256 条 `protect` 共用一份 320 项候选 Map。身份、撤销、代码保护及实验边界详见 [程序对象授权](WRITER_IDENTITY.md)。fanotify 仍只应用自己的字段，不按 writer 绕过裁决。
+
+联合服务的对象所有权与提交时序详见 [单服务结构](UNIFIED_SERVICE.md)。

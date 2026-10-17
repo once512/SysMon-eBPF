@@ -1,13 +1,13 @@
 # 独立内容分析组件
 
-`secmon-fanotify` 可以启动独立的 `secmon-analyzer`，把实际事件 FD 通过私有 Unix socketpair 传给它。首版规则是有界的字节串匹配：文件包含给定标记则拒绝，否则允许；不能完整扫描、读取失败或扫描期间发现普通元数据变化时返回分析错误。这是可复现实验规则，不是恶意内容检测引擎。
+主进程内的 fanotify 模块可以启动独立的 `secmon-analyzer`，把实际事件 FD 通过私有 Unix socketpair 传给它。首版规则是有界的字节串匹配：文件包含给定标记则拒绝，否则允许；不能完整扫描、读取失败或扫描期间发现普通元数据变化时返回分析错误。这是可复现实验规则，不是恶意内容检测引擎。
 
 ## 运行
 
 准备一个只用于实验的普通文件，把分析程序路径写成绝对路径：
 
 ```bash
-sudo ./build/secmon-fanotify --file /absolute/path/test-file --run-for 20 \
+sudo ./build/secmon --fanotify-only --file /absolute/path/test-file --run-for 20 \
   --analyzer /absolute/path/build/secmon-analyzer --deny-marker SECMON_BLOCK \
   --request-timeout-ms 250 --max-pending 64 --analyzer-error-decision deny
 ```

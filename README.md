@@ -12,7 +12,7 @@
 
 ## 当前实现
 
-目前实现执行与凭证审计、指定文件对象的只读保护与授权修改原型，以及可选的 secmon 进程自保护；另提供独立的 fanotify 单文件裁决与独立进程的有界字节标记扫描实验。真实恶意行为识别、诱饵和完整保险箱仍待实现。
+目前实现执行与凭证审计、指定文件对象的只读保护与授权修改原型，以及可选的 secmon 进程自保护；同一主进程内提供 fanotify 单文件裁决，另以独立降权进程完成有界字节标记扫描实验。真实恶意行为识别、诱饵和完整保险箱仍待实现。
 
 总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)。
 
@@ -24,11 +24,13 @@
 - 凭证与基线不一致时设置事件 `flags` 的位 0，仅审计，不阻断。合法提交也可能来自攻击，基线不等同于可信授权。
 - 每 10 秒及退出时向标准错误输出丢失事件和基线更新失败计数。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
-- `secmon-policyctl` 只读核对两个后端的活动版本与配置摘要，并报告分歧或采样不稳定。
+- `secmon-policyctl --socket SOCKET` 只读核对主服务的活动策略和可选预期 revision。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
-- `--policy FILE` 加载带递增 revision 的文件策略，`--reload SOCKET` 在线完整替换；同一配置也供 secmon-fanotify 使用，支持空闲时更新裁决设置，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
+- `--policy FILE` 加载带递增 revision 的文件策略，`--reload SOCKET` 在线完整替换；同一主进程同时应用 BPF 和 fanotify 字段，支持空闲时联合更新，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
 - 配置中的 `allow-writer` 按执行文件 inode 与有效 UID 授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮验证见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
 - `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。
+
+服务只有一个入口：`main` → `MonitorService` → `BpfMonitor` / `FanotifyMonitor`。一份配置、一个管理 socket、一次重载统一协调两个对象；分析器继续独立降权运行。`--bpf-only` 与 `--fanotify-only` 供机制诊断，正常部署无需分别启动。详见 [单服务结构](docs/UNIFIED_SERVICE.md)。
 
 组件采用同包交付：主程序、库、分析器及 skeleton 嵌入的 eBPF 对象一起构建/更新。配置只有当前字段集合（没有 version 行）；管理命令统一完整响应，不兼容历史报文。保留的 ABI/长度检查用于检错，revision 用于运行策略更新，详见 [管理契约](docs/MANAGEMENT.md)。
 
@@ -69,9 +71,9 @@ sudo ./build/secmon --self-protect /run/secmon/control.sock
 sudo ./build/secmon --stop /run/secmon/control.sock
 ```
 
-可以与 `--protect-file` 组合。自保护默认关闭；启用后，在 task_kill 和 ptrace_access_check 钩子拒绝其他进程向目标发送非零信号或进行相应访问，包括 root 发出的信号。信号 0 探测与目标线程组自身操作放行。策略通过 pidfd 写入任务本地存储，跟随线程组 leader 生命周期，不使用裸 PID 白名单。
+可以与 `--protect-file` 组合。未指定管理 socket 时自保护关闭；使用 `--control SOCKET` 或 `--self-protect SOCKET` 且启用 BPF 时自动开启。启用后，在 task_kill 和 ptrace_access_check 钩子拒绝其他进程向目标发送非零信号或进行相应访问，包括 root 发出的信号。信号 0 探测与目标线程组自身操作放行。策略通过 pidfd 写入任务本地存储，跟随线程组 leader 生命周期，不使用裸 PID 白名单。
 
-管理 socket 必须使用绝对路径，父目录须已存在、root 所有且无组/其他用户权限；服务要求 root 运行。服务将 socket 权限设为 0600，使用 SO_PEERCRED 校验管理端 UID=0，只接受完整的 `stop` / `reload` 消息。socket 通过已验证目录的 FD 创建，退出时清理；不自动删除已有 socket。`--stop` 同样校验服务端 root 身份，确认收到接受响应后返回；如需确认全部退出，还应检查服务进程状态。
+管理 socket 必须使用绝对路径，父目录须已存在、root 所有且无组/其他用户权限；服务要求 root 运行。服务将 socket 权限设为 0600，使用 SO_PEERCRED 校验管理端 UID=0，只接受完整的 `stop` / `reload` / `status` 消息。socket 通过已验证目录的 FD 创建，退出时清理；不自动删除已有 socket。`--stop` 同样校验服务端 root 身份，确认收到接受响应后返回；如需确认全部退出，还应检查服务进程状态。
 
 启用自保护后不要依赖外部 `timeout` 或 kill 停止服务；测试可使用 `--run-for 20`，进程在内部计时结束后自行退出（允许 1..3600 秒）。任务保护对通过已覆盖入口的用户态信号生效，不承诺拦截终端/内核生成的所有信号、OOM、cgroup freeze/kill、重启或内核失陷。不撤销启动前已有的 ptrace 关系或已打开内存访问句柄。高权限管理员仍可通过 BPF 管理等途径解除防护，当前 root 管理身份也不等同于可信应用身份。
 
@@ -112,10 +114,10 @@ sudo python3 tests/self_protection.py --build-dir build
 
 ## fanotify 权限裁决实验
 
-新增独立程序 `secmon-fanotify`，对一个普通文件的权限事件允许或拒绝，默认使用 `FAN_OPEN_PERM`，也可用 `--event access|exec` 研究读取及执行打开权限，不加载 BPF。实现与实验步骤见 [fanotify 学习实验](docs/FANOTIFY_LAB.md)。
+fanotify 模块在 `secmon` 主进程内对普通文件的权限事件允许或拒绝，默认使用 `FAN_OPEN_PERM`，也可用 `--event access|exec` 研究读取及执行打开权限。诊断选项 `--fanotify-only` 仅关闭本次进程的 BPF 模块。实现与实验步骤见 [fanotify 学习实验](docs/FANOTIFY_LAB.md)。
 
 ```bash
-sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision deny --run-for 20
+sudo ./build/secmon --file /absolute/path/test-file --decision deny --run-for 20
 sudo python3 tests/fanotify.py --build-dir build
 ```
 

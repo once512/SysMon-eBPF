@@ -38,15 +38,23 @@
 
 ControlServer 与 PolicyRuntime 显式禁止复制，让服务资源和运行实例状态的所有权直接体现在接口上。PolicyRuntime 的活动配置可按 const 引用读取，但整个协调器不能被复制为第二个具有同一实例信息的对象。
 
+### 单主服务的组合关系
+
+主服务现已统一为 MonitorService；BpfMonitor 与 FanotifyMonitor 分别封装模块资源。main 只处理动作和顶层错误，两个模块不再各自创建进程/主循环。两阶段提交和运行边界见 [单服务结构](UNIFIED_SERVICE.md)。
+
 ### 统计数据与权限门分离
 
 [gate_stats.h](../src/fanotify/gate_stats.h) 只描述统计值；[stats.h](../src/fanotify/stats.h) 只提供渲染入口。统计渲染不再因为 GateStats 的定义而引入 group、裁决队列和分析进程。status.h 对 PermissionGate 使用前置声明，只有实现文件需要完整定义。
 
 ```mermaid
 flowchart TD
-    Main[宿主入口] --> Runtime[PolicyRuntime]
-    Main --> Server[ControlServer]
-    Main --> Gate[PermissionGate]
+    Main[唯一宿主入口] --> Service[MonitorService]
+    Service --> Runtime[PolicyRuntime]
+    Service --> Server[ControlServer]
+    Service --> BPF[BpfMonitor]
+    BPF --> Pins[ProtectedFiles / skeleton]
+    Service --> Fan[FanotifyMonitor]
+    Fan --> Gate[PermissionGate]
     Gate --> Pending[PendingDecisions]
     Gate --> Analyzer[AnalysisClient]
     Gate --> Data[GateStats 数据]
@@ -56,12 +64,12 @@ flowchart TD
     Runtime --> Config[PolicyConfig 数据]
 ```
 
-图表示主要职责关系，不是完整 include 图。ProtectedFiles 与 BPF skeleton 的析构顺序仍需在宿主入口一起阅读；用 RAII 并不意味着可以随意调整对象声明顺序。
+图表示主要职责关系，不是完整 include 图。ProtectedFiles 与 BPF skeleton 的析构顺序收束在 BpfMonitor::State 中，需结合 service 的成员顺序阅读；用 RAII 并不意味着可以随意调整对象声明顺序。
 
 ## 仍值得继续改进的地方
 
 - policy_config.cpp 将文件安全读取与语法解析放在一起，parse_policy 中嵌套分支较多。下一轮可按“读取固定对象 / 字段解析 / 整体约束验证”逐步整理，配合现有边界用例；无需先引入解析器继承体系。
-- 两个 main 仍承担启动、信号、循环、重载协调和退出。当前规模可以阅读；继续增加部署/恢复功能时，应提取各自的应用协调对象，避免变成集中所有逻辑的类。
+- 已完成唯一 main 与 MonitorService 的拆分；继续增加部署/恢复功能时，应保持模块准备/提交接口，避免把业务细节集中回协调器。
 - 策略容量等上限在不同边界重复校验，后续可统一常量来源，同时保留各边界校验。
 - 部分条件、参数校验和错误构造仍采用较长表达式，命名空间与格式也未完全统一。宜在修改相关模块时整理，避免一次性机械格式化掩盖重要语义差异。
 - 错误处理分为配置语法异常、系统调用错误和管理业务错误，边界基本存在，但异常类型与命名还可更一致。整理时必须保留拒绝策略、错误回退和已有协议含义。
@@ -69,11 +77,13 @@ flowchart TD
 
 ## 建议阅读顺序
 
-先看“资源由谁拥有”，再看“谁调用谁”：OwnedFd → ProtectedFiles/ControlServer → PendingDecisions → AnalysisClient → PermissionGate → 两个 main。随后读管理客户端与纯配置/协议函数，最后结合 BPF Map 和 LSM 钩子观察内核侧语义。
+先看“资源由谁拥有”，再看“谁调用谁”：OwnedFd → ProtectedFiles/ControlServer → PendingDecisions → AnalysisClient → PermissionGate → FanotifyMonitor/BpfMonitor → MonitorService → main。随后读管理客户端与纯配置/协议函数，最后结合 BPF Map 和 LSM 钩子观察内核侧语义。
 
 注释优先解释为什么选这个 hook、何时转移 FD、失败保留什么状态、哪些操作只是在本层放行。类型和函数名应承担通常的代码含义，避免每行都重复直译。整体入口见 [代码导读](CODE_GUIDE.md)。
 
-## 本轮验证
+## 首次结构整理的历史验证
+
+以下记录对应 2d69de6，当时仍有两个监控程序；当前单服务结构另见 [单服务导读](UNIFIED_SERVICE.md)，不把以下历史通过结果作为新结构的验证证据。
 
 结构实现提交为 2d69de6。普通构建 20 项 CTest、25 个头文件独立编译和四程序生产构建通过。固定可执行快照的 22 个权限专题与八项各 10 秒负载共 30 项通过，覆盖管理协议/旧客户端、异常附件与 FD 回收、策略完整切换、授权撤销、分析器故障回退和两层组合。
 

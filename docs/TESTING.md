@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 20 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 19 项（移除已不需要的跨进程四快照判定测试），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -37,7 +37,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | fanotify-analysis | `fanotify_analysis.py` | 独立进程内容扫描、传递 FD、无递归、降权与故障回退 |
 | fanotify-events | `fanotify_events.py` | 普通读取、mmap 边界、ELF/脚本直接执行与解释读取区别 |
 | fanotify-policy | `fanotify_policy.py` | 共用配置、静态与扫描模式、空闲切换/忙队列拒绝、固定后端、配置自阻塞防护、FD 稳定 |
-| policy-consistency | `policy_consistency.py` | 真实两端活动来源、版本/摘要分歧、预期版本、端点角色与只读 FD 回收 |
+| policy-consistency | `policy_consistency.py` | 同进程活动来源、联合 revision/摘要、预期版本与只读查询 |
+| unified-service | `unified_service.py` | 同进程双模块、联合重载、准备/忙时回滚、协调停止、启动失败清理与独立分析器故障 |
 | management-live | `management_live.py` | 活动内存查询、稳定重载错误、独立版本、忙请求、权限与 FD 稳定 |
 | management-faults | `management_faults.py` | 伪服务错误帧/身份/附带 FD 的客户端拒绝 |
 | control-loop | `control_loop.py` / `control_nonblocking.cpp` | 静默连接无阻塞推进与稍后发送，root 身份，不加载内核策略 |
@@ -53,7 +54,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | baseline-mismatch | `baseline_mismatch.py` | 私有测试 Map 的合成不一致、flags 位 0、exec 后刷新，不修改真实任务凭证 |
 | soak-policy/soak-timeout | `fanotify_soak.py` | 可选的持续并发负载，用户态队列与 FD 上限、客户端结果和回复总量对账 |
 
-测试文件、socket、root 所有的辅助程序及权限设置均放在临时目录。两个 BPF 服务测试会实际加载/挂载内核程序，随后解除；fanotify 实验会暂时影响对应临时文件的打开、读取或执行。合成不一致只写本次宿主 Map 中由受控测试进程保持存活的确切 key，不扫描或修改其他实例 Map，不执行真实内核攻击。
+测试文件、socket、root 所有的辅助程序及权限设置均放在临时目录。BPF 专题会实际加载/挂载内核程序，随后解除；fanotify 实验会暂时影响对应临时文件的打开、读取或执行。合成不一致只写本次宿主 Map 中由受控测试进程保持存活的确切 key，不扫描或修改其他实例 Map，不执行真实内核攻击。
 
 ## 已验证与尚未验证
 
@@ -72,7 +73,7 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 
 示例扫描只做字节标记匹配，详细故障预算见 [分析组件导读](ANALYSIS_WORKER.md)。
 
-版本化文件配置增加无特权 `policy-config` CTest，格式与在线切换边界见 [策略配置](POLICY_CONFIG.md)。
+带运行 revision 的文件配置增加无特权 `policy-config` CTest，格式与在线切换边界见 [策略配置](POLICY_CONFIG.md)。
 
 `analysis-scan-errors` 使用仅测试目标的系统调用/分配包装，验证扫描原因和 errno；有效错误回退与畸形错误报文另由真实权限专题覆盖。
 
@@ -92,3 +93,5 @@ writer-soak-duration 默认 0（禁用），可选 5..1800 秒。常驻程序分
 ## 构建与回归的产物隔离
 
 运行特权回归时，不要同时重新链接它正在使用的同一 build 目录。链接器替换可执行文件期间，测试子进程可能碰到不可执行或不存在的文件。需要并行开发时，先完成构建，再将所需可执行程序复制到独立快照目录，通过 --build-dir 指向该目录；构建继续写原目录。架构整理这一轮使用 build/structure-checkpoint 验证固定产物，避免将构建竞态解释为后端裁决失败。
+
+机制专题的 harness 使用同一个 secmon 可执行文件加 --bpf-only/--fanotify-only，仅为独立观察裁决层。unified-service 与 policy-consistency 使用默认联合入口和一个管理 socket。
