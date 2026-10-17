@@ -46,16 +46,23 @@ target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF)
 target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF)
 
-add_executable(secmon-fanotify src/fanotify/main.cpp src/fanotify/gate.cpp)
+add_executable(secmon-fanotify src/fanotify/main.cpp src/fanotify/gate.cpp
+    src/fanotify/decisions.cpp src/fanotify/options.cpp)
 target_include_directories(secmon-fanotify PRIVATE src)
 target_compile_options(secmon-fanotify PRIVATE -Wall -Wextra -Werror)
 
 include(CTest)
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
+    add_executable(secmon-decision-tests tests/decisions.cpp src/fanotify/decisions.cpp)
+    target_include_directories(secmon-decision-tests PRIVATE src)
+    target_compile_options(secmon-decision-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME fanotify-decisions COMMAND secmon-decision-tests)
     add_executable(secmon-scenarios tests/scenarios.cpp)
     target_link_libraries(secmon-scenarios PRIVATE Threads::Threads)
     target_compile_options(secmon-scenarios PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME fanotify-cli COMMAND ${CMAKE_COMMAND}
+        -DSECMON=$<TARGET_FILE:secmon-fanotify> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
     add_test(NAME fanotify-help COMMAND secmon-fanotify --help)
     add_test(NAME cli-help COMMAND secmon --help)
     add_test(NAME cli-validation COMMAND ${CMAKE_COMMAND}

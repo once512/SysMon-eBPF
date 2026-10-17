@@ -2,3 +2,6 @@
 
 # Local Qt Creator configuration
 /CMakeLists.txt.user
+
+# Python test helper imports
+__pycache__/
