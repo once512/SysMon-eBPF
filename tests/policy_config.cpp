@@ -18,7 +18,7 @@ int main() {
     require(policy.paths[0] == "/path with spaces" && policy.paths[1] == "/quote\"file");
     std::istringstream empty("revision 1\nversion 1\n");
     require(parse_policy(empty).paths.empty());
-    for (const auto *text : {"", "version 3\nrevision 1", "version 1", "revision 1",
+    for (const auto *text : {"", "version 4\nrevision 1", "version 1", "revision 1",
             "version 1\nrevision 0", "version 1\nrevision -1", "version 1\nrevision +1",
             "version 1\nrevision 18446744073709551616", "version 1\nrevision 1x",
             "version 1\nrevision 1\nrevision 2", "version 1\nversion 1\nrevision 1",
@@ -52,5 +52,17 @@ int main() {
     std::istringstream analyzer(base + "fanotify-analyzer \"/worker\"\nfanotify-marker \"BLOCK\"\nfanotify-scan-limit-bytes 99\nfanotify-error-decision allow");
     auto analyzed = parse_policy(analyzer);
     require(analyzed.fanotify && analyzed.fanotify->scan_limit == 99 && analyzed.fanotify->analyzer_error_allow);
+    std::istringstream writer("version 3\nrevision 9\nprotect \"/data\"\nallow-writer \"/program\" 65534\n");
+    auto authorized = parse_policy(writer);
+    require(authorized.writers.size() == 1 && authorized.writers[0].path == "/program" && authorized.writers[0].euid == 65534);
+    for (const auto *tail : {"", "-1", "+1", "4294967295", "4294967296", "1x", "1 extra"})
+        reject(std::string("version 3\nrevision 1\nallow-writer \"/exe\" ") + tail);
+    reject("version 2\nrevision 1\nallow-writer \"/exe\" 0");
+    reject("version 3\nrevision 1\nallow-writer /exe 0");
+    reject("version 3\nrevision 1\nallow-writer \"relative\" 0");
+    reject("version 3\nrevision 1\nallow-writer \"/exe\" 0\nallow-writer \"/exe\" 1");
+    std::string writers = "version 3\nrevision 1\n";
+    for (int i = 0; i < 65; ++i) writers += "allow-writer \"/exe" + std::to_string(i) + "\" 0\n";
+    reject(writers);
     std::cout << "PASS policy syntax, limits, revisions and quoted paths\n";
 }

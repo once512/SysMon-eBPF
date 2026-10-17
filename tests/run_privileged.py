@@ -20,6 +20,7 @@ TESTS = (
     ('analysis-faults', 'fanotify_analysis_faults.py'),
     ('policy-layers', 'policy_composition.py'),
     ('policy-reload', 'policy_reload.py'),
+    ('writer-identity', 'writer_identity.py'),
     ('fanotify-policy', 'fanotify_policy.py'),
     ('management-live', 'management_live.py'),
     ('management-faults', 'management_faults.py'),

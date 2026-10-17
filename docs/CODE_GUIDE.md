@@ -110,10 +110,14 @@ sudo python3 tests/self_protection.py --build-dir build
 
 | 名称 | 当前值 | 作用 |
 | --- | --- | --- |
-| 配置 `version` | 2，保留格式 1 | 定义配置可使用哪些字段 |
+| 配置 `version` | 3，保留格式 1/2 | 定义配置可使用哪些字段 |
 | 配置 `revision` | 管理者指定的正 uint64 | 当前实例内成功重载必须递增，不是 ABI 版本 |
 | 管理协议 | v2，提供 v1 响应前缀 | 状态、重载结果和诊断的本地报文布局 |
 | 分析器协议 | v3 | 请求/Ready/扫描响应，工作进程必须匹配 |
 | BPF 事件 ABI | v4 | 内核 ring buffer 与宿主事件解析布局 |
 
 原始配置 SHA-256 用于核对字节内容，不替代上述任何版本，也不是签名或被保护文件的内容哈希。
+
+### 程序对象授权
+
+[src/writer_identity.cpp](../src/writer_identity.cpp) 固定 root 所有的执行文件对象，[eBPF/writer_identity.bpf.c](../eBPF/writer_identity.bpf.c) 在文件操作时匹配当前 mm 的执行对象和有效 UID。它与目标保护共用一份候选 Map；先阅读 [授权边界](WRITER_IDENTITY.md)，区分对象匹配与完整可信应用识别。

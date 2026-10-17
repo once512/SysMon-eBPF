@@ -13,6 +13,15 @@ struct file_key {
     unsigned int minor;
     unsigned long long ino;
 };
+// 策略 Map 的私有布局，不改变审计事件 ABI；候选与模板必须使用相同容量和 value 大小。
+#define SECMON_POLICY_CAPACITY 320
+#define SECMON_FILE_READONLY 1U
+#define SECMON_FILE_WRITER 2U
+#define SECMON_FILE_IDENTITY 4U
+struct file_policy_value {
+    unsigned int flags;
+    unsigned int writer_euid;
+};
 enum secmon_file_operation {
     SECMON_OP_OPEN_WRITE = 1, SECMON_OP_WRITE, SECMON_OP_TRUNCATE,
     SECMON_OP_UNLINK, SECMON_OP_RENAME, SECMON_OP_LINK, SECMON_OP_SETATTR,

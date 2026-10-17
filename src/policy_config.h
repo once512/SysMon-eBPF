@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 共用配置模型：version 是文本语法版本，revision 是进程内单调递增的运行策略版本。
-// 同一文件可供两个宿主读取；BPF 应用 protect，fanotify 应用可选的 fanotify 配置，分别提交。
+// 同一文件可供两个宿主读取；BPF 应用 protect/allow-writer，fanotify 应用可选的 fanotify 配置，分别提交。
 #pragma once
 #include "content_digest.h"
 #include <cstdint>
@@ -28,6 +28,9 @@ struct PolicyConfig {
     ContentDigest source_digest{}; // 仅 load_policy 对完整原始文件字节计算；CLI/纯解析结果没有来源摘要。
     std::optional<FanotifyPolicy> fanotify;
     std::vector<std::string> paths;
+    // v3：当前 mm->exe_file 的对象身份 + 初始 user namespace 的有效 UID，不按进程名/PID 授权。
+    struct Writer { std::string path; std::uint32_t euid; };
+    std::vector<Writer> writers;
 };
 // Versioned, bounded text format. Parsing performs no filesystem changes.
 PolicyConfig parse_policy(std::istream &input);

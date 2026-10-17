@@ -34,7 +34,7 @@ add_custom_command(OUTPUT "${BPF_OBJ}"
         -Wall -Werror -I${CMAKE_CURRENT_BINARY_DIR}
         -I${CMAKE_CURRENT_SOURCE_DIR}/eBPF ${LIBBPF_CFLAGS}
         -c ${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c -o ${BPF_OBJ}
-    DEPENDS eBPF/secmon.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h "${VMLINUX}"
+    DEPENDS eBPF/secmon.bpf.c eBPF/writer_identity.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h "${VMLINUX}"
     VERBATIM)
 # skeleton 从当前 ELF 生成并嵌入对象；src/main.cpp 调用生成的 open/load/attach/destroy 接口。
 add_custom_command(OUTPUT "${BPF_SKEL}"
@@ -53,6 +53,7 @@ add_executable(secmon
     src/options.cpp
     src/events.cpp
     src/file_policy.cpp
+    src/writer_identity.cpp
     "${BPF_SKEL}")
 # build 放在 eBPF 前面，确保使用新生成的 skeleton；仓库里的旧生成快照不是本次构建输入。
 target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF src)
@@ -79,6 +80,8 @@ target_compile_options(secmon-analyzer PRIVATE -Wall -Wextra -Werror)
 # CTest 运行无特权检查；真实加载 BPF、fanotify 权限事件和权限转换由 tests/run_privileged.py 另行组织。
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(secmon-writer-scenario tests/writer_scenario.cpp)
+    target_compile_options(secmon-writer-scenario PRIVATE -Wall -Wextra -Werror)
     add_executable(secmon-policy-tests tests/policy_config.cpp)
     target_link_libraries(secmon-policy-tests PRIVATE secmon-policy)
     target_include_directories(secmon-policy-tests PRIVATE src)

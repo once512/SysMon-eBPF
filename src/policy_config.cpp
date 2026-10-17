@@ -15,7 +15,7 @@
 
 namespace {
 constexpr std::size_t max_bytes = 65536;
-[[noreturn]] void invalid() { throw std::runtime_error("Invalid policy: expected version 1 or 2, positive revision, and valid bounded policy directives"); }
+[[noreturn]] void invalid() { throw std::runtime_error("Invalid policy: expected version 1, 2 or 3, positive revision, and valid bounded policy directives"); }
 }
 PolicyConfig parse_policy(std::istream &input)
 {
@@ -24,6 +24,7 @@ PolicyConfig parse_policy(std::istream &input)
     FanotifyPolicy gate;
     std::set<std::string> gate_keys;
     std::set<std::string> unique;
+    std::set<std::string> writer_paths;
     std::size_t bytes = 0;
     std::string line;
     while (std::getline(input, line)) {
@@ -38,6 +39,18 @@ PolicyConfig parse_policy(std::istream &input)
                 value.empty() || value.front() != '/' || value.size() > 4095 ||
                 !unique.insert(value).second || result.paths.size() == 256) invalid();
             result.paths.push_back(value);
+        } else if (key == "allow-writer") {
+            fields >> std::ws;
+            if (fields.peek() != '"' || !(fields >> std::quoted(value)) ||
+                value.empty() || value.front() != '/' || value.size() > 4095 ||
+                !writer_paths.insert(value).second || result.writers.size() == 64) invalid();
+            std::string uid;
+            std::uint32_t number = 0;
+            if (!(fields >> uid)) invalid();
+            const auto parsed = std::from_chars(uid.data(), uid.data() + uid.size(), number);
+            // (uid_t)-1 是内核无效 UID，不能成为授权主体。
+            if (parsed.ec != std::errc{} || parsed.ptr != uid.data() + uid.size() || number == UINT32_MAX) invalid();
+            result.writers.push_back({value, number});
         } else if (key.compare(0, 9, "fanotify-") == 0) {
             if (!gate_keys.insert(key).second) invalid();
             if (key == "fanotify-file" || key == "fanotify-analyzer" || key == "fanotify-marker") {
@@ -78,7 +91,7 @@ PolicyConfig parse_policy(std::istream &input)
             }
         } else {
             if (!(fields >> value)) invalid();
-            if (key == "version" && !version && (value == "1" || value == "2")) version = value == "1" ? 1 : 2;
+            if (key == "version" && !version && (value == "1" || value == "2" || value == "3")) version = value[0] - '0';
             else if (key == "revision" && !result.revision) {
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), result.revision);
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !result.revision) invalid();
@@ -87,9 +100,10 @@ PolicyConfig parse_policy(std::istream &input)
         if (fields >> extra) invalid();
     }
     if (input.bad() || !version || !result.revision) invalid();
+    if (!result.writers.empty() && version != 3) invalid();
     // 字段逐条解析后再校验整体约束，允许字段换序，但禁止混用静态决策与分析器专属字段。
     if (!gate_keys.empty()) {
-        if (version != 2 || gate.path.empty()) invalid();
+        if (version < 2 || gate.path.empty()) invalid();
         if (gate.analyzer.empty()) {
             if (gate.decision.empty() || gate_keys.count("fanotify-marker") ||
                 gate_keys.count("fanotify-scan-limit-bytes") || gate_keys.count("fanotify-error-decision")) invalid();

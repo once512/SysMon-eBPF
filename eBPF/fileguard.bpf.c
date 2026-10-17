@@ -5,9 +5,9 @@
 /* 内层模板规定 key/value/容量，用户态新建的候选 HASH 必须符合该布局才能装入外层 Map。 */
 struct file_policy_map {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 256);
+    __uint(max_entries, SECMON_POLICY_CAPACITY);
     __type(key, struct file_key);
-    __type(value, u32);
+    __type(value, struct file_policy_value);
 } file_policy_template SEC(".maps");
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
@@ -25,6 +25,8 @@ static __always_inline void *active_file_policy(void)
     return bpf_map_lookup_elem(&protected_files, &slot);
 }
 
+#include "writer_identity.bpf.c"
+
 static __always_inline int guard_inode_policy(struct inode *inode, u32 operation, void *policy)
 {
     if (!inode || !policy) return 0;
@@ -34,7 +36,13 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     key.major = dev >> 20;
     key.minor = dev & ((1U << 20) - 1);
     key.ino = BPF_CORE_READ(inode, i_ino);
-    if (!bpf_map_lookup_elem(policy, &key)) return 0;
+    struct file_policy_value *entry = bpf_map_lookup_elem(policy, &key);
+    if (!entry) return 0;
+    // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
+    if (!(entry->flags & SECMON_FILE_IDENTITY)) {
+        if (!(entry->flags & SECMON_FILE_READONLY)) return 0;
+        if (authorized_writer(policy)) return 0;
+    }
     count_stat(SECMON_POLICY_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     /* 审计记录申请失败仍返回 EACCES：日志拥塞不能把原本应拒绝的写入变成允许。 */

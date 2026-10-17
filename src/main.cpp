@@ -52,7 +52,7 @@ int main(int argc, char **argv)
         if (!options.policy_path.empty()) initial = load_policy(options.policy_path);
         PolicyRuntime runtime(options.policy_path, std::move(initial));
         const auto &active = runtime.active();
-        if (active.fanotify) std::cerr << "secmon applies only protect entries; run secmon-fanotify separately for fanotify directives\n";
+        if (active.fanotify) std::cerr << "secmon applies protect/allow-writer entries; run secmon-fanotify separately for fanotify directives\n";
         utsname info{};
         if (uname(&info)) throw std::runtime_error("uname failed");
         const auto lsm = read_file("/sys/kernel/security/lsm");
@@ -88,7 +88,7 @@ int main(int argc, char **argv)
                                     &enabled, BPF_NOEXIST))
                 throw std::runtime_error("Cannot install task-local self-protection policy");
         }
-        protected_files.install(bpf_map__fd(skel->maps.protected_files), active.paths);
+        protected_files.install(bpf_map__fd(skel->maps.protected_files), active);
         // ring_buffer__new 注册消费回调；它不挂载 BPF，只有后面的 attach 才开始进入安全/跟踪钩子。
         std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring(
             ring_buffer__new(bpf_map__fd(skel->maps.events), consume, nullptr, nullptr),
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
                     stopping = 1;
                 } else if (command == ControlCommand::reload) {
                     code = runtime.reload([&](const PolicyConfig &candidate) {
-                        protected_files.install(bpf_map__fd(skel->maps.protected_files), candidate.paths);
+                        protected_files.install(bpf_map__fd(skel->maps.protected_files), candidate);
                     });
                     if (code == management::Code::ok)
                         std::cerr << "Policy active revision=" << active.revision << '\n';
