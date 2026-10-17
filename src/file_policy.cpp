@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 把路径转换为稳定的文件对象身份，并构建内核 HASH Map；O_PATH 固定对象但不取得读写访问 FD。
 // 候选全部准备完成后只更新一次外层 Map；候选析构回收失败路径资源，不触碰活动策略。
+#include <secmon/policy_limits.h>
 #include <bpf/bpf.h>
 #include <cerrno>
 #include <cstring>
@@ -18,8 +19,8 @@
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
     const auto &paths = config.paths;
-    if (config.writers.size() > 64) throw std::runtime_error("Too many authorized writers");
-    if (paths.size() > 256) throw std::runtime_error("Too many protected paths");
+    if (config.writers.size() > SECMON_MAX_WRITERS) throw std::runtime_error("Too many authorized writers");
+    if (paths.size() > SECMON_MAX_PROTECTED_PATHS) throw std::runtime_error("Too many protected paths");
     // candidate 是未发布的事务资源集合；
     // 异常只销毁候选，当前对象仍持有活动策略的全部 inode。
     ProtectedFiles candidate;

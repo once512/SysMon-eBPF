@@ -11,7 +11,9 @@
 | `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
 | `src/events.h` / `src/events.cpp` | ABI 校验、JSONL 输出、统计汇总 | 先校验记录长度和版本，再按事件类型输出；每 CPU 统计需要逐 CPU 求和 |
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
-| `src/policy_config.h` / `src/policy_config.cpp` | 有界版本配置读取与解析 | root 文件权限、严格的唯一字段集合、运行 revision；不接受 version 指令 |
+| `src/policy_config.h` / `src/policy_config.cpp` | 配置值模型和纯字段分派 | 严格唯一字段集合、运行 revision、错误行号；不访问文件系统 |
+| `src/policy/source.cpp` / `src/policy/fanotify_fields.cpp` | 安全读取与 fanotify 值构建 | 前者固定/复核来源并计算摘要，后者区分静态/分析字段约束 |
+| `include/secmon/policy_limits.h` | C/BPF/C++ 共用边界 | 模板、解析、候选与管理校验使用同一容量定义 |
 | `src/file_policy.h` / `src/file_policy.cpp` | 固定文件对象并完整切换 Map 策略 | 候选 HASH 填满后切换外层 Map 引用；失败保留旧策略与 inode FD；退出时当前句柄比链接活得更久 |
 | `src/control.h` / `src/control.cpp` | root 管理服务端 | 私有目录 FD 固定创建与清理位置；`SO_PEERCRED` 验证身份；完整 `stop` / `reload` 消息；操作完成后确认 |
 

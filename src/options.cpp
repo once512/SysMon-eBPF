@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 一个服务的参数入口；公共生命周期参数与 fanotify 策略参数分别解析，不创建内核资源。
+#include <secmon/policy_limits.h>
 #include "options.h"
 #include <charconv>
 #include <iostream>
@@ -62,7 +63,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
             else throw std::invalid_argument("Unknown option; use --help");
         }
     }
-    if ((options.check && argc != 2) || options.paths.size() > 256 ||
+    if ((options.check && argc != 2) || options.paths.size() > SECMON_MAX_PROTECTED_PATHS ||
         (!options.policy_path.empty() && (!options.paths.empty() || fan_args.size() > 1)) ||
         (options.modules == Options::Modules::bpf_only && fan_args.size() > 1) ||
         (options.modules == Options::Modules::fanotify_only && !options.paths.empty()))

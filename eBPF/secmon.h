@@ -2,6 +2,7 @@
 // 每条事件携带 version/size，宿主校验后才解读；这里不是磁盘格式或跨架构网络协议。
 #ifndef SECMON_H
 #define SECMON_H
+#include <secmon/policy_limits.h>
 /* 当前唯一事件布局标识，供宿主检错；不存在历史事件解码或兼容分支。 */
 #define SECMON_ABI_VERSION 4
 #define SECMON_COMM_LEN 16
@@ -17,7 +18,6 @@ struct file_key {
     unsigned long long ino;
 };
 // 策略 Map 的私有布局，不改变审计事件 ABI；候选与模板必须使用相同容量和 value 大小。
-#define SECMON_POLICY_CAPACITY 320
 #define SECMON_FILE_READONLY 1U
 #define SECMON_FILE_WRITER 2U
 #define SECMON_FILE_IDENTITY 4U

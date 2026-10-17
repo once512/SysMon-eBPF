@@ -25,6 +25,13 @@ int main() {
             "revision 1\nprotect \"/a\" x", "revision 1\nprotect \"/a\"\nprotect \"/a\""}) reject(text);
     for (const auto *version : {"1", "2", "3", "999"})
         reject(std::string("version ") + version + "\nrevision 1\n");
+    {
+        std::istringstream bad("# first\nrevision 1\nprotect relative\n");
+        try { (void)parse_policy(bad); throw std::logic_error("invalid path accepted"); }
+        catch (const std::runtime_error &error) {
+            require(std::string(error.what()).find("line 3") != std::string::npos);
+        }
+    }
     const std::string prefix = "revision 1\n#";
     std::istringstream exact(prefix + std::string(65536 - prefix.size(), 'x'));
     require(parse_policy(exact).revision == 1);
