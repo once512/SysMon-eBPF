@@ -28,7 +28,7 @@ add_custom_command(OUTPUT "${BPF_OBJ}"
         -Wall -Werror -I${CMAKE_CURRENT_BINARY_DIR}
         -I${CMAKE_CURRENT_SOURCE_DIR}/eBPF ${LIBBPF_CFLAGS}
         -c ${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c -o ${BPF_OBJ}
-    DEPENDS eBPF/secmon.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h "${VMLINUX}"
+    DEPENDS eBPF/secmon.bpf.c eBPF/fileguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h "${VMLINUX}"
     VERBATIM)
 add_custom_command(OUTPUT "${BPF_SKEL}"
     COMMAND ${CMAKE_COMMAND} -DTOOL=${BPFTOOL_EXE} -DMODE=skeleton

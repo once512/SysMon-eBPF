@@ -14,6 +14,7 @@
 #include <vector>
 #include <sys/utsname.h>
 #include "secmon.h"
+#include "file_policy.h"
 #include <secmon.skel.h>
 
 namespace {
@@ -49,6 +50,16 @@ int consume(void *, void *data, std::size_t size)
         std::cerr << "Event ABI mismatch\n";
         return 0;
     }
+    if (e.kind == SECMON_FILE_DENIED) {
+        std::cout << "{\"event\":\"file_denied\",\"timestamp_ns\":" << e.timestamp_ns
+                  << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
+                  << ",\"start_ns\":" << e.start_ns
+                  << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
+                  << ",\"dev_major\":" << e.file.major << ",\"dev_minor\":" << e.file.minor
+                  << ",\"ino\":" << e.file.ino << ",\"operation\":" << e.operation
+                  << ",\"errno\":13,\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
+        return 0;
+    }
     const char *kind = e.kind == SECMON_EXEC_CHECK ? "exec_check" :
                        e.kind == SECMON_EXEC_SUCCESS ? "exec_success" : nullptr;
     if (!kind) {
@@ -76,7 +87,8 @@ void report_stats(int fd)
             throw std::runtime_error("Cannot read BPF statistics");
         unsigned long long total = 0;
         for (const auto value : values) total += value;
-        std::cerr << (key == SECMON_DROPPED ? "ringbuf_dropped=" : "baseline_update_failed=")
+        const char *names[] = {"ringbuf_dropped=", "baseline_update_failed=", "policy_denied="};
+        std::cerr << names[key]
                   << total << '\n';
     }
 }
@@ -84,12 +96,26 @@ void report_stats(int fd)
 int main(int argc, char **argv)
 {
     bool check = false;
-    if (argc == 2 && std::string_view(argv[1]) == "--check") check = true;
-    else if (argc != 1) {
-        std::cerr << "Usage: secmon [--check|--help]\n"
-                     "Default: execution and credential audit; no enforcement.\n"
-                     "--check: inspect environment without attaching BPF.\n";
-        return argc == 2 && std::string_view(argv[1]) == "--help" ? 0 : 2;
+    std::vector<std::string> paths;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg(argv[i]);
+        if (arg == "--help" && argc == 2) {
+            std::cout << "Usage: secmon [--check] [--protect-file PATH ...]\n"
+                         "Default: execution/credential audit. --protect-file enforces read-only\n"
+                         "on an existing regular file inode for all tasks, including root.\n"
+                         "--check: inspect environment without attaching BPF.\n";
+            return 0;
+        }
+        if (arg == "--check") check = true;
+        else if (arg == "--protect-file" && i + 1 < argc) paths.emplace_back(argv[++i]);
+        else {
+            std::cerr << "Invalid argument; use --help\n";
+            return 2;
+        }
+    }
+    if ((check && !paths.empty()) || paths.size() > 256) {
+        std::cerr << "--check cannot install policies; at most 256 files are supported\n";
+        return 2;
     }
     try {
         utsname info{};
@@ -107,11 +133,13 @@ int main(int argc, char **argv)
             std::cerr << "Environment check passed; hook/load permissions require actual attach.\n";
             return 0;
         }
+        ProtectedFiles protected_files; // Must outlive BPF links.
         std::unique_ptr<secmon_bpf, decltype(&secmon_bpf__destroy)> skel(
             secmon_bpf__open(), secmon_bpf__destroy);
         if (!skel) throw std::runtime_error("Cannot open BPF skeleton");
         if (secmon_bpf__load(skel.get()))
             throw std::runtime_error("BPF load failed; inspect libbpf diagnostics and privileges");
+        protected_files.install(bpf_map__fd(skel->maps.protected_files), paths);
         std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring(
             ring_buffer__new(bpf_map__fd(skel->maps.events), consume, nullptr, nullptr),
             ring_buffer__free);
@@ -122,6 +150,7 @@ int main(int argc, char **argv)
         if (sigaction(SIGINT, &action, nullptr) || sigaction(SIGTERM, &action, nullptr))
             throw std::runtime_error("Cannot install signal handlers");
         if (secmon_bpf__attach(skel.get())) throw std::runtime_error("BPF attach failed");
+        if (!paths.empty()) std::cerr << "File read-only policy active for " << paths.size() << " paths\n";
         std::cerr << "Audit active; exec_check events are attempts, not successful execs.\n";
         auto next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (!stopping) {

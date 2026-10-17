@@ -72,4 +72,5 @@ int BPF_PROG(on_exec_complete, struct task_struct *task, pid_t old_pid,
     emit_exec(task, bprm, SECMON_EXEC_SUCCESS, (u32)old_pid, 0);
     return 0;
 }
+#include "fileguard.bpf.c"
 char LICENSE[] SEC("license") = "GPL";
