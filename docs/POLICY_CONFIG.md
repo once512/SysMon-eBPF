@@ -1,0 +1,79 @@
+# 文件策略配置与在线切换
+
+本模块把 BPF 文件只读策略从命令行参数扩展成有格式版本、运行版本和在线替换的配置。fanotify 的事件类型、扫描器与回退设置仍使用其独立命令行，尚未进入统一配置。
+
+## 运行示例
+
+把 [示例文件](../examples/file-policy.conf) 中的路径改成已存在的普通文件，再以 root 所有、0600 权限保存为 `/run/secmon/policy.conf`。管理目录使用 root 所有的 0700 目录。
+
+```bash
+sudo install -d -m 0700 /run/secmon
+sudo ./build/secmon --policy /run/secmon/policy.conf \
+    --self-protect /run/secmon/control.sock
+# 另一个终端：以新文件原子替换配置，递增 revision，再执行：
+sudo ./build/secmon --reload /run/secmon/control.sock
+sudo ./build/secmon --stop /run/secmon/control.sock
+```
+
+`--policy` 与 `--protect-file` 互斥。没有 `--self-protect` 时也能加载配置，但没有管理 socket，不能在线重载。`--reload` 只发送命令，服务始终重新读取启动时指定的配置路径；客户端不能指定另一个配置文件。
+
+服务只有完成切换才回复 `ok`。拒绝时回复 `error`，客户端非零退出，详细原因写服务的 stderr。连接中断或客户端等待超时不代表切换一定没有发生，应检查服务的 `Policy active revision=N` 记录。重试相同版本会被拒绝。
+
+## 格式
+
+```text
+# 整行注释；空行忽略
+version 1
+revision 2
+protect "/absolute/path/file with spaces"
+protect "/another/file"
+```
+
+- `version` 是格式版本，目前只接受恰好一次 `version 1`。
+- `revision` 是非零 uint64 十进制数，恰好一次；在线更新必须严格大于当前运行版本。允许不包含 `protect` 的配置，表示解除全部文件保护。
+- `protect` 必须使用双引号和绝对路径。采用 C++ `std::quoted` 的转义规则：`\"` 表示双引号，`\\` 表示反斜杠；它不是 JSON，`\n` 不表示换行。不支持行尾注释、未知键、重复路径、NUL 或跨行字符串。
+- 最多 256 条路径，单条最长 4095 字节；配置最多 64 KiB。硬链接别名可占多条路径，内核只保留一个 inode 键；容量按路径条数计算。
+- 配置必须是 root 所有且组/其他用户不可写的普通文件，拒绝末尾符号链接。以非阻塞方式打开，避免错误指向 FIFO 后卡住服务。读取前后比较 size/mtime/ctime，拒绝观测到的并发修改。建议在可信私有目录中用同目录临时文件加 rename 原子发布，不原地写配置。
+
+父目录和路径中间组件不采用逐级 `openat2` 限制，不保证配置是不可变快照。配置签名、持久防回滚与可信发布者身份尚未实现；进程重新启动后不会记住此前最大 revision。
+
+## 为什么切换不会留下半份策略
+
+1. `policy_config.cpp` 读取并完整解析候选配置，当前版本不变。
+2. `file_policy.cpp` 创建新的 256 项 HASH Map，为所有目标持有 `O_PATH` FD，并填充新 Map。任一步失败由候选对象析构回收资源，旧 Map 不变。
+3. 所有准备完成后，用一次 `bpf_map_update_elem` 将 `protected_files` ARRAY_OF_MAPS 的 slot 0 替换为新 Map。
+4. 外层 Map 持有新 Map 的内核引用，宿主交换固定文件 FD 集合，释放旧集合，再更新运行版本并确认请求。
+
+```mermaid
+sequenceDiagram
+    participant Admin as root 管理端
+    participant Host as secmon
+    participant New as 候选 Map 与 inode FD
+    participant Slot as BPF 外层 Map slot 0
+    Admin->>Host: reload
+    Host->>Host: 校验配置与 revision
+    Host->>New: 固定所有 inode，填满 HASH
+    alt 准备失败
+        Host->>New: 回收候选资源
+        Host-->>Admin: error（旧策略继续生效）
+    else 准备成功
+        Host->>Slot: 一次替换内层 Map 引用
+        Host->>Host: 交换 FD 集合，记录 revision
+        Host-->>Admin: ok
+    end
+```
+
+每次文件保护钩子获取一个完整 Map；rename 的源和目标共用同一个 Map 引用。在途钩子可能继续使用旧 Map，由内核维护引用生命周期。因此不把切换解释为所有在途系统调用的同步屏障：一个系统调用经过多个 LSM 钩子时可能跨越版本。审计事件 ABI 仍为 v4，没有新增 policy revision 字段。
+
+首次启动仍然逐个 attach LSM 程序，不承诺所有钩子原子启用。退出与崩溃仍解除未固定的 BPF 链接。临时准备期间最多额外持有 256 个文件 FD 和一份候选 Map；重复成功与失败重载不应累计持有资源。
+
+## 阅读与验证
+
+建议按 `src/policy_config.h/.cpp` → `src/file_policy.h/.cpp` → `eBPF/fileguard.bpf.c` → `src/control.h/.cpp` → `src/main.cpp` 阅读。配置解析、文件对象和 Map 所有权、root 管理通道、生命周期协调各有独立职责。
+
+```bash
+ctest --test-dir build --output-on-failure
+sudo python3 tests/run_privileged.py --build-dir build --only policy-reload
+```
+
+解析测试覆盖格式、数值溢出、重复与容量边界。真实 BPF 测试验证增加/移除、整份清空、拒绝旧版本、候选准备失败保留旧保护、配置权限、symlink 与 FIFO 拒绝、自保护服务的管理命令、反复切换时共同保护对象持续拒绝，已有写入 FD 在保护解除前后的变化、256 文件实际容量，以及 FD 数量回归。并发探测是回归证据，不是所有调度时序的形式证明。

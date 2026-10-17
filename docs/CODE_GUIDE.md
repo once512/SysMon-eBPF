@@ -6,12 +6,13 @@
 
 | 文件 | 职责 | 阅读重点 |
 | --- | --- | --- |
-| `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助和停止；解析过程不访问 BPF 或 socket |
+| `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助、停止和重载；解析过程不访问 BPF 或 socket |
 | `src/main.cpp` | 环境检查、BPF 生命周期、轮询与退出 | 按 open → load → 写入策略 → attach 顺序启动；声明顺序决定资源释放顺序 |
 | `src/events.h` / `src/events.cpp` | ABI 校验、JSONL 输出、统计汇总 | 先校验记录长度和版本，再按事件类型输出；每 CPU 统计需要逐 CPU 求和 |
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
-| `src/file_policy.h` / `src/file_policy.cpp` | 固定文件对象并安装 Map 策略 | `O_PATH` 持有 inode；设备号和 inode 组成身份；文件句柄必须比 BPF 链接活得更久 |
-| `src/control.h` / `src/control.cpp` | root 管理 socket | 私有目录 FD 固定创建与清理位置；`SO_PEERCRED` 验证身份；完整 `stop` 消息触发退出 |
+| `src/policy_config.h` / `src/policy_config.cpp` | 有界版本配置读取与解析 | root 文件权限、严格格式、运行 revision 与格式 version 分开 |
+| `src/file_policy.h` / `src/file_policy.cpp` | 固定文件对象并完整切换 Map 策略 | 候选 HASH 填满后切换外层 Map 引用；失败保留旧策略与 inode FD；退出时当前句柄比链接活得更久 |
+| `src/control.h` / `src/control.cpp` | root 管理 socket | 私有目录 FD 固定创建与清理位置；`SO_PEERCRED` 验证身份；完整 `stop` / `reload` 消息；操作完成后确认 |
 
 头文件暴露接口与资源所有权，系统调用和协议细节放在对应 `.cpp`。`main.cpp` 通过这些接口协调运行，避免再次把各个功能实现堆回入口。
 
@@ -76,3 +77,5 @@ sudo python3 tests/self_protection.py --build-dir build
 
 
 研究独立分析组件时，可以先按 `protocol.h` 的 ID 与 Ready 约束追踪一次请求，再看 `client.cpp` 如何把后端故障与权限拒绝分开，最后运行 `analysis_protocol.py` 和 `fanotify_analysis_faults.py` 对照异常分支。`analysis_allocation.cpp` 的分配故障钩子只存在于独立测试程序，适合研究系统调用取得资源后 C++ 异常安全的要求；不要把它加入正式程序。
+
+文件策略的配置格式、切换顺序和资源所有权详见 [策略配置导读](POLICY_CONFIG.md)。

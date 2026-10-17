@@ -22,6 +22,7 @@
 - 凭证与基线不一致时设置事件 `flags` 的位 0，仅审计，不阻断。合法提交也可能来自攻击，基线不等同于可信授权。
 - 每 10 秒及退出时向标准错误输出丢失事件和基线更新失败计数。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
+- `--policy FILE` 加载有版本的文件策略，`--reload SOCKET` 在线完整替换；详见 [策略配置导读](docs/POLICY_CONFIG.md)。
 - `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。
 
 ## 构建与运行
@@ -44,7 +45,7 @@ sudo ./build/secmon > events.jsonl
 sudo ./build/secmon --protect-file /absolute/path/important.txt
 ```
 
-最多指定 256 个已存在的普通文件；路径末尾不能是符号链接。程序使用 O_PATH 句柄固定目标 inode，按设备主次号与 inode 匹配，持有句柄直到 BPF 链接释放，防止 inode 复用。策略跟随文件对象，已有硬链接也受保护；不递归保护目录，不阻止父目录重命名。
+最多指定 256 个已存在的普通文件；路径末尾不能是符号链接。程序使用 O_PATH 句柄固定目标 inode，按设备主次号与 inode 匹配，持有当前策略的句柄直到策略被替换或 BPF 链接释放，防止 inode 复用。策略跟随文件对象，已有硬链接也受保护；不递归保护目录，不阻止父目录重命名。
 
 策略作用于所有任务，包括 root 和 secmon 自身，无内置白名单。可覆盖写打开、已有 FD 的普通写入和截断、路径截断、删除、源或目标重命名、新建硬链接、setattr，以及新增共享可写 mmap 和共享映射增加写权限。原有读取和私有映射允许。先保留其他 LSM/BPF 程序的拒绝，再执行本策略；审计缓冲区满不会导致放行。
 
@@ -63,7 +64,7 @@ sudo ./build/secmon --stop /run/secmon/control.sock
 
 可以与 `--protect-file` 组合。自保护默认关闭；启用后，在 task_kill 和 ptrace_access_check 钩子拒绝其他进程向目标发送非零信号或进行相应访问，包括 root 发出的信号。信号 0 探测与目标线程组自身操作放行。策略通过 pidfd 写入任务本地存储，跟随线程组 leader 生命周期，不使用裸 PID 白名单。
 
-管理 socket 必须使用绝对路径，父目录须已存在、root 所有且无组/其他用户权限；服务要求 root 运行。服务将 socket 权限设为 0600，使用 SO_PEERCRED 校验管理端 UID=0，只接受完整的 `stop` 消息。socket 通过已验证目录的 FD 创建，退出时清理；不自动删除已有 socket。`--stop` 同样校验服务端 root 身份，确认收到接受响应后返回；如需确认全部退出，还应检查服务进程状态。
+管理 socket 必须使用绝对路径，父目录须已存在、root 所有且无组/其他用户权限；服务要求 root 运行。服务将 socket 权限设为 0600，使用 SO_PEERCRED 校验管理端 UID=0，只接受完整的 `stop` / `reload` 消息。socket 通过已验证目录的 FD 创建，退出时清理；不自动删除已有 socket。`--stop` 同样校验服务端 root 身份，确认收到接受响应后返回；如需确认全部退出，还应检查服务进程状态。
 
 启用自保护后不要依赖外部 `timeout` 或 kill 停止服务；测试可使用 `--run-for 20`，进程在内部计时结束后自行退出（允许 1..3600 秒）。任务保护对通过已覆盖入口的用户态信号生效，不承诺拦截终端/内核生成的所有信号、OOM、cgroup freeze/kill、重启或内核失陷。不撤销启动前已有的 ptrace 关系或已打开内存访问句柄。高权限管理员仍可通过 BPF 管理等途径解除防护，当前 root 管理身份也不等同于可信应用身份。
 
