@@ -19,6 +19,14 @@ void emit_hold()
     std::cout << "{\"phase\":\"exec_complete\",\"pid\":" << getpid()
               << ",\"tid\":" << tid() << "}" << std::endl;
 }
+[[noreturn]] void exec_hold(const char *executable, const char *phase)
+{
+    std::cout << "{\"phase\":\"" << phase << "\",\"pid\":" << getpid()
+              << ",\"tid\":" << tid() << "}" << std::endl;
+    execl(executable, executable, "hold", static_cast<char *>(nullptr));
+    std::perror("exec lifecycle hold");
+    _exit(1);
+}
 bool read_command(std::string &value)
 {
     // Do not buffer future commands: exec would discard a userspace input buffer.
@@ -88,14 +96,9 @@ int main(int argc, char **argv)
         std::cout << "{\"phase\":\"credentials_dropped\",\"pid\":" << getpid()
                   << ",\"uid\":" << getuid() << ",\"euid\":" << geteuid() << "}" << std::endl;
         if (!command("exec")) return 2;
-    } else if (next != "exec") return 2;
-    std::thread executor([&] {
-        std::cout << "{\"phase\":\"exec_worker\",\"pid\":" << getpid()
-                  << ",\"tid\":" << tid() << "}" << std::endl;
-        execl(argv[0], argv[0], "hold", static_cast<char *>(nullptr));
-        std::perror("exec lifecycle hold");
-        _exit(1);
-    });
+    } else if (next == "exec-leader") exec_hold(argv[0], "exec_leader");
+    else if (next != "exec") return 2;
+    std::thread executor([&] { exec_hold(argv[0], "exec_worker"); });
     executor.join();
     return 1;
 }
