@@ -27,18 +27,39 @@ cat /tmp/secmon-fanotify-demo
 | --- | --- |
 | `src/fanotify/main.cpp` | 信号、运行期限、关闭组后输出统计 |
 | `src/fanotify/options.h/.cpp` | 参数及边界校验 |
+| `src/fanotify/event_kind.h/.cpp` | 打开、读取、执行打开事件的显式选择 |
 | `src/fanotify/decisions.h/.cpp` | 截止时间、容量回退、队列与事件 FD 所有权 |
 | `src/fanotify/gate.h` | 文件句柄与组的所有权、最小处理接口 |
 | `src/fanotify/gate.cpp` | 固定 inode、创建权限组、标记、poll/read、回复与事件 FD 释放 |
 | `tests/decisions.cpp` | 可控时钟下的截止时间与资源所有权测试 |
 | `tests/fanotify.py` | 临时文件、外部打开进程、并发请求、服务崩溃和恢复实验 |
+| `tests/fanotify_events.py` | 读取与直接执行的覆盖边界 |
 | `tests/fanotify_deferred.py` | 真实权限等待、超时、容量和带待裁决请求的退出 |
 | `tests/fanotify_soak.py` | 持续并发负载、进程 FD 上限与回复计数对账 |
 | `tests/fanotify_harness.py` | 共享的进程启动、就绪等待和清理 |
 
 `O_PATH | O_NOFOLLOW` 固定一个普通文件，拒绝末尾符号链接、目录和不存在的文件。通过 `/proc/self/fd/N` 对固定的对象设置 inode mark，避免重新解析原始路径。硬链接共享策略，文件重命名后策略跟随对象，原路径替换成新 inode 则不受该标记约束；文件描述符固定期间不会出现目标 inode 被回收复用。
 
-组采用 `FAN_CLASS_CONTENT | FAN_NONBLOCK | FAN_CLOEXEC`，仅请求 `FAN_OPEN_PERM`。不使用 `FAN_REPORT_*`，按固定大小的 metadata 一次读取一个事件，每个事件 FD 通过 RAII 关闭。校验 ABI 后把 FD 所有权转交 `PendingDecisions`，立即或到期写入 `FAN_ALLOW`/`FAN_DENY`，成功回复才增加计数并释放 FD。期间不读取文件内容、不再次打开目标，不调用外部分析程序。
+组采用 `FAN_CLASS_CONTENT | FAN_NONBLOCK | FAN_CLOEXEC`，默认请求 `FAN_OPEN_PERM`，也可通过 `--event` 单独选择读取或执行打开事件。不使用 `FAN_REPORT_*`，按固定大小的 metadata 一次读取一个事件，每个事件 FD 通过 RAII 关闭。校验 ABI 后把 FD 所有权转交 `PendingDecisions`，立即或到期写入 `FAN_ALLOW`/`FAN_DENY`，成功回复才增加计数并释放 FD。期间不读取文件内容、不再次打开目标，不调用外部分析程序。
+
+## 三种权限入口
+
+`--event open|access|exec` 每次选择一种事件，默认 `open`：
+
+| 选择 | 内核事件 | 已验证的边界 |
+| --- | --- | --- |
+| open | `FAN_OPEN_PERM` | 新增打开受控；已打开 FD 的读写不重新裁决 |
+| access | `FAN_ACCESS_PERM` | 普通 read 受控，包括服务启动前已打开 FD；仅 open、写入、mmap 访问不受此事件控制 |
+| exec | `FAN_OPEN_EXEC_PERM` | ELF 或脚本直接执行受控；普通读取及 `/bin/sh script.sh` 解释读取不触发脚本的执行打开裁决 |
+
+执行打开权限事件不能代表脚本内容的完整执行控制；读取权限事件也不覆盖所有数据访问方式。三种事件的结果均受原有文件权限与其他安全模块约束，不能当作完整保险箱。
+
+```bash
+sudo ./build/secmon-fanotify --file /absolute/path/test-file --event access --decision deny --run-for 20
+sudo python3 tests/fanotify_events.py --build-dir build
+```
+
+正常统计通过 `permission_event` 字段标明本次选择，便于区分打开回复与读取回复。
 
 ## 延迟、截止时间和容量
 
@@ -64,12 +85,12 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision allow --
 
 ## 覆盖与故障语义
 
-- 只裁决新增打开，不裁决每次 write，不撤销已打开的 FD 或已有映射，也不提供删除、重命名、属性修改保护。已有 FD 读写继续成功是预期边界。
+- 每次仅覆盖选择的权限入口，不裁决每次 write，不撤销 FD 或已有映射，也不提供删除、重命名、属性修改保护。默认 open 模式下已有 FD 读写继续成功；access 模式则会裁决已打开 FD 的普通读取。
 - 一次接收一个事件，用户态队列显式有界，队列满则立即执行容量回退；内核另有独立有界队列，使用系统默认上限，不请求无限队列。
 - 检测到 `FAN_Q_OVERFLOW` 时增加计数并以失败退出；ABI、读取或回复异常也报告失败并关闭组。这是可观察的退出策略，不能保证队列满时继续拒绝全部访问。
 - 正常 SIGINT/SIGTERM 或内部期限退出时，先对已投递到用户态队列的请求回复 deny，再关闭组。关闭或崩溃会移除标记，内核尚未投递或故障时尚未回复的请求会放行；不能把正常退出的用户态队列排空理解成全局原子拒绝。故障后没有持久拒绝承诺。
 - 每次 poll 最多等待 100 ms，并受最近请求截止时间约束，循环检查内部期限与退出信号；持续到达事件时也会检查。没有独立 watchdog 或调度暂停期间的截止保证，SIGSTOP 会暂停裁决。
-- 当前没有进程身份授权、内容检测、权限缓存、递归目录保护或执行打开专用策略，也未接入 BPF、自保护和管理 socket。
+- 当前没有进程身份授权、内容检测、权限缓存、递归目录保护或应用身份授权规则，也未接入 BPF、自保护和管理 socket。
 
 权限事件与关闭组的语义参考 [Linux fanotify(7)](https://man7.org/linux/man-pages/man7/fanotify.7.html)，标记接口参考 [fanotify_mark(2)](https://man7.org/linux/man-pages/man2/fanotify_mark.2.html)。
 

@@ -104,14 +104,14 @@ sudo python3 tests/self_protection.py --build-dir build
 
 ## fanotify 权限裁决实验
 
-新增独立程序 `secmon-fanotify`，对一个普通文件的 `FAN_OPEN_PERM` 事件立即允许或拒绝，不加载 BPF。实现与实验步骤见 [fanotify 学习实验](docs/FANOTIFY_LAB.md)。
+新增独立程序 `secmon-fanotify`，对一个普通文件的权限事件允许或拒绝，默认使用 `FAN_OPEN_PERM`，也可用 `--event access|exec` 研究读取及执行打开权限，不加载 BPF。实现与实验步骤见 [fanotify 学习实验](docs/FANOTIFY_LAB.md)。
 
 ```bash
 sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision deny --run-for 20
 sudo python3 tests/fanotify.py --build-dir build
 ```
 
-此处 `deny` 拒绝新增打开，包括读取；已有 FD 不受影响。组关闭或服务崩溃后，等待裁决的打开请求会被放行。单文件标记跟随 inode，不固定路径。当前开发机特权测试通过，覆盖允许/拒绝、并发、硬链接与重命名、已有 FD、正常退出、崩溃释放和运行期限。新增有界延迟裁决队列，支持接收后的请求超时、容量回退与正常退出时拒绝用户态队列中的请求；延迟是实验值，尚未接入内容分析。真实内核队列溢出仍未验证，不提供持久防护。
+默认 open 模式下，`deny` 拒绝新增打开，包括读取打开；已有 FD 不受影响。access 模式可裁决已打开 FD 的普通读取，但不覆盖 mmap；exec 模式裁决直接执行打开，不覆盖解释器读取脚本。组关闭或服务崩溃后，等待裁决的打开请求会被放行。单文件标记跟随 inode，不固定路径。当前开发机特权测试通过，覆盖允许/拒绝、并发、硬链接与重命名、已有 FD、正常退出、崩溃释放和运行期限。新增有界延迟裁决队列，支持接收后的请求超时、容量回退与正常退出时拒绝用户态队列中的请求；延迟是实验值，尚未接入内容分析。真实内核队列溢出仍未验证，不提供持久防护。
 
 
 延迟裁决验证与持续负载工具：
