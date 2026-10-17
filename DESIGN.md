@@ -318,3 +318,12 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 新增独立交互场景程序、只查询指定宿主 Map 的辅助模块及 `tests/baseline_lifecycle.py`。按受控阶段直接验证存活线程的 key 与 UID/EUID/caps、join 后删除、主动降权后的基线刷新、非主线程 exec 后 key 集合和 old_tid 关联、最终退出删除。
 - 20 轮交替 root 与 UID/GID 65534 场景通过；9 项 CTest 通过。场景可执行文件复制到可遍历临时目录，解决当前用户主目录 0700 导致降权后无法访问构建目录的问题，不修改主目录权限。
 - Map 遍历并非原子快照，只对测试线程组作有界查询；不声称覆盖所有任务、真实 PID 复用、命名空间或真实提权攻击。详细步骤见 `docs/CREDENTIAL_LIFECYCLE.md`。
+
+
+### 2026-10-17：合法权限转换与完成事件 EUID 修正
+
+- 新增只报告自身凭证的 C++ 工具及 `tests/credential_transitions.py`，通过 root 所有的临时普通、setuid 和 file-capability 可执行文件，验证 UID/GID 65534 起始的三种合法执行转换。仅临时文件设置模式或 capabilities，不修改账户与系统程序。
+- 实测发现检查点候选 EUID 尚未包含最终 setuid 结果；对照 Linux v6.12 执行流程确认该检查先于最终文件凭证计算。文档明确 `exec_check.target_euid` 不是最终权限预测。
+- 修正完成事件从已被消费清空的 `bprm->cred` 读取 EUID 的问题，改用当前任务已提交 EUID；字段布局和 ABI 版本不变。普通与 file-capability 执行完成时现在正确报告非零 EUID，而不是空指针读取结果 0。
+- 三种合法转换特权验证及 10 项 CTest 通过，检查和完成事件与测试程序实际凭证报告相符；完整特权回归将在统一入口再次运行。此测试不模拟真实内核提权攻击。
+- 第二轮 300 秒持续负载（timeout 模式）通过：231760 次打开，全部 denied，其中 timed_out=39078、overloaded=192682；待裁决峰值 4、FD 基线 5/峰值 10，overflow 与 shutdown_denied 为 0，客户端结果和回复计数一致。

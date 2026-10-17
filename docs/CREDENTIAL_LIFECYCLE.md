@@ -30,3 +30,18 @@ key 使用 `(TGID/TID, start_boottime)`，不能只按裸 PID 比较。测试在
 测试会把场景程序复制到 root 所有、可遍历的临时目录，使 UID 65534 能执行它；不会修改用户主目录权限。stdin 指令采用逐字节有界读取，避免 exec 丢失用户态预读的后续指令。辅助程序的基础交互流程也由无特权 CTest 验证。
 
 2026-10-17 当前开发机上，20 轮交替 root/降权场景全部通过；此前已通过的事件输出验证由此补充了对实际 Map key 和值的观察。测试不制造真实内核提权，也不证明基线具备可信授权属性。
+
+
+## 合法 setuid 与文件 capabilities
+
+```bash
+sudo python3 tests/credential_transitions.py --build-dir build
+```
+
+需要 libcap 工具中的 `setcap`，并要求临时文件所在挂载允许 setuid 和文件 capabilities。测试仅复制三个临时报告程序：普通文件、root 所有的 4755 文件，以及附加 `cap_net_bind_service=ep` 的文件。子进程先以 UID/GID 65534 和空补充组执行它们；报告程序只输出自身 UID/EUID 与有效 capabilities，不执行特权操作。临时目录退出后自动删除，不修改系统程序或账户。
+
+当前开发机已通过：普通执行保持 UID/EUID=65534、caps=0；setuid 执行得到真实 UID 65534、有效 UID 0；文件 capability 执行仍为 UID/EUID=65534，但有效 capabilities 含指定的 CAP_NET_BIND_SERVICE。检查/完成事件与实际报告相符，未出现基线不一致标记或统计失败。
+
+这个实验修正了一个重要的字段解释：`exec_check.target_euid` 只是该检查点的 `bprm->cred` 候选 EUID，尚未必计算 setuid，不能预测最终权限。`exec_success.target_euid` 则读取当前任务已提交的 EUID，与成功事件的 `euid` 相同。
+
+Linux 6.12 在 `search_binary_handler` 中先调用安全检查，随后格式处理器进入 `begin_new_exec` 计算最终文件凭证；提交后 `bprm->cred` 被清空。因此完成事件不能继续从该指针取 EUID。可对照 [Linux v6.12 fs/exec.c](https://github.com/torvalds/linux/blob/v6.12/fs/exec.c) 中这些步骤阅读。
