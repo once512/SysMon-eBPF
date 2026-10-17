@@ -37,13 +37,17 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --run-for 20 \
 
 事件 FD 带有内核的 FMODE_NONOTIFY 标记，SCM_RIGHTS 保留同一个打开对象。因此读取该 FD 不会再次产生相同 fanotify 事件，避免扫描本身递归等待。相关语义见 [fanotify(7)](https://man7.org/linux/man-pages/man7/fanotify.7.html) 与 [unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html)。必须继续使用原事件 FD，不能随意替换成按路径重新打开。
 
-root 启动时，分析程序清空补充组并降到 UID/GID 65534，设置 no_new_privs。父进程死亡信号在降权后设置并核对预期父 PID，避免降权清除信号设置和启动竞争。普通用户直接运行内部协议测试时保留其原 UID。当前没有 seccomp、网络隔离或完整沙箱，不能把独立进程和降权当作完整隔离。
+root 启动时，分析程序清空补充组并降到 UID/GID 65534；随后显式清空 permitted/effective/inheritable/ambient capabilities，设置 no_new_privs 并关闭 dumpability。父进程死亡信号在降权后设置并核对预期父 PID，避免降权清除信号设置和启动竞争。普通用户直接运行内部协议测试时保留其原 UID，也显式清空 capabilities。当前没有 seccomp、网络隔离或完整沙箱，不能把独立进程和降权当作完整隔离。
+
+协议当前版本为 2：工作进程完成凭证与父死亡信号设置后，先发送不携带 FD 的 Ready 消息（ID=0）。接收端最多等待 1 秒，确认版本、长度与 Ready 字段后才继续固定文件和启用 fanotify 标记。初始化失败、无 Ready 或畸形 Ready 会在策略生效前失败退出；这也消除了测试在分析进程尚未初始化时就暂停它的竞态。
+
+启动使用本机 glibc 的 `posix_spawn_file_actions_addclosefrom_np`；当前只支持项目声明的开发环境，不提供旧 libc 兼容层。
 
 ## 故障与资源预算
 
 - 用户态队列最多 `max_pending` 个原始事件 FD；工作进程一次最多接收一个副本，不把整条等待队列复制进 socket。
 - 单请求截止时间仍从接收端收到内核事件开始计算，包括等待前面请求完成的时间。截止时间优先于迟到回复。
-- 活动分析超时后，通过 pidfd 终止工作进程并关闭连接，释放其事件 FD 副本；剩余请求和后续请求执行后端错误回退，不无限重试或自动重新启动。
+- 仍未完成的活动分析超时后，通过 pidfd 终止工作进程并关闭连接，释放其事件 FD 副本；剩余请求和后续请求执行后端错误回退，不无限重试或自动重新启动。
 - 协议错误、连接关闭、发送失败也使后端离线。普通单文件扫描错误只回退该请求，工作进程可以继续服务。
 - 正常停止时先拒绝用户态待裁决请求，再停止工作进程并释放 fanotify 组。组关闭仍会放行内核尚未投递的请求；进程异常退出也没有持久拒绝保证。
 - 子进程回收不阻塞活动裁决循环；组关闭之后的析构回收最多等待约 200 ms。不可中断的文件系统任务可能晚于这一预算退出，不能保证任意 I/O 都能立即取消。
@@ -64,3 +68,6 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 
 
 协议专项测试分别覆盖接收和回复两侧：`analysis_protocol.py` 在无特权条件下向真正的扫描进程发送错误请求；`fanotify_analysis_faults.py` 使用仅在 BUILD_TESTING 时构建的故障工作进程，验证错误 ID/版本/长度/裁决值、重复与迟到回复、九个 FD 超过八个辅助数据 FD 预算后的清理。请求者提前退出的竞态已实测不会中断后续请求。这些故障程序不参与正式程序的正常运行。
+
+
+新增启动协议专项：缺少 Ready、错误 Ready 与携带 FD 的 Ready 均被拒绝，且目标文件仍可正常打开。真实 ELF 的干净内容可以执行，追加示例字节标记后直接执行被拒绝；这个结果不覆盖解释器读取脚本的其他入口。
