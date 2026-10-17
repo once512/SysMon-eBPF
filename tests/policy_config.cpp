@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 纯解析测试：版本、数值边界、双引号路径和后端字段互斥，不会打开目标或修改内核策略。
 #include "policy_config.h"
 #include <sstream>
 #include <stdexcept>

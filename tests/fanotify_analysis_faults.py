@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 使用故障分析器验证协议错误隔离、请求取消、启动失败和 FD 所有权，失败场景必须有界结束。
 # SPDX-License-Identifier: MIT
 """Validate malformed/stale replies cannot authorize a permission request."""
 import argparse

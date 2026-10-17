@@ -81,3 +81,19 @@ sudo python3 tests/self_protection.py --build-dir build
 文件策略的配置格式、切换顺序和资源所有权详见 [策略配置导读](POLICY_CONFIG.md)。
 
 `src/fanotify/policy.h/.cpp` 负责共享 v2 格式到 fanotify 运行类型的转换，及不能在线变更的 mark/分析器身份比较。共享的 `policy_config` 与 `control` 模块同时编入两个宿主；fanotify 的 reconfigure 仅在已交付请求队列与分析器空闲时生效。
+
+
+## 有内核监控经验时如何读这些中文注释
+
+手写的内核代码、宿主、分析器、测试和构建脚本均提供中文入口说明；关键接口旁进一步说明数据流、资源所有权和边界。建议按以下路径阅读：
+
+1. [共享 ABI](../eBPF/secmon.h) → [BPF 总入口](../eBPF/secmon.bpf.c)：先认识 BTF/CO-RE、SEC、Map、helper 和 verifier，再跟踪 reserve → 填充 → submit → [用户态 consume](../src/events.cpp)。
+2. [宿主生命周期](../src/main.cpp)：对照传统内核模块的初始化/退出，区分 skeleton open、内核 load/verifier、attach 和 detach，关注固定 inode 与链接的释放顺序。
+3. [凭证记录](../eBPF/upchk.bpf.c) → [文件保护](../eBPF/fileguard.bpf.c) → [任务保护](../eBPF/selfguard.bpf.c)：分别看观测钩子、可拒绝的 LSM 钩子，以及 task 指针为何要保留 verifier 类型信息。
+4. [fanotify 权限门](../src/fanotify/gate.cpp) → [裁决队列](../src/fanotify/decisions.cpp)：区分 group、inode mark 和事件 FD，追踪请求方等待 → 读取事件 → 排队/分析 → 写 response → 关闭 FD。
+5. [分析器监督](../src/analysis/client.cpp) → [FD 传输](../src/analysis/transport.cpp) → [工作进程](../src/analysis/worker_main.cpp) → [扫描器](../src/analysis/scanner.cpp)：理解 SCM_RIGHTS 转交对象引用、降权顺序、Ready 握手、超时与错误回退。
+6. [共享配置](../src/policy_config.cpp) → [Map 策略提交](../src/file_policy.cpp) → [fanotify 配置适配](../src/fanotify/policy.cpp)：比较 BPF 候选 Map 一次切换与 fanotify 空队列更新的不同前提。
+
+注释会明确区分“收到日志”和“作出拒绝”、“观察到凭证变化”和“授权凭证变化”，以及“用户态队列满”和“内核事件丢失”。这些差异直接决定监控结果能说明什么。
+
+`eBPF/vmlinux.h` 和 `eBPF/secmon.skel.h` 是仓库中保留的生成文件，本轮不逐项手工注释。当前构建实际从本机 BTF 和新编译的 ELF 在 `build/` 生成对应文件，并优先包含该目录。前者可查结构体布局，后者可查生成的程序/Map 管理接口；生成原理见 [CMake](../CMakeLists.txt) 和 [bpftool 包装](../cmake/Bpftool.cmake)。第三方 libbpf 实现也保持原样。

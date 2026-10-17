@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 产生受控 exec、线程及文件操作，供真实 BPF 测试观测；场景成功/失败应与审计事件分开核对。
 #include <cerrno>
 #include <cstdio>
 #include <cstring>

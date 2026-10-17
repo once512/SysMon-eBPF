@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 只修改本次测试实例 Map 中受控任务的观测值，合成凭证不一致；没有修改任务真实凭证或执行提权攻击。
 # SPDX-License-Identifier: MIT
 """Synthetic divergence in this test's own Map; never changes task credentials."""
 import argparse
@@ -20,6 +21,7 @@ def inject_uid(mapping, pid, key, original):
     update.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
     update.restype = ctypes.c_int
     # BPF_EXIST prevents accidentally inventing a key if the scenario regresses.
+    # flags=2 即 BPF_EXIST，仅改写仍存在的受控键；不新造任务身份，不触碰真实 task->cred。
     if update(mapping.fd, ctypes.byref(raw), ctypes.byref(altered), 2):
         raise OSError(ctypes.get_errno(), 'inject synthetic baseline divergence')
     assert mapping.credentials(pid, key) == (altered.uid, altered.euid, altered.caps)

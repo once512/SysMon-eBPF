@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 真实内核权限等待加用户态延迟/容量/超时验证；用户态队列满与内核事件队列溢出是两种不同情况。
 # SPDX-License-Identifier: MIT
 """Real permission waits: deadlines, capacity fallbacks and graceful shutdown."""
 import argparse

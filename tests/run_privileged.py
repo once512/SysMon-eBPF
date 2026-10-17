@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 按顺序运行权限专题并在首个失败时停止；需保留 Python 断言，不要使用 -O 把验证条件优化掉。
 # SPDX-License-Identifier: MIT
 """Run the temporary privileged experiments sequentially with one sudo session."""
 import argparse

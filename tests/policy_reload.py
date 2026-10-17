@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 真实 Map 完整替换测试：失败保留旧策略，版本递增，固定 inode 持续拒绝，以及满容量和 FD 回收。
 # SPDX-License-Identifier: MIT
 """Root-only transactional policy reload and lifetime regression."""
 import argparse

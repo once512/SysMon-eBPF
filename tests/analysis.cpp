@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 无特权内容与传输验证：用真实普通文件和 UNIX socket 检查扫描边界、偏移及 FD 回收，不挂载内核策略。
 #include "analysis/scanner.h"
 #include "analysis/transport.h"
 #include <cerrno>

@@ -1,3 +1,4 @@
+# 只检查 fanotify 参数和配置模式互斥，不能据此认定权限事件机制已获内核支持。
 # These malformed arguments must fail before opening/marking any file.
 function(expect_invalid)
     execute_process(COMMAND "${SECMON}" ${ARGV}

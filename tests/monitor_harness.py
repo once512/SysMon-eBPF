@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+# 临时 BPF 宿主的启动、日志与退出工具；自保护服务不能仅依赖外部信号，需先走授权停止并等待退出。
 """Short-lived audit host used by privileged component-composition tests."""
 import json
 import subprocess

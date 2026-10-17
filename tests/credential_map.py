@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+# 按指定宿主的 fdinfo 找到其私有 Map，并核验 Map 类型和布局；ctypes 结构必须与 BPF 侧字段对齐一致。
 """Read-only inspection of the credential Map owned by one running audit host."""
 import ctypes
 import ctypes.util
@@ -10,6 +11,7 @@ import subprocess
 import time
 
 
+# ctypes 显式匹配内核键的 64 位字段；不能把数字 PID 直接传给这个以结构体为键的 Map。
 class TaskKey(ctypes.Structure):
     _fields_ = [('id', ctypes.c_uint64), ('start_ns', ctypes.c_uint64)]
 
@@ -28,6 +30,7 @@ class CredentialMap:
         self.lib.bpf_map_get_next_key.restype = ctypes.c_int
         self.lib.bpf_map_lookup_elem.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
         self.lib.bpf_map_lookup_elem.restype = ctypes.c_int
+        # 仅从本次宿主持有的 FD 找 Map，不在全系统按名称任选一个，避免检查或修改其他实例。
         ids = set()
         for info in Path(f'/proc/{monitor_pid}/fdinfo').iterdir():
             try:
@@ -56,6 +59,7 @@ class CredentialMap:
         deadline = time.monotonic() + 3
         # Other system tasks can concurrently delete keys. A deleted iterator key
         # can restart a HASH walk, so bound work and deduplicate observations.
+        # HASH 遍历不是一致性快照；并发删除游标键可能让遍历重启，因此去重且限制总时间。
         while time.monotonic() < deadline:
             following = TaskKey()
             pointer = None if current is None else ctypes.byref(current)

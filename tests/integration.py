@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# BPF 审计与文件只读端到端测试；使用独立进程触发实际 LSM 检查，验证拒绝、身份事件及卸载恢复。
 """Privileged integration test: temporary audit attach and exact-file read-only policy tests."""
 import argparse
 import ctypes

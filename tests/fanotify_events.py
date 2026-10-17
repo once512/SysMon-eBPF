@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 对照打开、读取、直接执行和解释器读取，明确三种权限事件的实际覆盖范围与 mmap 边界。
 # SPDX-License-Identifier: MIT
 """Compare open, read and direct-execution permission coverage on temporary files."""
 import argparse

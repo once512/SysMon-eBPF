@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 真实权限事件连接降权扫描器，验证 FD 传递、避免递归通知、内容裁决及后端死亡/卡住时回退。
 # SPDX-License-Identifier: MIT
 """Real content worker, transferred event FD, deadlines and process failure."""
 import argparse

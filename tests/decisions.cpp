@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 用可控时钟和真实 FD 验证裁决状态机，无需等待实际超时，也不依赖 fanotify 的内核调度时序。
 #include "fanotify/decisions.h"
 #include <cerrno>
 #include <fcntl.h>

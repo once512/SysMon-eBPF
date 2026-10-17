@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 同时启用 BPF 只读与 fanotify 打开门，证明允许不能覆盖另一层拒绝，且两个后端可以独立关闭。
 # SPDX-License-Identifier: MIT
 """Demonstrate independent BPF read-only and fanotify open-permission layers."""
 import argparse

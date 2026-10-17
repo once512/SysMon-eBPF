@@ -1,3 +1,4 @@
+# 只检查 BPF 宿主参数拒绝路径，错误应在加载内核程序前返回，不需要 root。
 # Exercise argument rejection before any BPF loading or privileged operation.
 function(expect_invalid)
     execute_process(COMMAND "${SECMON}" ${ARGV}

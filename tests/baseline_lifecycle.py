@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 真实挂载 BPF 后检查受控线程的基线 Map，验证线程退出、降权和非主线程 exec 的身份迁移与删除。
 # SPDX-License-Identifier: MIT
 """Inspect actual credential keys across live threads, exit and non-leader exec."""
 import argparse

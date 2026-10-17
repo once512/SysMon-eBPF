@@ -1,3 +1,4 @@
+# 无特权检查生命周期场景程序的基本交互，真正的 Map 生命周期验证另由权限专题完成。
 execute_process(COMMAND "${SCENARIO}"
     INPUT_FILE "${CMAKE_CURRENT_LIST_DIR}/lifecycle_commands.txt"
     RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 5)

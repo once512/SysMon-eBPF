@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+# 受控生命周期场景的命令/回报同步，避免测试进程提前退出后误读已复用的数字任务身份。
 """Interactive task-lifetime fixture and a traversable temporary executable."""
 from contextlib import contextmanager
 import json

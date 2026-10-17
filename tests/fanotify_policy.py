@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 共用配置的真实双后端回归：确认空闲更新、忙时保留旧规则、固定后端、错误回退和配置自阻塞防护。
 # SPDX-License-Identifier: MIT
 """Shared v2 configuration and non-disruptive fanotify policy reload."""
 import argparse

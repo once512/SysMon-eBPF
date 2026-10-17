@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 故意违反协议的测试后端，用于验证宿主拒绝错误/重复/截断响应，不应当作正式扫描器部署。
 // Test-only peer that deliberately violates the analyzer reply protocol.
 #include "analysis/protocol.h"
 #include "analysis/transport.h"

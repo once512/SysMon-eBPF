@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 从程序自身读取并报告实际 UID/EUID/capabilities，作为权限转换测试的对照，而非猜测执行结果。
 // Observe only this short-lived test process; no privileged action is performed.
 #include <cstdio>
 #include <linux/capability.h>

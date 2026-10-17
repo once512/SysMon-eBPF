@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 直接驱动内部分析器验证 Ready、请求格式及附带 FD 数量，属于协议测试，不证明 fanotify 已挂载。
 # SPDX-License-Identifier: MIT
 """Unprivileged worker wire-contract tests, including malformed incoming requests."""
 import argparse

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 仅测试程序注入一次内存分配失败，验证 recvmsg 安装 FD 前已准备好接管空间，正式程序不含此故障钩子。
 // Isolated allocation fault injection: recvmsg must not install an unowned FD.
 #include "analysis/protocol.h"
 #include "analysis/transport.h"

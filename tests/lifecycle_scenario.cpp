@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// 可交互的线程、凭证和 exec 场景发生器；由 Python 控制每个阶段，以便在任务存活时核验 Map。
 // An interactive scenario: keep identities alive long enough to inspect the Map.
 #include <cerrno>
 #include <condition_variable>
@@ -27,6 +28,7 @@ void emit_hold()
     std::perror("exec lifecycle hold");
     _exit(1);
 }
+// 命令按原始输入逐字节读取，避免 iostream 预读后在 exec 时丢掉尚未处理的后续命令。
 bool read_command(std::string &value)
 {
     // Do not buffer future commands: exec would discard a userspace input buffer.

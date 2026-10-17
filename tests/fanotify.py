@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 真实单 inode 打开裁决测试，包含别名、已有 FD 和崩溃释放；仅允许打开不能证明其他操作全部受控。
 """Privileged, temporary-file tests for the single-inode permission experiment."""
 import argparse
 import concurrent.futures

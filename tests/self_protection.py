@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 验证信号、ptrace 类入口和 root 管理停止；这不等于抵御所有内核生成信号或拥有完整权限的管理员。
 """Root-only bounded test of self-protection and its management channel."""
 import argparse
 import ctypes

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 临时普通/setuid/file-capability 程序报告真实权限，用它核对执行事件；测试结束清理临时权限设置。
 # SPDX-License-Identifier: MIT
 """Legitimate setuid and file-capability execs using root-owned temporary helpers."""
 import argparse

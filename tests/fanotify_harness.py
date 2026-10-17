@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+# 权限测试的临时服务和请求进程工具；把可能阻塞的 open 放在子进程中并限制等待，防止测试自身挂住。
 """Temporary-process helpers shared by privileged fanotify experiments."""
 import subprocess
 import tempfile

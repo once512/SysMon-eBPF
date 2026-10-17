@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 持续并发请求并核对回复数、队列与 FD 峰值；这些负载数据是回归证据，不是通用吞吐基准。
 # SPDX-License-Identifier: MIT
 """Bounded-duration concurrent workload with FD-budget and response accounting."""
 import argparse
