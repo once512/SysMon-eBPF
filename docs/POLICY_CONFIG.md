@@ -1,6 +1,6 @@
 # 文件策略配置与在线切换
 
-本模块把 BPF 文件只读策略从命令行参数扩展成有格式版本、运行版本和在线替换的配置。格式 v2 支持 fanotify 的事件类型、扫描器与裁决设置，v3 增加执行对象/EUID 修改授权；两个宿主共用配置解析和 root 管理协议，各自应用自己负责的策略。
+本模块提供一套共享配置字段，包含 BPF 文件保护/执行对象授权和 fanotify 裁决设置。两个宿主各自应用对应字段，通过 revision 管理在线更新顺序。组件绑定发布，不维护历史配置格式，配置中没有 version 指令。
 
 ## 运行示例
 
@@ -17,19 +17,18 @@ sudo ./build/secmon --stop /run/secmon/control.sock
 
 `--policy` 与 `--protect-file` 互斥。没有 `--self-protect` 时也能加载配置，但没有管理 socket，不能在线重载。`--reload` 只发送命令，服务始终重新读取启动时指定的配置路径；客户端不能指定另一个配置文件。
 
-服务只有完成切换才回复 `ok`。旧管理报文拒绝时回复 `error`；当前 CLI 使用版本化响应，输出带稳定错误码的 JSON 并非零退出，详细原因写服务的 stderr。连接中断或客户端等待超时不代表切换一定没有发生，应检查服务的 `Policy active revision=N` 记录。重试相同版本会被拒绝。
+服务完成切换后回复结构化结果；CLI 输出 JSON，成功 code=ok，拒绝则带稳定错误码并非零退出，详细原因写服务的 stderr。停止和查询使用同一响应格式。连接中断或客户端等待超时不代表切换一定没有发生，应检查服务的 `Policy active revision=N` 记录。重试相同版本会被拒绝。
 
 ## 格式
 
 ```text
 # 整行注释；空行忽略
-version 1
 revision 2
 protect "/absolute/path/file with spaces"
 protect "/another/file"
 ```
 
-- `version` 是格式版本，接受恰好一次 `version 1`、`version 2` 或 `version 3`；fanotify 字段要求 v2/v3，`allow-writer` 要求 v3。
+- 配置只接受当前字段集合；旧 `version` 指令和其他未知字段都拒绝，不自动转换。protect、allow-writer 和 fanotify 字段可以在同一份配置中使用。
 - `revision` 是非零 uint64 十进制数，恰好一次；在线更新必须严格大于当前运行版本。允许不包含 `protect` 的配置，在没有 writer 时表示解除全部文件保护。
 - `protect` 必须使用双引号和绝对路径。采用 C++ `std::quoted` 的转义规则：`\"` 表示双引号，`\\` 表示反斜杠；它不是 JSON，`\n` 不表示换行。不支持行尾注释、未知键、重复路径、NUL 或跨行字符串。
 - 最多 256 条路径，单条最长 4095 字节；配置最多 64 KiB。硬链接别名可占多条路径，内核只保留一个 inode 键；容量按路径条数计算。
@@ -55,11 +54,11 @@ sequenceDiagram
     Host->>New: 固定所有 inode，填满 HASH
     alt 准备失败
         Host->>New: 回收候选资源
-        Host-->>Admin: error（旧策略继续生效）
+        Host-->>Admin: JSON code=prepare_failed（旧策略继续生效）
     else 准备成功
         Host->>Slot: 一次替换内层 Map 引用
         Host->>Host: 交换 FD 集合，记录 revision
-        Host-->>Admin: ok
+        Host-->>Admin: JSON code=ok
     end
 ```
 
@@ -76,10 +75,10 @@ ctest --test-dir build --output-on-failure
 sudo python3 tests/run_privileged.py --build-dir build --only policy-reload
 ```
 
-解析测试覆盖格式、数值溢出、重复与容量边界。真实 BPF 测试验证增加/移除、整份清空、拒绝旧版本、候选准备失败保留旧保护、配置权限、symlink 与 FIFO 拒绝、自保护服务的管理命令、反复切换时共同保护对象持续拒绝，已有写入 FD 在保护解除前后的变化、256 文件实际容量，以及 FD 数量回归。并发探测是回归证据，不是所有调度时序的形式证明。
+解析测试覆盖格式、数值溢出、重复与容量边界。真实 BPF 测试验证增加/移除、整份清空、拒绝未递增 revision、候选准备失败保留旧保护、配置权限、symlink 与 FIFO 拒绝、自保护服务的管理命令、反复切换时共同保护对象持续拒绝，已有写入 FD 在保护解除前后的变化、256 文件实际容量，以及 FD 数量回归。并发探测是回归证据，不是所有调度时序的形式证明。
 
 
-## v2：共用配置与 fanotify 重载
+## 共用配置与 fanotify 重载
 
 [共用配置示例](../examples/unified-policy.conf) 包含 `protect` 和 `fanotify-*`。启动两个进程使用不同的管理 socket：
 
@@ -93,7 +92,7 @@ sudo ./build/secmon-fanotify --reload /run/secmon/fanotify.sock
 sudo ./build/secmon-fanotify --stop /run/secmon/fanotify.sock
 ```
 
-`secmon` 应用 `protect` 和 v3 的 `allow-writer`；`secmon-fanotify` 只应用 `fanotify-*`。两者都完整校验文件格式。这里只统一配置源和管理协议，没有跨进程提交事务：一个服务更新成功、另一个拒绝时，可能分别运行不同 revision，可通过各自 `--status SOCKET` 查询活动版本与最近重载结果（详见 [管理接口](MANAGEMENT.md)）。两种命令使用同一管理协议，socket 路径决定目标服务。
+`secmon` 应用 `protect` 和 `allow-writer`；`secmon-fanotify` 只应用 `fanotify-*`。两者都完整校验文件格式。这里只统一配置源和管理协议，没有跨进程提交事务：一个服务更新成功、另一个拒绝时，可能分别运行不同 revision，可通过各自 `--status SOCKET` 查询活动版本与最近重载结果（详见 [管理接口](MANAGEMENT.md)）。两种命令使用同一管理协议，socket 路径决定目标服务。
 
 fanotify 使用 `--policy` 后，只能额外指定 `--run-for` 和可选的 `--control`，不能混入原有策略命令行。`--control` 仅提供 root 管理，不启用 BPF 任务自保护；可在原有命令行模式使用管理停止，但重载要求启动时指定配置。
 
@@ -112,7 +111,7 @@ fanotify 使用 `--policy` 后，只能额外指定 `--run-for` 和可选的 `--
 | `fanotify-overload-decision` | deny，可选 allow/deny | 可更新 |
 | `fanotify-error-decision` | 分析模式 deny，可选 allow/deny；静态模式禁用 | 可更新 |
 
-每个 fanotify 字段最多一次。只有 `fanotify-file` 而没有静态裁决或完整分析设置会被拒绝；没有任何 fanotify 字段的 v2 配置可供 BPF 使用，但不能启动 fanotify 服务。保留原有 v1 文件保护格式。
+每个 fanotify 字段最多一次。只有 `fanotify-file` 而没有静态裁决或完整分析设置会被拒绝；没有任何 fanotify 字段的配置可供 BPF 使用，但不能启动 fanotify 服务。
 
 fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已交付请求队列或分析器仍有活动请求时拒绝重载，并保留原 revision，待请求处理完可重试同一候选版本。检查和切换发生在同一事件循环中。尚在内核队列中、切换后才读取的事件使用新设置；这不是按系统调用开始时间划分版本。
 
@@ -126,6 +125,6 @@ fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已
 
 `fanotify-policy` 权限专题验证两个服务读取同一文件、BPF 拒绝不被 fanotify 更新解除、静态裁决切换、忙队列拒绝后重试、固定后端变更拒绝、配置硬链接避免自阻塞、重复更新 FD 稳定，以及真实扫描器故障后的错误回退更新。原有无特权时钟测试验证被拒绝更新的请求仍按原时间与裁决处理。
 
-## v3：程序对象修改授权
+## 程序对象修改授权
 
 新增 `allow-writer "/absolute/program" EUID`，最多 64 条，与最多 256 条 `protect` 共用一份 320 项候选 Map。身份、撤销、代码保护及实验边界详见 [程序对象授权](WRITER_IDENTITY.md)。fanotify 仍只应用自己的字段，不按 writer 绕过裁决。

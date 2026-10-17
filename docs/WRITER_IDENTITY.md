@@ -1,15 +1,14 @@
 # 按执行对象授权文件修改
 
-这是 BPF 文件只读策略的受限授权原型。配置 v3 可以为固定的程序 inode 和有效 UID 授予修改 `protect` 对象的例外。它提供可验证的对象匹配、在线撤销与程序对象保护；完整可信应用识别还需要内容认证、加载链与运行上下文约束。
+这是 BPF 文件只读策略的受限授权原型。配置可以为固定的程序 inode 和有效 UID 授予修改 `protect` 对象的例外。它提供可验证的对象匹配、在线撤销与程序对象保护；完整可信应用识别还需要内容认证、加载链与运行上下文约束。
 
 ```text
-version 3
 revision 1
 protect "/srv/secmon-demo/data"
 allow-writer "/opt/secmon-demo/writer" 65534
 ```
 
-可修改 [v3 配置示例](../examples/writer-policy.conf) 后使用。继续使用 `secmon --policy FILE --self-protect SOCKET` 启动，用 `--reload SOCKET` 更新。没有 `allow-writer` 时保留原来的全任务只读行为。最多 256 条 `protect` 和 64 条 `allow-writer`；同一程序只能配置一个有效 UID。此阶段所有 writer 都可修改本份策略的所有普通 protect 对象，没有按目标或操作划分权限。
+可修改 [配置示例](../examples/writer-policy.conf) 后使用。继续使用 `secmon --policy FILE --self-protect SOCKET` 启动，用 `--reload SOCKET` 更新。没有 `allow-writer` 时保留原来的全任务只读行为。最多 256 条 `protect` 和 64 条 `allow-writer`；同一程序只能配置一个有效 UID。此阶段所有 writer 都可修改本份策略的所有普通 protect 对象，没有按目标或操作划分权限。
 
 `allow-writer` 要求双引号绝对路径，UID 是 0..4294967294 的十进制数。程序必须是 root 所有、组/其他用户不可写、至少有一个执行位的普通文件；末尾符号链接拒绝。不同路径若指向同一个 inode，可重复指定相同 UID，冲突 UID 拒绝整个候选。该检查不要求 ELF：脚本路径可以被选择，但普通 shebang 执行后的实际执行对象是解释器，因此脚本 inode 本身不会使它获得授权。
 
@@ -67,7 +66,7 @@ flowchart TD
 
 移除 writer 后，它的自动身份保护一起解除；若同一 inode 还在 `protect` 中，则继续按普通只读对象保护。已有打开的写 FD 仍经过普通 `file_permission` 检查。授权期间已建立的共享可写映射无法靠撤销这条规则追回，已覆盖钩子以外的异步/文件系统专用写路径也未完整验证。
 
-管理 v3 的 `writer_paths` 显示已提交的 allow-writer 路径条数；`protected_paths` 只计算显式 `protect` 路径，不包含 writer 自动保护的对象。条数不是不同 inode 数；活动版本与配置摘要能核对配置来源，尚不能列出当前内核对象授权表。旧 v1/v2 客户端继续收到原长度前缀，但没有 writer 条数字段。
+管理状态的 `writer_paths` 显示已提交的 allow-writer 路径条数；`protected_paths` 只计算显式 `protect` 路径，不包含 writer 自动保护的对象。条数不是不同 inode 数；活动版本与配置摘要能核对配置来源，尚不能列出当前内核对象授权表。所有管理客户端必须读取本包当前完整响应，不提供历史前缀。
 
 ## 可信边界
 
@@ -84,6 +83,6 @@ sudo python3 tests/run_privileged.py --build-dir build --only writer-identity po
 
 `tests/writer_scenario.cpp` 是专用原生程序，避免将系统解释器加入授权。`tests/writer_identity.py` 在临时目录中验证对象/EUID、fork/exec、硬链接、同名替换、argv[0] 伪装、脚本解释器、程序只读、错误候选回滚、FD 回收和撤销。常驻进程使用已有 FD 验证普通写入、截断、共享 mmap/mprotect 与私有映射。所有授权在临时 BPF 宿主退出后解除，不安装持久策略。
 
-`writer-capacity` 验证 256+64 个不同 inode 的实际容量与完整回滚，及同一对象同时具备多种标志时的优先级。`writer-layers` 使用同一 v3 配置验证 BPF 与 fanotify 的独立允许/拒绝和退出顺序，明确 open 门不撤销已有写 FD。可选 `--writer-soak-duration 30` 会保持 root/65534 两个授权程序进程和一个未授权进程存活，持续轮换 UID/撤销，并校验每次成功后的新操作、错误候选、摘要与 FD 回收。
+`writer-capacity` 验证 256+64 个不同 inode 的实际容量与完整回滚，及同一对象同时具备多种标志时的优先级。`writer-layers` 使用同一配置验证 BPF 与 fanotify 的独立允许/拒绝和退出顺序，明确 open 门不撤销已有写 FD。可选 `--writer-soak-duration 30` 会保持 root/65534 两个授权程序进程和一个未授权进程存活，持续轮换 UID/撤销，并校验每次成功后的新操作、错误候选、摘要与 FD 回收。
 
 `tests/file_policy_map.py` 还只读检查本实例的外层引用和内层键值。外部检查 FD 故意固定旧 Map，证明完整切换后旧快照仍可读取；关闭检查 FD 后轮询确认旧 Map ID 消失。自保护会拒绝外部读取宿主 fdinfo，因此该专题采用启动前后外层 Map ID 差集并要求唯一；如果同时启动别的实例造成歧义，会失败而不任意选择同名 Map。这个测试不写全局或其他实例的 Map。

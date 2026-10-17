@@ -5,7 +5,7 @@
 ```bash
 sudo ./build/secmon --status /run/secmon/bpf.sock
 sudo ./build/secmon-fanotify --status /run/secmon/fanotify.sock
-# 重载也输出一条 JSON；失败同时非零退出：
+# 三种管理命令均输出 JSON；失败同时非零退出：
 sudo ./build/secmon-fanotify --reload /run/secmon/fanotify.sock
 ```
 
@@ -19,7 +19,7 @@ BPF 的管理端仍由 `--self-protect SOCKET` 创建；fanotify 由 `--control 
 
 | 字段 | 含义 |
 | --- | --- |
-| protocol_version / command / code | 管理协议版本、当前命令、本次命令结果 |
+| protocol_version / command / code | 当前布局标识、当前命令、本次命令结果 |
 | backend / pid / instance_ns | 服务类型、服务进程、该运行协调器建立时的单调时间标识 |
 | uptime_ms | 协调器建立以来经过的时间，包括启动加载阶段 |
 | configured / revision | 是否从配置文件启动、实际提交的版本；命令行模式 revision=0 |
@@ -29,7 +29,7 @@ BPF 的管理端仍由 `--self-protect SOCKET` 创建；fanotify 由 `--control 
 
 pid 与 instance_ns 一起用于识别当前实例，不是持久 UUID、任务启动时间或跨 PID namespace 的授权标识。重启后计数和历史归零，未实现持久防回滚。比较 revision 与 source_sha256 才能核对活动版本及原始配置内容；摘要不是签名、授权或跨进程原子提交。配置字节相同也不证明路径解析到了同一 inode 或处于同一命名空间。
 
-BPF 另返回 protected_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
+BPF 另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
 
 fanotify 另返回当前事件、裁决模式、延迟/超时/容量、三种回退设置、已交付 pending 与峰值、累计允许/拒绝/分析错误/后端故障/内核溢出。analyzer_online 表示宿主**已观测**的通道状态，不是瞬时进程健康保证；查询本身不做 ping/reap。analyzer_pid 可能是尚未回收的原子进程 PID，不能把该数字当成独立授权的发信号目标。内部终止仍使用 pidfd。
 
@@ -50,12 +50,12 @@ fanotify 另返回当前事件、裁决模式、延迟/超时/容量、三种回
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 296 字节 v3 响应（保留 200 字节 v1、288 字节 v2 前缀）、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
-- `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析/校验版本，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
+- `src/management/protocol.h/.cpp`：本机同架构的唯一 296 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
+- `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析配置/校验递增 revision，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。
 
-当前结构化命令正文为 `status-v3`、`reload-v3`、`stop-v3`。CLI 的 status/reload 使用 v3，stop 保留原管理行为；新服务仍可向 `*-v1`/`*-v2` 客户端分别返回 200/288 字节的前缀响应。旧的 `stop`/`reload` 继续得到 `ok`/`error`，新 CLI 不向旧服务静默回退。客户端先检查完整长度、magic、ABI、命令、枚举/边界、保留字段与服务端 PID，再渲染 JSON。双方都拒绝意外的 SCM_RIGHTS，并关闭已收到的 FD，包含辅助数据截断的情形。
+命令正文只有 `status`、`reload`、`stop`，精确匹配且不带版本后缀。所有命令均返回同一个当前完整结构，CLI 均输出 JSON；没有前缀响应或 ok/error 文本响应。客户端先检查完整长度、magic、当前 ABI、命令、枚举/边界、保留字段与服务端 PID，再渲染 JSON。双方都拒绝意外的 SCM_RIGHTS，并关闭已收到的 FD，包含辅助数据截断的情形。历史后缀命令被拒绝，不会触发停止或重载。
 
 固定响应不含路径、异常文本和指针，减少转义与信任边界。该接口不用于跨机器通信，不接受请求提供的目标 PID、配置路径或业务进程操作。
 
@@ -66,7 +66,7 @@ ctest --test-dir build --output-on-failure
 sudo python3 tests/run_privileged.py --build-dir build --only management-live management-faults
 ```
 
-前者验证协议字段、JSON 和无配置运行状态。真实专题覆盖：磁盘文件损坏/缺失时的状态、两个服务独立版本、配置/版本/准备/忙/需重启错误、忙时原请求完成、查询 FD 稳定、未知/超长/带 FD 命令、非 root 对端、旧协议兼容，以及伪 root 服务返回错误长度、枚举、身份或附带 FD 时客户端拒绝。
+前者验证协议字段、JSON 和无配置运行状态。真实专题覆盖：磁盘文件损坏/缺失时的状态、两个服务独立版本、配置/版本/准备/忙/需重启错误、忙时原请求完成、查询 FD 稳定、未知/超长/带 FD 命令、非 root 对端、历史后缀命令拒绝，以及伪 root 服务返回错误长度、枚举、身份或附带 FD 时客户端拒绝。
 
 
 可选持续管理负载（每个场景指定秒数，共静态 open、分析 open、分析 access 三项）：
@@ -77,7 +77,7 @@ sudo python3 tests/run_privileged.py --build-dir build --only management-live ma
 
 持续请求中反复查询状态，在阶段间排空请求再更新/拒绝相同版本，核对活动摘要、实例标识、闲置 FD 回收与每次业务回复。打印控制查询时延仅作本机回归证据，不是服务时延 SLA。配置摘要使用系统 OpenSSL EVP SHA-256，构建需要 libcrypto 开发包。
 
-管理 v2 还包含扫描原因计数、最近扫描错误与 errno，以及后端故障回退请求数。具体枚举、有效组合和计数守恒关系见 [分析器 v3](ANALYSIS_WORKER.md)。这与重载结果 code/last_code 是两类独立错误，不能把单文件扫描失败解释成配置重载失败。
+管理状态还包含扫描原因计数、最近扫描错误与 errno，以及后端故障回退请求数。具体枚举、有效组合和计数守恒关系见 [分析器协议](ANALYSIS_WORKER.md)。这与重载结果 code/last_code 是两类独立错误，不能把单文件扫描失败解释成配置重载失败。
 
 管理服务接收命令采用非阻塞推进：最多保留一个尚未发送消息的连接，空闲约 100ms 后在后续循环中回收；不在权限事件循环内 poll 等待客户端。正常连接可以稍后提交报文。到期回收受宿主循环调度影响，不是绝对墙钟期限；root 控制专题用独立 helper 验证静默连接不会令 dispatch 阻塞，真实服务验证静默连接期间仍可裁决、查询并回收 FD。
 
@@ -104,7 +104,7 @@ sudo ./build/secmon-policyctl --bpf-socket /run/secmon/bpf.sock \
 | query_failed | 服务返回了非 ok 状态 |
 | transport_error | 连接/身份/帧校验或等待失败，不能确认完整状态 |
 
-输出的 scope 固定为 active_configuration_bytes，附带后两次有效状态；传输错误只有 code/scope。退出码 0 表示 consistent，1 表示分歧/不稳定/查询失败，2 表示参数错误。当前客户端要求管理 v3；旧服务不会被静默当作一致。
+输出的 scope 固定为 active_configuration_bytes，附带后两次有效状态；传输错误只有 code/scope。退出码 0 表示 consistent，1 表示分歧/不稳定/查询失败，2 表示参数错误。客户端只接受本包当前完整布局，遇到不匹配就失败，不协商或降级。
 
 这是只读来源核对，不是原子发布、签名验证、分析器健康检查、内核 Map 外部修改检测或路径对象一致性证明。即使 consistent，也只说明观测到的活动配置字节；要判断运行健康还需检查附带状态。跨命名空间管理坐标仍按项目已有边界处理。
 
@@ -114,11 +114,15 @@ sudo ./build/secmon-policyctl --bpf-socket /run/secmon/bpf.sock \
 sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
 ```
 
-## v3：授权条数
+## 授权条数
 
-管理 v3 在 v2 末尾追加两个 uint32：`writer_paths` 和必须为零的保留字段，总大小 296 字节。BPF 状态 JSON 的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不应用 writer，JSON 不提供此字段。
+BPF 状态的 writer_paths 是已提交的 allow-writer 路径条数，范围 0..64，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不应用 writer，JSON 不提供此字段。
 
-旧管理端仍可查询已有字段，但看不到新授权条数；新 CLI 遇到旧服务/旧响应会拒绝，不静默丢失这项信息。配置 v3、管理 v3、分析 v3 各自独立版本化，数字相同没有联动语义。
+## 同包交付与布局检查
+
+主程序、库、分析器和嵌入 skeleton 的 eBPF 对象按同一构建一起发布。协议只保留当前布局标识，用于发现混用产物或异常帧；没有历史解码器、字段转换、版本协商或降级。protocol_version 是该检查值，不是支持范围或产品发布版本。修改结构时同步调整两端和测试即可。
+
+策略 revision 是另一件事：它区分运行中不同的规则提交，用于在线重载去重及拒绝旧候选。它不会随本轮简化而删除。已有配置需去掉 version 行，示例与测试均使用同一字段集合。
 
 ## 传输与调用边界
 

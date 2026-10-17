@@ -36,7 +36,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | analysis-faults | `fanotify_analysis_faults.py` | 错误/重复/迟到回复、FD 超额、请求取消及后端隔离 |
 | fanotify-analysis | `fanotify_analysis.py` | 独立进程内容扫描、传递 FD、无递归、降权与故障回退 |
 | fanotify-events | `fanotify_events.py` | 普通读取、mmap 边界、ELF/脚本直接执行与解释读取区别 |
-| fanotify-policy | `fanotify_policy.py` | 共用 v2 配置、静态与扫描模式、空闲切换/忙队列拒绝、固定后端、配置自阻塞防护、FD 稳定 |
+| fanotify-policy | `fanotify_policy.py` | 共用配置、静态与扫描模式、空闲切换/忙队列拒绝、固定后端、配置自阻塞防护、FD 稳定 |
 | policy-consistency | `policy_consistency.py` | 真实两端活动来源、版本/摘要分歧、预期版本、端点角色与只读 FD 回收 |
 | management-live | `management_live.py` | 活动内存查询、稳定重载错误、独立版本、忙请求、权限与 FD 稳定 |
 | management-faults | `management_faults.py` | 伪服务错误帧/身份/附带 FD 的客户端拒绝 |
@@ -44,7 +44,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | pid-namespace | `pid_namespace.py` | 局部 PID=1 与宿主 BPF 身份、真实凭证和退出基线删除；非真实宿主 PID 复用 |
 | namespace-policy | `namespace_policy.py` | 私有 bind 别名与私有 tmpfs 的跨挂载对象策略、两层独立清理 |
 | writer-capacity | `writer_capacity.py` | 256+64 不同 inode、完整候选失败回滚、重合标志、旧 Map 快照/回收与按路径 FD 回收 |
-| writer-layers | `writer_layers.py` | v3 共用来源、BPF 授权与 fanotify 独立裁决、既有 FD 与撤销 |
+| writer-layers | `writer_layers.py` | 共用来源、BPF 授权与 fanotify 独立裁决、既有 FD 与撤销 |
 | writer-identity | `writer_identity.py` / `writer_scenario.cpp` | 程序 inode 与 EUID、fork/exec、别名和替换、程序保护、授权撤销与失败回滚 |
 | policy-reload | `policy_reload.py` | 真实 BPF 完整切换、版本拒绝、准备失败保留旧保护、配置权限、root 控制与重复切换 FD 回收 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |

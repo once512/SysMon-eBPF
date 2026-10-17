@@ -26,9 +26,11 @@
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
 - `secmon-policyctl` 只读核对两个后端的活动版本与配置摘要，并报告分歧或采样不稳定。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
-- `--policy FILE` 加载有版本的文件策略，`--reload SOCKET` 在线完整替换；v2 配置也供 secmon-fanotify 使用，支持空闲时更新裁决设置，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
-- 配置 v3 的 `allow-writer` 按执行文件 inode 与有效 UID 授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮验证见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
+- `--policy FILE` 加载带递增 revision 的文件策略，`--reload SOCKET` 在线完整替换；同一配置也供 secmon-fanotify 使用，支持空闲时更新裁决设置，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
+- 配置中的 `allow-writer` 按执行文件 inode 与有效 UID 授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮验证见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
 - `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。
+
+组件采用同包交付：主程序、库、分析器及 skeleton 嵌入的 eBPF 对象一起构建/更新。配置只有当前字段集合（没有 version 行）；管理命令统一完整响应，不兼容历史报文。保留的 ABI/长度检查用于检错，revision 用于运行策略更新，详见 [管理契约](docs/MANAGEMENT.md)。
 
 ## 构建与运行
 
@@ -52,7 +54,7 @@ sudo ./build/secmon --protect-file /absolute/path/important.txt
 
 最多指定 256 个已存在的普通文件；路径末尾不能是符号链接。程序使用 O_PATH 句柄固定目标 inode，按设备主次号与 inode 匹配，持有当前策略的句柄直到策略被替换或 BPF 链接释放，防止 inode 复用。策略跟随文件对象，已有硬链接也受保护；不递归保护目录，不阻止父目录重命名。
 
-默认策略作用于所有任务，包括 root 和 secmon 自身。配置 v3 可显式按执行文件 inode 与有效 UID 授予修改例外，并自动保护授权程序文件，见 [程序对象授权](docs/WRITER_IDENTITY.md)。可覆盖写打开、已有 FD 的普通写入和截断、路径截断、删除、源或目标重命名、新建硬链接、setattr，以及新增共享可写 mmap 和共享映射增加写权限。原有读取和私有映射允许。先保留其他 LSM/BPF 程序的拒绝，再执行本策略；审计缓冲区满不会导致放行。
+默认策略作用于所有任务，包括 root 和 secmon 自身。配置可显式按执行文件 inode 与有效 UID 授予修改例外，并自动保护授权程序文件，见 [程序对象授权](docs/WRITER_IDENTITY.md)。可覆盖写打开、已有 FD 的普通写入和截断、路径截断、删除、源或目标重命名、新建硬链接、setattr，以及新增共享可写 mmap 和共享映射增加写权限。原有读取和私有映射允许。先保留其他 LSM/BPF 程序的拒绝，再执行本策略；审计缓冲区满不会导致放行。
 
 `file_denied` 包含 PID/TID、当前 UID/EUID、设备主次号、inode、操作类型及 errno=13。操作编号：1 写打开，2 写权限，3 截断，4 删除，5 重命名，6 硬链接，7 属性修改，8 共享可写映射。某些操作可能在更早的钩子被拒绝，因此事件编号不必等于用户调用的系统调用名。
 

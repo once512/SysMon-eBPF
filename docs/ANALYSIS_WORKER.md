@@ -62,7 +62,7 @@ sequenceDiagram
     participant K as 内核 fanotify
     G->>W: 启动私有 socketpair 子进程
     W->>W: 清空权限、设置父死亡信号
-    W-->>G: Ready v3（不携带 FD）
+    W-->>G: Ready（当前布局，不携带 FD）
     G->>K: 标记文件
     K->>G: 权限事件与事件 FD
     G->>W: 请求 ID + SCM_RIGHTS 事件 FD
@@ -108,9 +108,9 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 新增启动协议专项：缺少 Ready、错误 Ready 与携带 FD 的 Ready 均被拒绝，且目标文件仍可正常打开。真实 ELF 的干净内容可以执行，追加示例字节标记后直接执行被拒绝；这个结果不覆盖解释器读取脚本的其他入口。
 
 
-## v3：扫描原因与后端故障分开
+## 扫描原因与后端故障分开
 
-回复在原来的 bytes_scanned 后追加 `error`（u32 枚举）和 `system_errno`（i32），总长 32 字节。Ready/allow/deny 必须 error=none 且 errno=0；error 结果必须有非 none 原因，系统调用失败类原因必须带 1..4095 的正 errno。错误组合或未知值属于协议故障，监督器会隔离后端；有效的单文件错误仅执行该请求的错误回退，分析器继续工作。
+当前回复包含 `error`（u32 枚举）和 `system_errno`（i32），总长 32 字节。Ready/allow/deny 必须 error=none 且 errno=0；error 结果必须有非 none 原因，系统调用失败类原因必须带 1..4095 的正 errno。错误组合或未知值属于协议故障，监督器会隔离后端；有效的单文件错误仅执行该请求的错误回退，分析器继续工作。
 
 | error | 含义 | errno |
 | --- | --- | --- |
@@ -125,13 +125,13 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 
 原因描述扫描器实际走到的失败分支；不是攻击归因，mtime/ctime 比较也不是不可变快照。发现标记仍拒绝，未发现时只有完整且稳定才允许。扫描缓冲内存不足有单请求响应；IPC 接收等其他阶段若初始化/分配失败，仍可能表现为后端故障。
 
-最终统计和管理 v2/v3 状态均提供 `scan_error_counts`、`last_scan_error`、`last_scan_errno`、`backend_error_requests`。last_scan_error 保留最近一次真实扫描错误，后端故障不抹去它；初值 none/0。计数关系为：
+最终统计和管理状态均提供 `scan_error_counts`、`last_scan_error`、`last_scan_errno`、`backend_error_requests`。last_scan_error 保留最近一次真实扫描错误，后端故障不抹去它；初值 none/0。计数关系为：
 
 ```text
 analyzer_error = backend_error_requests + sum(scan_error_counts)
 allowed + denied = 已成功写入内核的全部裁决响应
 ```
 
-超时/容量/关闭及 analyzed 等已有分类保持原语义，不能把原因计数再次加到 allowed/denied。管理协议校验该守恒关系并避免求和溢出。旧管理 v1 仍提供聚合错误数，不包含原因拆分。
+超时/容量/关闭及 analyzed 等已有分类保持原语义，不能把原因计数再次加到 allowed/denied。管理协议校验该守恒关系并避免求和溢出。管理服务只输出完整当前结构，没有聚合字段的历史响应前缀。
 
-`analysis_scan_faults.cpp` 仅在独立测试目标包装 fstat/pread 和分配，确定性验证元数据、读取、变化和内存不足；包装器不进入正式程序。真实权限专题验证 oversized 统计，故障后端验证有效资源错误按 allow/deny 回退且继续在线，并拒绝不一致的错误字段。分析请求 ABI 也升至 v3，旧分析器在 Ready 阶段即被拒绝，不对权限业务做静默协议回退。
+`analysis_scan_faults.cpp` 仅在独立测试目标包装 fstat/pread 和分配，确定性验证元数据、读取、变化和内存不足；包装器不进入正式程序。真实权限专题验证 oversized 统计，故障后端验证有效资源错误按 allow/deny 回退且继续在线，并拒绝不一致的错误字段。宿主与分析器只接受同包当前 ABI；不匹配在 Ready 或响应验证时即被拒绝，没有协议协商或静默回退。

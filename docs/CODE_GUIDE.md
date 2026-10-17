@@ -82,7 +82,7 @@ sudo python3 tests/self_protection.py --build-dir build
 
 文件策略的配置格式、切换顺序和资源所有权详见 [策略配置导读](POLICY_CONFIG.md)。
 
-`src/fanotify/policy.h/.cpp` 负责共享 v2 格式到 fanotify 运行类型的转换，及不能在线变更的 mark/分析器身份比较。共享的 `policy_config` 与 `control` 模块同时编入两个宿主；fanotify 的 reconfigure 仅在已交付请求队列与分析器空闲时生效。
+`src/fanotify/policy.h/.cpp` 负责共享格式到 fanotify 运行类型的转换，及不能在线变更的 mark/分析器身份比较。共享的 `policy_config` 与 `control` 模块同时编入两个宿主；fanotify 的 reconfigure 仅在已交付请求队列与分析器空闲时生效。
 
 
 ## 有内核监控经验时如何读这些中文注释
@@ -108,17 +108,18 @@ sudo python3 tests/self_protection.py --build-dir build
 
 新增 `secmon-policyctl`：`src/management/main.cpp` 顺序采集两轮状态，`consistency.h/.cpp` 纯函数判断稳定来源与分歧。这里核对的是活动配置字节，不会将其等同于完整健康或跨后端事务。
 
-## 几种“版本”不要混淆
+## 同包构建与运行策略编号
 
-| 名称 | 当前值 | 作用 |
-| --- | --- | --- |
-| 配置 `version` | 3，保留格式 1/2 | 定义配置可使用哪些字段 |
-| 配置 `revision` | 管理者指定的正 uint64 | 当前实例内成功重载必须递增，不是 ABI 版本 |
-| 管理协议 | v3，提供 v1/v2 响应前缀 | 状态、重载结果和诊断的本地报文布局 |
-| 分析器协议 | v3 | 请求/Ready/扫描响应，工作进程必须匹配 |
-| BPF 事件 ABI | v4 | 内核 ring buffer 与宿主事件解析布局 |
+| 名称 | 当前含义 |
+| --- | --- |
+| 配置格式 | 唯一字段集合，没有 version 指令；未知字段直接拒绝 |
+| 配置 revision | 管理者指定的正 uint64，当前实例内成功重载必须递增 |
+| 管理响应 ABI | 唯一完整布局，固定大小与标识检查，不返回历史前缀 |
+| 分析器 ABI | 同包宿主/工作进程必须匹配，错误时隔离后端，不做降级 |
+| BPF 事件 ABI | skeleton 嵌入同包 BPF；宿主仍检查当前事件布局 |
 
-原始配置 SHA-256 用于核对字节内容，不替代上述任何版本，也不是签名或被保护文件的内容哈希。
+组件绑定交付，构建与测试负责同步接口；布局标识只用于检错，不提供版本兼容。配置 SHA-256 核对原始字节，不是程序签名或策略 revision。具体契约见 [管理接口](MANAGEMENT.md)。
+
 
 ### 程序对象授权
 
