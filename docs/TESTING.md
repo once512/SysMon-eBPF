@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 16 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 17 项，覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -66,3 +66,5 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 示例扫描只做字节标记匹配，详细故障预算见 [分析组件导读](ANALYSIS_WORKER.md)。
 
 版本化文件配置增加无特权 `policy-config` CTest，格式与在线切换边界见 [策略配置](POLICY_CONFIG.md)。
+
+`analysis-scan-errors` 使用仅测试目标的系统调用/分配包装，验证扫描原因和 errno；有效错误回退与畸形错误报文另由真实权限专题覆盖。

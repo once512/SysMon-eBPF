@@ -101,3 +101,5 @@ sudo python3 tests/self_protection.py --build-dir build
 活动状态与重载结果现在由 `src/policy_runtime.h/.cpp` 统一管理，管理响应 ABI/JSON 在 `src/management/protocol.h/.cpp`，fanotify 的快照适配在 `src/fanotify/status.h/.cpp`。详见 [管理接口](MANAGEMENT.md)，查询与事件处理在同一循环中串行运行。
 
 `src/content_digest.h/.cpp` 通过系统 OpenSSL EVP 为原始配置字节计算 SHA-256，活动状态复制已提交的摘要。配置、摘要、版本和管理协议编入纯用户态公共静态库 `secmon-policy`，不包含 BPF/fanotify 挂载动作。
+
+`src/fanotify/stats.h/.cpp` 统一输出累计裁决统计及原因拆分，`analysis::ScanError` 在分析协议中定义。管理状态复用同一份 GateStats，避免末次日志与实时查询出现两套计数口径。

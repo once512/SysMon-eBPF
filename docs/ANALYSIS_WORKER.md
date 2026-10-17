@@ -39,11 +39,11 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --run-for 20 \
 
 root 启动时，分析程序清空补充组并降到 UID/GID 65534；随后显式清空 permitted/effective/inheritable/ambient capabilities，设置 no_new_privs 并关闭 dumpability。父进程死亡信号在降权后设置并核对预期父 PID，避免降权清除信号设置和启动竞争。普通用户直接运行内部协议测试时保留其原 UID，也显式清空 capabilities。当前没有 seccomp、网络隔离或完整沙箱，不能把独立进程和降权当作完整隔离。
 
-协议当前版本为 2：工作进程完成凭证与父死亡信号设置后，先发送不携带 FD 的 Ready 消息（ID=0）。接收端最多等待 1 秒，确认版本、长度与 Ready 字段后才继续固定文件和启用 fanotify 标记。初始化失败、无 Ready 或畸形 Ready 会在策略生效前失败退出；这也消除了测试在分析进程尚未初始化时就暂停它的竞态。
+协议当前版本为 3：工作进程完成凭证与父死亡信号设置后，先发送不携带 FD 的 Ready 消息（ID=0）。接收端最多等待 1 秒，确认版本、长度与 Ready 字段后才继续固定文件和启用 fanotify 标记。初始化失败、无 Ready 或畸形 Ready 会在策略生效前失败退出；这也消除了测试在分析进程尚未初始化时就暂停它的竞态。
 
 启动使用本机 glibc 的 `posix_spawn_file_actions_addclosefrom_np`；当前只支持项目声明的开发环境，不提供旧 libc 兼容层。
 
-请求头与回复头均包含 magic、版本、长度和 ID；请求固定 16 字节，回复固定 24 字节。这是同机、同构建布局的本地协议，不是跨平台网络格式。
+请求头与回复头均包含 magic、版本、长度和 ID；请求固定 16 字节，回复固定 32 字节。这是同机、同构建布局的本地协议，不是跨平台网络格式。
 
 | 报文 | ID / 结果 | FD 数量 |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ sequenceDiagram
     participant K as 内核 fanotify
     G->>W: 启动私有 socketpair 子进程
     W->>W: 清空权限、设置父死亡信号
-    W-->>G: Ready v2（不携带 FD）
+    W-->>G: Ready v3（不携带 FD）
     G->>K: 标记文件
     K->>G: 权限事件与事件 FD
     G->>W: 请求 ID + SCM_RIGHTS 事件 FD
@@ -99,10 +99,39 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 
 已验证真实内容允许/拒绝、同 inode 内容变化、root 所有文件经传递 FD 由降权进程扫描、open/access 下无递归、大文件错误回退、工作进程崩溃、SIGSTOP 卡住后的超时及 pidfd 终止、接收端崩溃后释放待裁决请求。确定性测试覆盖跨读取块标记、只读/普通文件要求、长度上限、FD 偏移、协议截断与 FD 关闭。
 
-文件内容不是不可变快照，元数据比较只捕捉普通并发变化；允许之后的写入、已有映射和内容再次变化仍按各权限入口的边界处理。本轮没有实现签名、哈希白名单、真实恶意行为识别、策略热更新、可信应用授权或完整保险箱。后续需在这个接口上分别推进分析规则和可信身份，而不是把示例标记当作攻击判断。
+文件内容不是不可变快照，元数据比较只捕捉普通并发变化；允许之后的写入、已有映射和内容再次变化仍按各权限入口的边界处理。当前支持共用配置下的空闲裁决设置重载；扫描器程序、标记和上限仍需重启。签名、哈希白名单、真实恶意行为识别、可信应用授权或完整保险箱仍待实现。后续需在这个接口上分别推进分析规则和可信身份，而不是把示例标记当作攻击判断。
 
 
 协议专项测试分别覆盖接收和回复两侧：`analysis_protocol.py` 在无特权条件下向真正的扫描进程发送错误请求；`fanotify_analysis_faults.py` 使用仅在 BUILD_TESTING 时构建的故障工作进程，验证错误 ID/版本/长度/裁决值、重复与迟到回复、九个 FD 超过八个辅助数据 FD 预算后的清理。请求者提前退出的竞态已实测不会中断后续请求。这些故障程序不参与正式程序的正常运行。
 
 
 新增启动协议专项：缺少 Ready、错误 Ready 与携带 FD 的 Ready 均被拒绝，且目标文件仍可正常打开。真实 ELF 的干净内容可以执行，追加示例字节标记后直接执行被拒绝；这个结果不覆盖解释器读取脚本的其他入口。
+
+
+## v3：扫描原因与后端故障分开
+
+回复在原来的 bytes_scanned 后追加 `error`（u32 枚举）和 `system_errno`（i32），总长 32 字节。Ready/allow/deny 必须 error=none 且 errno=0；error 结果必须有非 none 原因，系统调用失败类原因必须带 1..4095 的正 errno。错误组合或未知值属于协议故障，监督器会隔离后端；有效的单文件错误仅执行该请求的错误回退，分析器继续工作。
+
+| error | 含义 | errno |
+| --- | --- | --- |
+| invalid_input | 标记或扫描上限参数不合法 | 0 |
+| bad_descriptor | fcntl 无法读取 FD 状态 | 原 errno |
+| unsupported_descriptor | 可写、O_PATH 或非普通文件等不支持的 FD | 0 |
+| metadata_failed | 扫描前后 fstat 失败 | 原 errno |
+| oversized | 初始文件超限，或扫描时增长超过上限 | 0 |
+| read_failed | pread 失败（EINTR 会重试） | 原 errno |
+| changed | 未命中标记，且前后元数据或完整长度不一致 | 0 |
+| resource_exhausted | 扫描缓冲分配出现 bad_alloc | ENOMEM |
+
+原因描述扫描器实际走到的失败分支；不是攻击归因，mtime/ctime 比较也不是不可变快照。发现标记仍拒绝，未发现时只有完整且稳定才允许。扫描缓冲内存不足有单请求响应；IPC 接收等其他阶段若初始化/分配失败，仍可能表现为后端故障。
+
+最终统计和管理 v2 状态均提供 `scan_error_counts`、`last_scan_error`、`last_scan_errno`、`backend_error_requests`。last_scan_error 保留最近一次真实扫描错误，后端故障不抹去它；初值 none/0。计数关系为：
+
+```text
+analyzer_error = backend_error_requests + sum(scan_error_counts)
+allowed + denied = 已成功写入内核的全部裁决响应
+```
+
+超时/容量/关闭及 analyzed 等已有分类保持原语义，不能把原因计数再次加到 allowed/denied。管理协议校验该守恒关系并避免求和溢出。旧管理 v1 仍提供聚合错误数，不包含原因拆分。
+
+`analysis_scan_faults.cpp` 仅在独立测试目标包装 fstat/pread 和分配，确定性验证元数据、读取、变化和内存不足；包装器不进入正式程序。真实权限专题验证 oversized 统计，故障后端验证有效资源错误按 allow/deny 回退且继续在线，并拒绝不一致的错误字段。分析请求 ABI 也升至 v3，旧分析器在 Ready 阶段即被拒绝，不对权限业务做静默协议回退。

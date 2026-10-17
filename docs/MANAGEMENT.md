@@ -50,12 +50,12 @@ fanotify 另返回当前事件、裁决模式、延迟/超时/容量、三种回
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 200 字节 v1 响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
+- `src/management/protocol.h/.cpp`：本机同架构的 288 字节 v2 响应（保留 200 字节 v1 前缀）、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析/校验版本，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。
 
-结构化命令正文为 `status-v1`、`reload-v1`、`stop-v1`。当前 CLI 的 status/reload 使用结构化命令，stop 保留原管理行为。旧的 `stop`/`reload` 继续得到 `ok`/`error`，没有旧版本状态查询回退。客户端先检查完整长度、magic、ABI、命令、枚举/边界、保留字段与服务端 PID，再渲染 JSON。双方都拒绝意外的 SCM_RIGHTS，并关闭已收到的 FD，包含辅助数据截断的情形。
+当前结构化命令正文为 `status-v2`、`reload-v2`、`stop-v2`。CLI 的 status/reload 使用 v2，stop 保留原管理行为；新服务仍可向 `*-v1` 客户端返回 200 字节的 v1 前缀响应。旧的 `stop`/`reload` 继续得到 `ok`/`error`，新 CLI 不向旧服务静默回退。客户端先检查完整长度、magic、ABI、命令、枚举/边界、保留字段与服务端 PID，再渲染 JSON。双方都拒绝意外的 SCM_RIGHTS，并关闭已收到的 FD，包含辅助数据截断的情形。
 
 固定响应不含路径、异常文本和指针，减少转义与信任边界。该接口不用于跨机器通信，不接受请求提供的目标 PID、配置路径或业务进程操作。
 
@@ -76,3 +76,5 @@ sudo python3 tests/run_privileged.py --build-dir build --only management-live ma
 ```
 
 持续请求中反复查询状态，在阶段间排空请求再更新/拒绝相同版本，核对活动摘要、实例标识、闲置 FD 回收与每次业务回复。打印控制查询时延仅作本机回归证据，不是服务时延 SLA。配置摘要使用系统 OpenSSL EVP SHA-256，构建需要 libcrypto 开发包。
+
+管理 v2 还包含扫描原因计数、最近扫描错误与 errno，以及后端故障回退请求数。具体枚举、有效组合和计数守恒关系见 [分析器 v3](ANALYSIS_WORKER.md)。这与重载结果 code/last_code 是两类独立错误，不能把单文件扫描失败解释成配置重载失败。
