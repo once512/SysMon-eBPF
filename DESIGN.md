@@ -378,3 +378,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - access 模式：455518 次请求，analyzed=440029，其中 analysis_denied=220284；allowed=219745、denied=235773、overloaded=15488、analyzer_error=1。FD 基线 7/峰值 12，pending 峰值 4；timed_out、analyzer_failures、overflow、shutdown_denied 均为 0。
 - access 的一次单文件分析错误按默认 deny 回退，未使工作进程离线；工作负载会持续改写同一对象，现有协议没有更细的错误分类，因此不将其根因直接断言为元数据变化。所有回复与客户端结果完全对账。
 - 以上是阶段代码的长期负载，不能代替最终 v2/显式 capabilities 清空版本的回归；最终统一回归正在单独运行。libstdc++ debug 的扫描/传输与队列/FD 检查、BUILD_TESTING=OFF 的三个正式程序构建均通过。
+
+
+### 2026-10-17：接收 FD 前的分配异常安全
+
+- 检查 SCM_RIGHTS 接收路径时修正所有权异常安全：先为最多八个 FD 预留 RAII 容器，再执行 recvmsg，避免已安装 FD 后 vector 分配失败留下未接管的引用。
+- 新增隔离的 `analysis_allocation.cpp` 可执行测试，仅在测试程序中覆盖一次 operator new 故障；证明接收路径分配失败时消息仍在 socket 中，下一次读取可得到原 ID 和恰好一个有效 FD。测试钩子不进入正式程序。
+- 构建与 14 项 CTest 全部通过；内容/协议故障及两种分析权限入口的定向负载回归另行收尾。本修正不改变正常报文格式与策略结果。

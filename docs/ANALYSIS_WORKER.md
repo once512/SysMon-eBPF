@@ -18,7 +18,7 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --run-for 20 \
 | --- | --- |
 | `--analyzer ABSOLUTE_PATH` | 接收端启动的可信程序；由管理员选择，不自动验证签名或文件来源 |
 | `--deny-marker TEXT` | 1..256 字节的非空字面标记，不是正则表达式；不能表示 argv 中的 NUL |
-| `--scan-limit-bytes N` | 1..1048576，默认 65536；超限返回错误，不把未扫描部分视为干净 |
+| `--scan-limit-bytes N` | 1..1048576，默认 65536（必要时额外读 1 字节检测增长）；超限返回错误，不把未扫描部分视为干净 |
 | `--analyzer-error-decision allow|deny` | 分析错误或后端不可用时的回退，默认 deny |
 
 ## 模块与数据流
@@ -42,6 +42,16 @@ root 启动时，分析程序清空补充组并降到 UID/GID 65534；随后显�
 协议当前版本为 2：工作进程完成凭证与父死亡信号设置后，先发送不携带 FD 的 Ready 消息（ID=0）。接收端最多等待 1 秒，确认版本、长度与 Ready 字段后才继续固定文件和启用 fanotify 标记。初始化失败、无 Ready 或畸形 Ready 会在策略生效前失败退出；这也消除了测试在分析进程尚未初始化时就暂停它的竞态。
 
 启动使用本机 glibc 的 `posix_spawn_file_actions_addclosefrom_np`；当前只支持项目声明的开发环境，不提供旧 libc 兼容层。
+
+请求头与回复头均包含 magic、版本、长度和 ID；请求固定 16 字节，回复固定 24 字节。这是同机、同构建布局的本地协议，不是跨平台网络格式。
+
+| 报文 | ID / 结果 | FD 数量 |
+| --- | --- | --- |
+| Ready | ID=0，result=ready，bytes=0 | 0 |
+| 扫描请求 | 非零且在当前实例中递增的 ID | 恰好 1 |
+| 分析回复 | 与当前活动请求相同的 ID，allow/deny/error | 0 |
+
+SCM_RIGHTS 传输层的辅助缓冲预算为 8 个 FD，但应用协议仍只允许上述数量。超额或截断会拒绝报文并关闭已收到的 FD；这是 IPC 辅助数据截断，不是 fanotify 内核权限队列溢出。接收前预分配所有权存储，确保 `recvmsg` 安装 FD 后不再为接管它们进行内存分配；独立的分配故障测试验证失败时原消息尚未被消费。
 
 ## 握手、FD 与裁决顺序
 
