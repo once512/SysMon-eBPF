@@ -125,7 +125,7 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 
 原因描述扫描器实际走到的失败分支；不是攻击归因，mtime/ctime 比较也不是不可变快照。发现标记仍拒绝，未发现时只有完整且稳定才允许。扫描缓冲内存不足有单请求响应；IPC 接收等其他阶段若初始化/分配失败，仍可能表现为后端故障。
 
-最终统计和管理 v2 状态均提供 `scan_error_counts`、`last_scan_error`、`last_scan_errno`、`backend_error_requests`。last_scan_error 保留最近一次真实扫描错误，后端故障不抹去它；初值 none/0。计数关系为：
+最终统计和管理 v2/v3 状态均提供 `scan_error_counts`、`last_scan_error`、`last_scan_errno`、`backend_error_requests`。last_scan_error 保留最近一次真实扫描错误，后端故障不抹去它；初值 none/0。计数关系为：
 
 ```text
 analyzer_error = backend_error_requests + sum(scan_error_counts)

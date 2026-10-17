@@ -64,5 +64,9 @@ int main() {
     std::string writers = "version 3\nrevision 1\n";
     for (int i = 0; i < 65; ++i) writers += "allow-writer \"/exe" + std::to_string(i) + "\" 0\n";
     reject(writers);
+    std::istringstream maximum(writers.substr(0, writers.rfind("allow-writer")));
+    require(parse_policy(maximum).writers.size() == 64);
+    std::istringstream largest_uid("version 3\nrevision 1\nallow-writer \"/exe\" 4294967294\n");
+    require(parse_policy(largest_uid).writers[0].euid == 4294967294U);
     std::cout << "PASS policy syntax, limits, revisions and quoted paths\n";
 }

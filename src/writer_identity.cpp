@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <utility>
 
 PinnedPolicyFile pin_policy_file(const std::string &path, bool writer)
 {

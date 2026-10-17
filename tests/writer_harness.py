@@ -2,11 +2,14 @@
 # 用管道驱动始终不 exec 的原生进程；每条命令有截止时间，验证预先打开的 FD 在重载后重新受检查。
 import selectors
 import subprocess
+import threading
 
 
 class WriterProcess:
-    def __init__(self, binary, target):
-        self.process = subprocess.Popen([str(binary), 'serve', str(target)], stdin=subprocess.PIPE,
+    def __init__(self, binary, target, uid=None):
+        self.lock = threading.Lock()
+        args = [str(binary), 'serve', str(target)] + ([] if uid is None else [str(uid)])
+        self.process = subprocess.Popen(args, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         try:
             assert self.read() == 'ready'
@@ -23,9 +26,10 @@ class WriterProcess:
         return line.strip()
 
     def request(self, command='w'):
-        self.process.stdin.write(command + '\n')
-        self.process.stdin.flush()
-        return int(self.read())
+        with self.lock:
+            self.process.stdin.write(command + '\n')
+            self.process.stdin.flush()
+            return int(self.read())
 
     def close(self):
         try:

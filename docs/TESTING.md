@@ -43,6 +43,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | control-loop | `control_loop.py` / `control_nonblocking.cpp` | 静默连接无阻塞推进与稍后发送，root 身份，不加载内核策略 |
 | pid-namespace | `pid_namespace.py` | 局部 PID=1 与宿主 BPF 身份、真实凭证和退出基线删除；非真实宿主 PID 复用 |
 | namespace-policy | `namespace_policy.py` | 私有 bind 别名与私有 tmpfs 的跨挂载对象策略、两层独立清理 |
+| writer-capacity | `writer_capacity.py` | 256+64 不同 inode、完整候选失败回滚、重合标志、旧 Map 快照/回收与按路径 FD 回收 |
+| writer-layers | `writer_layers.py` | v3 共用来源、BPF 授权与 fanotify 独立裁决、既有 FD 与撤销 |
 | writer-identity | `writer_identity.py` / `writer_scenario.cpp` | 程序 inode 与 EUID、fork/exec、别名和替换、程序保护、授权撤销与失败回滚 |
 | policy-reload | `policy_reload.py` | 真实 BPF 完整切换、版本拒绝、准备失败保留旧保护、配置权限、root 控制与重复切换 FD 回收 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |
@@ -77,3 +79,12 @@ sudo python3 tests/run_privileged.py --build-dir build --analysis-soak-duration 
 私有挂载的范围与限制详见 [命名空间策略验证](NAMESPACE_POLICY.md)。
 
 本轮完整的分阶段验证数字与代码快照范围见 [2026-10-17 验证记录](VALIDATION_2026_10_17.md)。
+
+## 程序对象授权的持续验证
+
+```bash
+sudo python3 tests/run_privileged.py --build-dir build \
+    --only writer-identity writer-capacity writer-layers --writer-soak-duration 30
+```
+
+writer-soak-duration 默认 0（禁用），可选 5..1800 秒。常驻程序分别保持 root、65534 与未授权对象身份，在 O_PATH 固定策略切换期间持续尝试已有 FD 写入和新 open；每次确认更新后同步验证新规则，记录背景结果、更新/拒绝次数、来源摘要和闲置 FD 基线。它不验证共享映射追回或性能 SLA，不能替代真实攻击测试。详细边界见 [程序对象授权](WRITER_IDENTITY.md)。

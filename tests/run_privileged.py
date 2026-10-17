@@ -21,6 +21,8 @@ TESTS = (
     ('policy-layers', 'policy_composition.py'),
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
+    ('writer-capacity', 'writer_capacity.py'),
+    ('writer-layers', 'writer_layers.py'),
     ('fanotify-policy', 'fanotify_policy.py'),
     ('management-live', 'management_live.py'),
     ('management-faults', 'management_faults.py'),
@@ -41,6 +43,7 @@ def main():
                         help='add both policy/timeout workloads, 0 disables (default)')
     parser.add_argument('--analysis-soak-duration', type=int, default=0)
     parser.add_argument('--management-soak-duration', type=int, default=0)
+    parser.add_argument('--writer-soak-duration', type=int, default=0)
     parser.add_argument('--only', choices=[name for name, _ in TESTS], nargs='+')
     args = parser.parse_args()
     if os.geteuid() != 0:
@@ -49,6 +52,8 @@ def main():
         parser.error('run without Python optimization; test assertions must remain enabled')
     if not 0 <= args.soak_duration <= 1800 or not 0 <= args.analysis_soak_duration <= 1800 or not 0 <= args.management_soak_duration <= 1800:
         parser.error('soak-duration must be 0..1800 seconds')
+    if not (args.writer_soak_duration == 0 or 5 <= args.writer_soak_duration <= 1800):
+        parser.error('writer-soak-duration must be 0 or 5..1800 seconds')
     root = Path(__file__).resolve().parent
     build = Path(args.build_dir).resolve()
     commands = [(name, [sys.executable, str(root / script), '--build-dir', str(build)])
@@ -68,6 +73,9 @@ def main():
                       '--build-dir', str(build), '--duration', str(args.management_soak_duration),
                       '--backend', backend, '--event', event])
                      for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
+    if args.writer_soak_duration:
+        commands.append(('writer-soak', [sys.executable, str(root / 'writer_soak.py'),
+                         '--build-dir', str(build), '--duration', str(args.writer_soak_duration)]))
     results = []
     for name, command in commands:
         print(f'RUN {name}', flush=True)

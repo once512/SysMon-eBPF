@@ -24,15 +24,30 @@ int main(int argc, char **argv)
     if (argc < 3) return 2;
     if (!std::strcmp(argv[1], "serve")) {
         // 在启用策略前保留写 FD；同一进程不 exec，以排除“重启后碰巧换身份”的假阳性。
-        const int held = open(argv[2], O_WRONLY | O_CLOEXEC);
+        const int held = open(argv[2], O_RDWR | O_CLOEXEC);
         if (held < 0) return errno;
+        if (argc == 4 && (setgid(65534) || setuid(static_cast<uid_t>(std::strtoul(argv[3], nullptr, 10))))) {
+            close(held);
+            return errno;
+        }
         std::puts("ready");
         std::fflush(stdout);
         char line[16];
         while (std::fgets(line, sizeof(line), stdin)) {
             if (line[0] == 'q') break;
-            const int result = line[0] == 'w' ? (pwrite(held, "W", 1, 0) == 1 ? 0 : errno) :
-                               line[0] == 'o' ? write_file(argv[2]) : EINVAL;
+            int result = EINVAL;
+            if (line[0] == 'w') result = pwrite(held, "W", 1, 0) == 1 ? 0 : errno;
+            if (line[0] == 'o') result = write_file(argv[2]);
+            if (line[0] == 't') result = ftruncate(held, 4) ? errno : 0;
+            if (line[0] == 'm' || line[0] == 'p' || line[0] == 'v') {
+                const int protection = line[0] == 'p' ? PROT_READ : PROT_READ | PROT_WRITE;
+                void *mapped = mmap(nullptr, 4096, protection, line[0] == 'v' ? MAP_PRIVATE : MAP_SHARED, held, 0);
+                result = mapped == MAP_FAILED ? errno : 0;
+                if (mapped != MAP_FAILED) {
+                    if (line[0] == 'p') result = mprotect(mapped, 4096, PROT_READ | PROT_WRITE) ? errno : 0;
+                    munmap(mapped, 4096);
+                }
+            }
             std::printf("%d\n", result);
             if (std::fflush(stdout)) { close(held); return 3; }
         }
@@ -59,6 +74,8 @@ int main(int argc, char **argv)
     if (!std::strcmp(argv[1], "chmod")) return chmod(argv[2], 0600) ? errno : 0;
     if (!std::strcmp(argv[1], "unlink")) return unlink(argv[2]) ? errno : 0;
     if (!std::strcmp(argv[1], "rename") && argc == 4) return rename(argv[2], argv[3]) ? errno : 0;
+    if (!std::strcmp(argv[1], "link") && argc == 4) return link(argv[2], argv[3]) ? errno : 0;
+    if (!std::strcmp(argv[1], "utime")) return utimensat(AT_FDCWD, argv[2], nullptr, 0) ? errno : 0;
     if (!std::strcmp(argv[1], "truncate")) return truncate(argv[2], 0) ? errno : 0;
     if (!std::strcmp(argv[1], "mmap")) {
         int fd = open(argv[2], O_RDWR | O_CLOEXEC);
