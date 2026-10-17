@@ -278,3 +278,12 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 普通执行、线程生命周期场景、非主线程 exec 的旧 TID 关联、UID/GID 降权后执行及正常关闭均通过；不代表已验证真实提权攻击检测或 Map 条目的完整清理。
 - 外部信号、pidfd/tgkill、ptrace、proc mem 和 process_vm_writev 权限检查拒绝通过；非目标进程信号、非法管理消息拒绝、非 root 管理拒绝、root 停止、内部运行期限和 socket 清理通过。
 - 两项测试均检查到 `ringbuf_dropped=0` 和 `baseline_update_failed=0`。本次结果补齐上一条记录中因 sudo 密码未能重跑的验证。
+
+
+### 2026-10-17：独立 fanotify 单文件实验
+
+- 新增 `secmon-fanotify`，按 `src/fanotify/main.cpp` 与 `gate.h/.cpp` 拆分生命周期和权限事件处理；不加载 BPF、不修改原宿主策略。
+- 以固定 FD 标记普通文件 inode，仅处理 `FAN_OPEN_PERM`，显式静态 allow/deny，逐事件回复并关闭 FD，记录成功回复与溢出计数。内核队列使用默认上限；溢出和协议错误报告失败并关闭组。
+- 内部期限和信号控制正常退出；无单请求超时、分析队列或独立 watchdog。组关闭/崩溃放行在途权限请求，不提供持久拒绝；未来接入分析前必须继续设计超时和并发预算。
+- 构建与 6 项 CTest 通过。新增 `sudo python3 tests/fanotify.py --build-dir build` 特权测试通过：允许/拒绝、硬链接、已有 FD、非目标文件、每模式 24 个并发请求及准确计数、重命名/替换 inode、正常停止与期限、崩溃后在途打开释放、非法目标拒绝。
+- 真实队列溢出和跨文件系统/命名空间尚未验证。学习说明见 `docs/FANOTIFY_LAB.md`；BPF 程序和事件 ABI 本轮未改动。

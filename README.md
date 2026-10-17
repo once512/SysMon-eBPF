@@ -12,7 +12,7 @@
 
 ## 当前实现
 
-总体方案见 [DESIGN.md](DESIGN.md)，源码阅读顺序与模块职责见 [代码导读](docs/CODE_GUIDE.md)。目前实现执行与凭证审计、指定文件对象的只读保护，以及可选的 secmon 进程自保护；尚未实现 fanotify 裁决、诱饵或完整保险箱。
+总体方案见 [DESIGN.md](DESIGN.md)，源码阅读顺序与模块职责见 [代码导读](docs/CODE_GUIDE.md)。目前实现执行与凭证审计、指定文件对象的只读保护，以及可选的 secmon 进程自保护；另提供独立的 fanotify 单文件静态裁决实验；尚未接入异步分析裁决、诱饵或完整保险箱。
 
 - GNU++17 宿主使用 libbpf skeleton 加载、挂载和消费事件。
 - 在执行安全检查点输出 JSON Lines；这些事件表示执行检查，不表示执行最终成功。
@@ -100,3 +100,15 @@ sudo python3 tests/self_protection.py --build-dir build
 自保护测试有内部 20 秒运行上限，已验证外部 SIGTERM/SIGINT/SIGSTOP/SIGKILL/SIGUSR1、pidfd 信号、tgkill、PTRACE_SEIZE、`/proc/PID/mem` 打开及 `process_vm_writev` 权限检查被拒绝；非法命令与非 root 管理连接被拒绝，root 授权停止、内部超时和 socket 清理正常，非目标进程信号不受影响。拒绝事件的目标身份正确，事件丢失和基线更新失败计数为 0。
 
 宿主模块拆分至 `src/` 后，已针对代码提交 `4015ced` 重跑上述两项特权集成测试，均通过；文件只读策略、执行/凭证事件、进程自保护及管理退出回归正常，事件丢失和基线更新失败计数均为 0。详细记录见 `DESIGN.md`。
+
+
+## fanotify 权限裁决实验
+
+新增独立程序 `secmon-fanotify`，对一个普通文件的 `FAN_OPEN_PERM` 事件立即允许或拒绝，不加载 BPF。实现与实验步骤见 [fanotify 学习实验](docs/FANOTIFY_LAB.md)。
+
+```bash
+sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision deny --run-for 20
+sudo python3 tests/fanotify.py --build-dir build
+```
+
+此处 `deny` 拒绝新增打开，包括读取；已有 FD 不受影响。组关闭或服务崩溃后，等待裁决的打开请求会被放行。单文件标记跟随 inode，不固定路径。当前开发机特权测试通过，覆盖允许/拒绝、并发、硬链接与重命名、已有 FD、正常退出、崩溃释放和运行期限；未验证真实队列溢出。它是同步裁决原型，不提供持久防护或耗时分析队列。

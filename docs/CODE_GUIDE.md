@@ -53,4 +53,4 @@ sudo python3 tests/self_protection.py --build-dir build
 
 ## 后续研究方向
 
-下一轮可以从独立的 fanotify 原型入手，先验证权限事件、超时、队列溢出和服务退出行为，再考虑接入现有策略。当前尚未实现这部分，也不能将 fanotify 当作所有写入操作的通用阻断入口。详细设计和已验证范围见 `DESIGN.md`。
+现已提供独立的单文件 fanotify 原型，源码位于 `src/fanotify/`，详见 [fanotify 学习实验](FANOTIFY_LAB.md)。下一轮可在隔离环境中研究单请求超时、并发预算和真实队列溢出，再考虑接入现有策略。fanotify 不能作为所有写入操作的通用阻断入口；详细设计和已验证范围见 `DESIGN.md`。
