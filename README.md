@@ -25,6 +25,7 @@
 - `secmon-policyctl` 只读核对两个后端的活动版本与配置摘要，并报告分歧或采样不稳定。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
 - `--policy FILE` 加载有版本的文件策略，`--reload SOCKET` 在线完整替换；v2 配置也供 secmon-fanotify 使用，支持空闲时更新裁决设置，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
+- 配置 v3 的 `allow-writer` 按执行文件 inode 与有效 UID 授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮验证见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
 - `--self-protect SOCKET` 启用自身任务保护，管理退出通过 `--stop SOCKET`；自保护拒绝输出 `self_denied` 事件与累计计数。
 
 ## 构建与运行
