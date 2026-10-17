@@ -111,4 +111,12 @@ sudo ./build/secmon-fanotify --file /absolute/path/test-file --decision deny --r
 sudo python3 tests/fanotify.py --build-dir build
 ```
 
-此处 `deny` 拒绝新增打开，包括读取；已有 FD 不受影响。组关闭或服务崩溃后，等待裁决的打开请求会被放行。单文件标记跟随 inode，不固定路径。当前开发机特权测试通过，覆盖允许/拒绝、并发、硬链接与重命名、已有 FD、正常退出、崩溃释放和运行期限；未验证真实队列溢出。它是同步裁决原型，不提供持久防护或耗时分析队列。
+此处 `deny` 拒绝新增打开，包括读取；已有 FD 不受影响。组关闭或服务崩溃后，等待裁决的打开请求会被放行。单文件标记跟随 inode，不固定路径。当前开发机特权测试通过，覆盖允许/拒绝、并发、硬链接与重命名、已有 FD、正常退出、崩溃释放和运行期限。新增有界延迟裁决队列，支持接收后的请求超时、容量回退与正常退出时拒绝用户态队列中的请求；延迟是实验值，尚未接入内容分析。真实内核队列溢出仍未验证，不提供持久防护。
+
+
+延迟裁决验证与持续负载工具：
+
+```bash
+sudo python3 tests/fanotify_deferred.py --build-dir build
+sudo python3 tests/fanotify_soak.py --build-dir build --duration 30 --mode policy
+```
