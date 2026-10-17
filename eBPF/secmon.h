@@ -32,6 +32,8 @@ struct exec_event {
     unsigned int ppid;
     unsigned int caller_uid;
     unsigned int caller_euid;
+    /* Check: preliminary bprm candidate, not final setuid prediction.
+     * Success: committed task EUID (bprm->cred has been consumed). */
     unsigned int target_euid;
     unsigned int flags;
     unsigned short file_mode;

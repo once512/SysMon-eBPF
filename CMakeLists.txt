@@ -58,6 +58,9 @@ if(BUILD_TESTING)
     target_include_directories(secmon-decision-tests PRIVATE src)
     target_compile_options(secmon-decision-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME fanotify-decisions COMMAND secmon-decision-tests)
+    add_executable(secmon-privilege-report tests/privilege_report.cpp)
+    target_compile_options(secmon-privilege-report PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME scenario-privilege-report COMMAND secmon-privilege-report)
     add_executable(secmon-lifecycle-scenario tests/lifecycle_scenario.cpp)
     add_test(NAME scenario-lifecycle COMMAND ${CMAKE_COMMAND}
         -DSCENARIO=$<TARGET_FILE:secmon-lifecycle-scenario>

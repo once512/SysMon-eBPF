@@ -44,7 +44,10 @@ static __always_inline void emit_exec(struct task_struct *task,
     e->caller_uid = BPF_CORE_READ(task, cred, uid.val);
     e->caller_euid = BPF_CORE_READ(task, cred, euid.val);
     e->caps = BPF_CORE_READ(task, cred, cap_effective.val);
-    e->target_euid = BPF_CORE_READ(bprm, cred, euid.val);
+    /* At bprm_check_security the candidate may predate setuid evaluation.
+     * After exec commits credentials, bprm->cred is NULL: use committed task creds. */
+    e->target_euid = kind == SECMON_EXEC_SUCCESS ? e->caller_euid :
+                     BPF_CORE_READ(bprm, cred, euid.val);
     e->file_mode = BPF_CORE_READ(bprm, file, f_inode, i_mode);
     e->flags = flags;
     bpf_get_current_comm(e->comm, sizeof(e->comm));
