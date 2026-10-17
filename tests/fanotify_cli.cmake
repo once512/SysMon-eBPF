@@ -54,3 +54,6 @@ expect_invalid(--policy /unused --run-for 1 --control relative)
 expect_invalid(--reload)
 expect_invalid(--reload /unused --run-for 1)
 expect_invalid(--stop /unused --run-for 1)
+
+expect_invalid(--status)
+expect_invalid(--status /unused --run-for 1)

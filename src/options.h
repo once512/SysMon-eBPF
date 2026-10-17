@@ -11,6 +11,6 @@ struct Options {
     unsigned int run_seconds = 0;
     std::string policy_path;
 };
-enum class CliAction { run, help, stop, reload };
+enum class CliAction { run, help, stop, reload, status };
 // Throws std::invalid_argument for malformed options; performs no BPF/socket I/O.
 CliAction parse_options(int argc, char **argv, Options &options);

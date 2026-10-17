@@ -47,5 +47,7 @@ public:
     void shutdown() { pending_.shutdown(); if (analyzer_) analyzer_->stop(); }
     int target_fd() const { return target_.get(); } // Borrowed; never close or read.
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
+    bool analyzer_online() const { return analyzer_ && analyzer_->online(); }
+    std::size_t pending_count() const { return pending_.size(); }
     const GateStats &stats() const { return stats_; }
 };

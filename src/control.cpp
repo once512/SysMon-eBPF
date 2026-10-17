@@ -2,6 +2,9 @@
 // 管理 socket 用目录 FD 锚定创建与清理位置；不删除不明来源的已有 socket。
 // 命令处理在宿主事件循环内串行完成，回调成功后才确认；客户端超时不保证服务没有执行命令。
 #include <cerrno>
+#include <iostream>
+#include <optional>
+#include <string_view>
 #include <cstring>
 #include <filesystem>
 #include <poll.h>
@@ -33,12 +36,40 @@ bool root_peer(int fd)
     return !getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) &&
            size == sizeof(peer) && peer.uid == 0;
 }
+// 不接受 FD 附件。即使报文畸形，也关闭内核已安装的所有 FD，避免只查询状态就产生句柄泄漏。
+ssize_t receive_message(int fd, void *data, std::size_t capacity)
+{
+    iovec payload{data, capacity};
+    alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(int) * 8)]{};
+    msghdr message{};
+    message.msg_iov = &payload;
+    message.msg_iovlen = 1;
+    message.msg_control = ancillary;
+    message.msg_controllen = sizeof(ancillary);
+    ssize_t count;
+    do { count = recvmsg(fd, &message, MSG_DONTWAIT | MSG_CMSG_CLOEXEC); }
+    while (count < 0 && errno == EINTR);
+    if (count < 0) throw std::runtime_error("Management receive failed");
+    bool attached = false;
+    for (auto *item = CMSG_FIRSTHDR(&message); item; item = CMSG_NXTHDR(&message, item)) {
+        attached = true;
+        if (item->cmsg_level == SOL_SOCKET && item->cmsg_type == SCM_RIGHTS)
+            for (std::size_t offset = 0; offset + sizeof(int) <= item->cmsg_len - CMSG_LEN(0); offset += sizeof(int)) {
+                int received;
+                std::memcpy(&received, CMSG_DATA(item) + offset, sizeof(received));
+                close(received);
+            }
+    }
+    if (attached || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)))
+        throw std::runtime_error("Invalid or truncated management message");
+    return count;
+}
 } // namespace
 
 int ControlServer::open_directory(const std::string &path)
 {
     if (geteuid() != 0 || !std::filesystem::path(path).is_absolute())
-        throw std::runtime_error("Self protection requires root and an absolute control socket path");
+        throw std::runtime_error("Control service requires root and an absolute socket path");
     const auto parent = std::filesystem::path(path).parent_path().string();
     int fd = open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0) throw std::runtime_error("Cannot open control directory");
@@ -71,7 +102,7 @@ ControlServer::ControlServer(const std::string &path)
 
 ControlServer::~ControlServer() { if (bound_) unlinkat(directory_.get(), name_.c_str(), 0); }
 
-void ControlServer::dispatch(const std::function<void(ControlCommand)> &handler)
+void ControlServer::dispatch(const std::function<management::Reply(ControlCommand)> &handler)
 {
     OwnedFd client(accept4(socket_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC));
     if (client.get() < 0) {
@@ -82,17 +113,25 @@ void ControlServer::dispatch(const std::function<void(ControlCommand)> &handler)
     pollfd request{client.get(), POLLIN, 0};
     if (poll(&request, 1, 100) <= 0) return;
     char message[16]{};
-    // SEQPACKET 保留消息边界；MSG_TRUNC 让超长报文按原长度被拒绝，不把被截断前缀误认成有效命令。
-    const auto count = recv(client.get(), message, sizeof(message), MSG_DONTWAIT | MSG_TRUNC);
-    ControlCommand command = ControlCommand::none;
-    if (count == 4 && !std::memcmp(message, "stop", 4)) command = ControlCommand::stop;
-    if (count == 6 && !std::memcmp(message, "reload", 6)) command = ControlCommand::reload;
-    if (command == ControlCommand::none) return;
+    ssize_t count;
+    try { count = receive_message(client.get(), message, sizeof(message)); }
+    catch (const std::exception &) { return; } // 单个异常连接不能终止监控服务。
+    const std::string_view text(message, static_cast<std::size_t>(count));
+    std::optional<ControlCommand> command;
+    const bool structured = text == "stop-v1" || text == "reload-v1" || text == "status-v1";
+    if (text == "stop" || text == "stop-v1") command = ControlCommand::stop;
+    if (text == "reload" || text == "reload-v1") command = ControlCommand::reload;
+    if (text == "status-v1") command = ControlCommand::status;
+    if (!command) return;
     try {
-        // 处理成功才发 ok；若重载准备失败，调用方抛异常，服务发 error 且继续运行。
-        handler(command);
-        send(client.get(), "ok", 2, MSG_NOSIGNAL);
+        auto reply = handler(*command);
+        reply.command = *command;
+        management::validate_reply(reply, *command);
+        if (structured) send(client.get(), &reply, sizeof(reply), MSG_NOSIGNAL | MSG_DONTWAIT);
+        else if (reply.code == management::Code::ok) send(client.get(), "ok", 2, MSG_NOSIGNAL);
+        else send(client.get(), "error", 5, MSG_NOSIGNAL);
     } catch (const std::exception &) {
+        // 未预期的服务内部异常不能伪装成成功；结构化客户端会拒绝这个非协议响应。
         send(client.get(), "error", 5, MSG_NOSIGNAL);
     }
 }
@@ -114,4 +153,39 @@ static void request_command(const std::string &path, const char *command)
 }
 
 void request_stop(const std::string &path) { request_command(path, "stop"); }
-void request_reload(const std::string &path) { request_command(path, "reload"); }
+static management::Reply query(const std::string &path, management::Command command)
+{
+    if (geteuid() != 0) throw std::runtime_error("Control command requires root");
+    OwnedFd connection(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+    const auto address = unix_address(path);
+    if (connection.get() < 0 || connect(connection.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) ||
+        !root_peer(connection.get())) throw std::runtime_error("Cannot connect to root control service");
+    const std::string message = std::string(management::command_name(command)) + "-v1";
+    if (send(connection.get(), message.data(), message.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(message.size()))
+        throw std::runtime_error("Cannot send management request");
+    pollfd incoming{connection.get(), POLLIN, 0};
+    if (poll(&incoming, 1, 3000) <= 0) throw std::runtime_error("Management response deadline exceeded");
+    management::Reply reply;
+    if (receive_message(connection.get(), &reply, sizeof(reply)) != sizeof(reply))
+        throw std::runtime_error("Unexpected management response size");
+    management::validate_reply(reply, command);
+    ucred peer{};
+    socklen_t size = sizeof(peer);
+    if (getsockopt(connection.get(), SOL_SOCKET, SO_PEERCRED, &peer, &size) ||
+        reply.pid != static_cast<std::uint32_t>(peer.pid)) throw std::runtime_error("Management peer PID mismatch");
+    return reply;
+}
+void request_reload(const std::string &path)
+{
+    const auto reply = query(path, management::Command::reload);
+    std::cout << management::reply_json(reply) << '\n';
+    if (reply.code != management::Code::ok)
+        throw management::Error(reply.code, std::string("Policy reload rejected: ") + management::code_name(reply.code));
+}
+void request_status(const std::string &path)
+{
+    const auto reply = query(path, management::Command::status);
+    std::cout << management::reply_json(reply) << '\n';
+    if (reply.code != management::Code::ok)
+        throw management::Error(reply.code, std::string("Status request rejected: ") + management::code_name(reply.code));
+}

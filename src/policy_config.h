@@ -2,6 +2,7 @@
 // 共用配置模型：version 是文本语法版本，revision 是进程内单调递增的运行策略版本。
 // 同一文件可供两个宿主读取；BPF 应用 protect，fanotify 应用可选的 fanotify 配置，分别提交。
 #pragma once
+#include "content_digest.h"
 #include <cstdint>
 #include <istream>
 #include <string>
@@ -24,6 +25,7 @@ struct FanotifyPolicy {
 };
 struct PolicyConfig {
     std::uint64_t revision = 0;
+    ContentDigest source_digest{}; // 仅 load_policy 对完整原始文件字节计算；CLI/纯解析结果没有来源摘要。
     std::optional<FanotifyPolicy> fanotify;
     std::vector<std::string> paths;
 };

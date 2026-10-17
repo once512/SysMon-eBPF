@@ -30,8 +30,8 @@ bool allow(std::string_view option, std::string_view text)
 
 bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
 {
-    if (argc == 3 && (std::string_view(argv[1]) == "--stop" || std::string_view(argv[1]) == "--reload")) {
-        options.action = std::string_view(argv[1]) == "--stop" ? FanotifyOptions::Action::stop : FanotifyOptions::Action::reload;
+    if (argc == 3 && (std::string_view(argv[1]) == "--stop" || std::string_view(argv[1]) == "--reload" || std::string_view(argv[1]) == "--status")) {
+        options.action = std::string_view(argv[1]) == "--stop" ? FanotifyOptions::Action::stop : (std::string_view(argv[1]) == "--reload" ? FanotifyOptions::Action::reload : FanotifyOptions::Action::status);
         options.control_path = argv[2];
         return true;
     }
@@ -48,7 +48,7 @@ bool parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
                      "  --timeout-decision allow|deny    (default deny)\n"
                      "  --overload-decision allow|deny   (default deny)\n"
                      "Or: --policy ABSOLUTE_FILE --run-for SECONDS [--control SOCKET]\n"
-                     "Management: secmon-fanotify --reload SOCKET | --stop SOCKET\n"
+                     "Management: secmon-fanotify --reload SOCKET | --stop SOCKET | --status SOCKET\n"
                      "Single-inode permission experiment; requires CAP_SYS_ADMIN.\n"
                      "SECONDS: 1..3600. Closing/crashing releases unread/pending requests.\n";
         return false;

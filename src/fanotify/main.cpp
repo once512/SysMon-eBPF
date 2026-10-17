@@ -5,10 +5,13 @@
 #include "options.h"
 #include "policy.h"
 #include "control.h"
+#include "status.h"
 #include <chrono>
 #include <csignal>
 #include <iostream>
 #include <stdexcept>
+#include <type_traits>
+static_assert(std::is_nothrow_move_assignable_v<FanotifyOptions>);
 
 namespace {
 volatile std::sig_atomic_t stopping = 0;
@@ -28,11 +31,14 @@ int main(int argc, char **argv)
     try {
         if (options.action == FanotifyOptions::Action::stop) { request_stop(options.control_path); return 0; }
         if (options.action == FanotifyOptions::Action::reload) { request_reload(options.control_path); return 0; }
-        PolicyConfig active;
+        if (options.action == FanotifyOptions::Action::status) { request_status(options.control_path); return 0; }
+        PolicyConfig initial;
         if (!options.policy_path.empty()) {
-            active = load_policy(options.policy_path);
-            apply_fanotify_policy(active, options);
+            initial = load_policy(options.policy_path);
+            apply_fanotify_policy(initial, options);
         }
+        PolicyRuntime runtime(options.policy_path, std::move(initial));
+        const auto &active = runtime.active();
         std::unique_ptr<ControlServer> control;
         if (!options.control_path.empty()) control = std::make_unique<ControlServer>(options.control_path);
         struct sigaction action{};
@@ -49,24 +55,25 @@ int main(int argc, char **argv)
             try {
                 while (!stopping && std::chrono::steady_clock::now() < deadline) {
                     if (control) control->dispatch([&](ControlCommand command) {
-                        if (command == ControlCommand::stop) { stopping = 1; return; }
-                        try {
-                            if (options.policy_path.empty()) throw std::runtime_error("Reload requires --policy at startup");
-                            auto candidate = load_policy(options.policy_path, gate.target_fd());
-                            if (candidate.revision <= active.revision) throw std::runtime_error("Policy revision must increase");
-                            auto next = options;
-                            apply_fanotify_policy(candidate, next);
-                            if (!same_fanotify_backend(options, next))
-                                throw std::runtime_error("Changing fanotify target, event or analyzer requires restart");
-                            // 先完整解析并检查固定后端，再要求队列/分析器空闲；拒绝时不更新 active revision，可稍后重试。
-                            gate.reconfigure(next.decision);
-                            options = std::move(next);
-                            active = std::move(candidate);
-                            std::cerr << "Fanotify policy active revision=" << active.revision << '\n';
-                        } catch (const std::exception &error) {
-                            std::cerr << "Fanotify policy reload rejected: " << error.what() << '\n';
-                            throw;
+                        auto code = management::Code::ok;
+                        if (command == ControlCommand::stop) stopping = 1;
+                        else if (command == ControlCommand::reload) {
+                            code = runtime.reload([&](const PolicyConfig &candidate) {
+                                auto next = options;
+                                apply_fanotify_policy(candidate, next);
+                                if (!same_fanotify_backend(options, next))
+                                    throw management::Error(management::Code::restart_required,
+                                        "Changing fanotify target, event or analyzer requires restart");
+                                // 固定后端检查和资源准备在前；空闲时提交后只做不分配内存的移动赋值。
+                                gate.reconfigure(next.decision);
+                                options = std::move(next);
+                            }, gate.target_fd());
+                            if (code == management::Code::ok)
+                                std::cerr << "Fanotify policy active revision=" << active.revision << '\n';
                         }
+                        auto reply = fanotify_status(runtime, options, gate);
+                        reply.code = code;
+                        return reply;
                     });
                     if (!stopping) gate.poll_once(100);
                 }

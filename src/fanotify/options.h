@@ -10,7 +10,7 @@ struct FanotifyOptions {
     std::string path;
     std::string policy_path;
     std::string control_path;
-    enum class Action { run, stop, reload } action = Action::run;
+    enum class Action { run, stop, reload, status } action = Action::run;
     PermissionEvent event = PermissionEvent::open;
     DecisionConfig decision;
     AnalyzerConfig analyzer;

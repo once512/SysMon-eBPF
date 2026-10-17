@@ -133,5 +133,7 @@ PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
         before.st_ctim.tv_sec != after.st_ctim.tv_sec || before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)
         throw std::runtime_error("Policy changed while reading; retry with an atomic file replacement");
     std::istringstream input(contents);
-    return parse_policy(input);
+    auto parsed = parse_policy(input);
+    parsed.source_digest = content_digest(contents);
+    return parsed;
 }

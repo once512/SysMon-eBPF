@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 find_program(CLANG_EXE NAMES clang REQUIRED)
 find_program(BPFTOOL_EXE NAMES bpftool REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 pkg_check_modules(LIBBPF REQUIRED IMPORTED_TARGET libbpf)
 if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
     message(FATAL_ERROR "Current implementation targets the development x86_64 kernel")
@@ -41,25 +42,30 @@ add_custom_command(OUTPUT "${BPF_SKEL}"
         -DINPUT=${BPF_OBJ} -DOUTPUT=${BPF_SKEL}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Bpftool.cmake
     DEPENDS "${BPF_OBJ}" cmake/Bpftool.cmake VERBATIM)
+# 纯用户态公共库：配置读取/摘要、运行版本和 root 管理协议；没有 BPF/fanotify 挂载动作。
+add_library(secmon-policy STATIC src/policy_config.cpp src/policy_runtime.cpp src/control.cpp
+    src/management/protocol.cpp src/content_digest.cpp)
+target_include_directories(secmon-policy PUBLIC src)
+target_compile_options(secmon-policy PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(secmon-policy PUBLIC OpenSSL::Crypto)
 add_executable(secmon
     src/main.cpp
     src/options.cpp
     src/events.cpp
-    src/control.cpp
-    src/policy_config.cpp
     src/file_policy.cpp
     "${BPF_SKEL}")
 # build 放在 eBPF 前面，确保使用新生成的 skeleton；仓库里的旧生成快照不是本次构建输入。
-target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF)
+target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF src)
 target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF)
+target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy)
 
 add_executable(secmon-fanotify src/fanotify/main.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
-    src/fanotify/policy.cpp src/policy_config.cpp src/control.cpp
+    src/fanotify/policy.cpp src/fanotify/status.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
 target_include_directories(secmon-fanotify PRIVATE src)
 target_compile_options(secmon-fanotify PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(secmon-fanotify PRIVATE secmon-policy)
 
 add_executable(secmon-analyzer src/analysis/worker_main.cpp src/analysis/scanner.cpp
     src/analysis/transport.cpp)
@@ -69,10 +75,16 @@ target_compile_options(secmon-analyzer PRIVATE -Wall -Wextra -Werror)
 # CTest 运行无特权检查；真实加载 BPF、fanotify 权限事件和权限转换由 tests/run_privileged.py 另行组织。
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(secmon-policy-tests tests/policy_config.cpp src/policy_config.cpp)
+    add_executable(secmon-policy-tests tests/policy_config.cpp)
+    target_link_libraries(secmon-policy-tests PRIVATE secmon-policy)
     target_include_directories(secmon-policy-tests PRIVATE src)
     target_compile_options(secmon-policy-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME policy-config COMMAND secmon-policy-tests)
+    add_executable(secmon-management-tests tests/management.cpp)
+    target_link_libraries(secmon-management-tests PRIVATE secmon-policy)
+    target_include_directories(secmon-management-tests PRIVATE src)
+    target_compile_options(secmon-management-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME management-protocol COMMAND secmon-management-tests)
     find_package(Threads REQUIRED)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_executable(secmon-analysis-fault-worker tests/analysis_fault_worker.cpp src/analysis/transport.cpp)

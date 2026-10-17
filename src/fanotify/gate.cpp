@@ -2,6 +2,7 @@
 // fanotify 权限事件会挂起请求方：读取事件得到 FD，向同一 group 写 fanotify_response 才作出裁决。
 // 这不同于只观察事件的通知接口；close 事件 FD 本身不等同于发送拒绝，关闭整个 group 会释放未决请求。
 #include "gate.h"
+#include "management/protocol.h"
 #include <algorithm>
 #include <utility>
 #include <cerrno>
@@ -185,6 +186,6 @@ void PermissionGate::reconfigure(DecisionConfig config)
 {
     // Do not service/expire old requests as a side effect of a rejected update.
     if (analyzer_ && analyzer_->active())
-        throw std::runtime_error("Policy reload requires an idle analyzer; retry later");
+        throw management::Error(management::Code::busy, "Policy reload requires an idle analyzer; retry later");
     pending_.reconfigure(config);
 }

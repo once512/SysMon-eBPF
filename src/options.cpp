@@ -21,6 +21,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
                          "--self-protect SOCKET: protect this process; requires a root-owned private directory.\n"
                          "secmon --stop SOCKET: authorized root shutdown.\n"
                          "--policy FILE: versioned file policy; reload via secmon --reload SOCKET.\n"
+                         "secmon --status SOCKET: JSON activity/revision snapshot without reading config.\n"
                          "--run-for SECONDS: exit internally after 1..3600 seconds.\n"
                          "--check: inspect environment without attaching BPF.\n";
             return CliAction::help;
@@ -44,9 +45,9 @@ CliAction parse_options(int argc, char **argv, Options &options)
                 throw std::invalid_argument("Invalid command line");
             }
         }
-        else if ((arg == "--stop" || arg == "--reload") && argc == 3 && i == 1) {
+        else if ((arg == "--stop" || arg == "--reload" || arg == "--status") && argc == 3 && i == 1) {
             options.control_path = argv[2];
-            return arg == "--stop" ? CliAction::stop : CliAction::reload;
+            return arg == "--stop" ? CliAction::stop : (arg == "--reload" ? CliAction::reload : CliAction::status);
         }
         else if (arg == "--protect-file" && i + 1 < argc) paths.emplace_back(argv[++i]);
         else {

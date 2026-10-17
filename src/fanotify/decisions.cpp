@@ -2,6 +2,7 @@
 // 裁决状态机使用 steady_clock 避免系统时间调整；超时从用户态接收事件起算，不是从系统调用开始。
 // 回复成功后才移除并关闭 FD；发生异常时由对象所有权负责回收，正常关闭会显式拒绝已交付请求。
 #include "decisions.h"
+#include "management/protocol.h"
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
@@ -17,7 +18,7 @@ PendingDecisions::PendingDecisions(DecisionConfig config, Reply reply)
 void PendingDecisions::reconfigure(DecisionConfig config)
 {
     // 空队列才允许替换统一配置，否则同一批旧请求的裁决、截止时间和回退可能被重载悄悄改变。
-    if (!pending_.empty()) throw std::runtime_error("Policy reload requires an empty delivered-request queue; retry later");
+    if (!pending_.empty()) throw management::Error(management::Code::busy, "Policy reload requires an empty delivered-request queue; retry later");
     if (config.delay.count() < 0 || config.timeout.count() <= 0 || !config.max_pending || config.external != config_.external)
         throw std::invalid_argument("Invalid decision reconfiguration");
     config_ = config;

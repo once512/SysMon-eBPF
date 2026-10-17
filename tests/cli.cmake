@@ -35,3 +35,6 @@ expect_invalid(--policy /a --protect-file /b)
 
 expect_invalid(--policy "")
 expect_invalid(--policy relative.conf)
+
+expect_invalid(--status)
+expect_invalid(--status /unused --check)

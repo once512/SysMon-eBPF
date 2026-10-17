@@ -3,10 +3,11 @@
 // SO_PEERCRED 验证连接方 UID；这只识别 root 身份，不等于可信应用身份或跨后端事务。
 #pragma once
 #include "owned_fd.h"
+#include "management/protocol.h"
 #include <string>
 #include <functional>
 
-enum class ControlCommand { none, stop, reload };
+using ControlCommand = management::Command;
 
 // Root-only SOCK_SEQPACKET endpoint. The directory FD anchors bind and cleanup.
 class ControlServer {
@@ -19,7 +20,8 @@ public:
     explicit ControlServer(const std::string &path);
     ~ControlServer();
     // Dispatches one bounded request and acknowledges only after the handler completes.
-    void dispatch(const std::function<void(ControlCommand)> &handler);
+    void dispatch(const std::function<management::Reply(ControlCommand)> &handler);
 };
 void request_stop(const std::string &path);
 void request_reload(const std::string &path);
+void request_status(const std::string &path);

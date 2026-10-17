@@ -18,6 +18,7 @@
 #include "control.h"
 #include "options.h"
 #include "policy_config.h"
+#include "policy_runtime.h"
 #include "events.h"
 #include <sys/syscall.h>
 #include <secmon.skel.h>
@@ -45,9 +46,12 @@ int main(int argc, char **argv)
     try {
         if (action == CliAction::stop) { request_stop(control_path); return 0; }
         if (action == CliAction::reload) { request_reload(control_path); return 0; }
-        PolicyConfig active;
-        active.paths = options.paths;
-        if (!options.policy_path.empty()) active = load_policy(options.policy_path);
+        if (action == CliAction::status) { request_status(control_path); return 0; }
+        PolicyConfig initial;
+        initial.paths = options.paths;
+        if (!options.policy_path.empty()) initial = load_policy(options.policy_path);
+        PolicyRuntime runtime(options.policy_path, std::move(initial));
+        const auto &active = runtime.active();
         if (active.fanotify) std::cerr << "secmon applies only protect entries; run secmon-fanotify separately for fanotify directives\n";
         utsname info{};
         if (uname(&info)) throw std::runtime_error("uname failed");
@@ -108,22 +112,22 @@ int main(int argc, char **argv)
                 std::chrono::seconds(run_seconds)) break;
             // 管理命令和事件处理共用此线程，重载不会与另一个宿主线程同时修改 active/pinned FD 集合。
             if (control) control->dispatch([&](ControlCommand command) {
+                auto code = management::Code::ok;
                 if (command == ControlCommand::stop) {
                     std::cerr << "Authorized control stop accepted\n";
                     stopping = 1;
-                    return;
+                } else if (command == ControlCommand::reload) {
+                    code = runtime.reload([&](const PolicyConfig &candidate) {
+                        protected_files.install(bpf_map__fd(skel->maps.protected_files), candidate.paths);
+                    });
+                    if (code == management::Code::ok)
+                        std::cerr << "Policy active revision=" << active.revision << '\n';
                 }
-                try {
-                    if (options.policy_path.empty()) throw std::runtime_error("Reload requires --policy at startup");
-                    auto candidate = load_policy(options.policy_path);
-                    if (candidate.revision <= active.revision) throw std::runtime_error("Policy revision must increase");
-                    protected_files.install(bpf_map__fd(skel->maps.protected_files), candidate.paths);
-                    active = std::move(candidate);
-                    std::cerr << "Policy active revision=" << active.revision << '\n';
-                } catch (const std::exception &error) {
-                    std::cerr << "Policy reload rejected: " << error.what() << '\n';
-                    throw;
-                }
+                auto reply = runtime.snapshot(management::Backend::bpf);
+                reply.protected_paths = active.paths.size();
+                reply.flags |= management::self_protected;
+                reply.code = code;
+                return reply;
             });
             if (stopping) break;
             const int result = ring_buffer__poll(ring.get(), 250);
