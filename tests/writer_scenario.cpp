@@ -38,6 +38,17 @@ int main(int argc, char **argv)
             int result = EINVAL;
             if (line[0] == 'w') result = pwrite(held, "W", 1, 0) == 1 ? 0 : errno;
             if (line[0] == 'o') result = write_file(argv[2]);
+            if (line[0] == 'r') {
+                const int fd = open(argv[2], O_RDONLY | O_CLOEXEC);
+                if (fd < 0) result = errno;
+                else { char byte; result = read(fd, &byte, 1) == 1 ? 0 : errno; close(fd); }
+            }
+            if (line[0] == 'u') result = unlink(argv[2]) ? errno : 0;
+            if (line[0] == 'n' || line[0] == 'l') {
+                char destination[4096];
+                std::snprintf(destination, sizeof(destination), "%s.alias", argv[2]);
+                result = (line[0] == 'n' ? rename(argv[2], destination) : link(argv[2], destination)) ? errno : 0;
+            }
             if (line[0] == 't') result = ftruncate(held, 4) ? errno : 0;
             if (line[0] == 'm' || line[0] == 'p' || line[0] == 'v') {
                 const int protection = line[0] == 'p' ? PROT_READ : PROT_READ | PROT_WRITE;

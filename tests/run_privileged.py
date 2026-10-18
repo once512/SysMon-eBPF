@@ -35,6 +35,7 @@ TESTS = (
     ('unified-service', 'unified_service.py'),
     ('audit-backpressure', 'audit_backpressure.py'),
     ('permission-audit', 'permission_audit.py'),
+    ('decoy-evidence', 'decoy_evidence.py'),
     ('permission-audit-backpressure', 'permission_audit_backpressure.py'),
     ('shutdown-order', 'shutdown_order.py'),
     ('diagnostic-backpressure', 'diagnostic_backpressure.py'),
