@@ -2,6 +2,7 @@
 // 私有定长报文先校验再解释；CLI 仅输出固定枚举和数值，配置路径等非可信字符串不进入 JSON。
 #include <secmon/policy_limits.h>
 #include <secmon/audit_limits.h>
+#include <secmon/diagnostic_limits.h>
 #include "protocol.h"
 #include <sstream>
 
@@ -37,6 +38,8 @@ void validate_reply(const Reply &r, Command expected)
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
         (r.flags & ~15U) || (r.fallbacks & ~7U) || r.reserved_tail ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
+        r.diagnostic_queued > SECMON_DIAGNOSTIC_MAX_RECORDS || r.diagnostic_errno < 0 || r.diagnostic_errno > 4095 ||
+        r.diagnostic_invalid > r.diagnostic_dropped ||
         r.audit_queued > SECMON_AUDIT_MAX_RECORDS || r.audit_errno < 0 || r.audit_errno > 4095 ||
         r.pending > SECMON_MAX_PENDING || r.peak_pending > SECMON_MAX_PENDING || r.event > 3 || r.mode > 3 ||
         !analysis::valid_scan_error(r.last_scan_error, r.last_scan_errno) ||
@@ -69,6 +72,9 @@ std::string reply_json(const Reply &r)
     out << ",\"source_sha256\":";
     if (r.flags & configured) out << '\"' << digest_hex(r.source_digest) << '\"';
     else out << "null";
+    out << ",\"diagnostic_written\":" << r.diagnostic_written << ",\"diagnostic_dropped\":" << r.diagnostic_dropped
+        << ",\"diagnostic_invalid\":" << r.diagnostic_invalid << ",\"diagnostic_queued\":" << r.diagnostic_queued
+        << ",\"diagnostic_errno\":" << r.diagnostic_errno;
     // 按后端输出实际支持的字段，不给 BPF 状态填造 fanotify 的裁决业务计数。
     if (r.backend != Backend::fanotify)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")

@@ -32,11 +32,11 @@ sudo ./build/secmon --reload /run/secmon/control.sock
 sudo ./build/secmon --stop /run/secmon/control.sock
 ```
 
-默认启动 BPF；配置中有 fanotify 字段时同时创建权限门。任一对象构造失败，整个启动失败，已创建的对象逆序回收；只有 stderr 的 `Service active;` 才表示所有请求模块均已就绪。各内核钩子/mark 首次启用有先后，不承诺瞬时联合启用。
+默认启动 BPF；配置中有 fanotify 字段时同时创建权限门。任一对象构造失败，整个启动失败，已创建的对象逆序回收；stderr 的 `Service active;` 表示所有请求模块均已就绪；诊断队列可能丢弃该行，管理 status 的成功响应也可确认服务已进入事件循环。各内核钩子/mark 首次启用有先后，不承诺瞬时联合启用。
 
 同一线程串行处理管理命令、BPF 事件和 fanotify 裁决。联合模式中 BPF 以零等待、每轮最多 128 条消费，fanotify 每轮最多等待 10ms，并受请求截止时间进一步限制。该数值是 poll 等待上限，不是端到端时延承诺。没有第二个监控进程或独立重载线程。AuditSink 另用专门 I/O 线程消费有界 JSONL 队列，避免 stdout 管道堵塞主循环；该线程不修改策略。
 
-审计事件仍写 stdout JSONL。BPF 周期统计和联合模式 fanotify 结束统计写 stderr，避免将统计混入事件消费者。`--fanotify-only` 诊断模式的结束统计仍写 stdout，方便机制测试读取。
+审计事件仍写 stdout JSONL。BPF 周期统计和联合模式 fanotify 结束统计写 stderr，避免将统计混入事件消费者。`--fanotify-only` 诊断模式的结束统计仍写 stdout，方便机制测试读取。服务期 stderr（含 libbpf）使用独立有界输出线程，状态包含 diagnostic_* 计数；预算和故障边界见 [审计/诊断出口](AUDIT_OUTPUT.md)。
 
 ## 联合重载的失败边界
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# 填满诊断 stderr 后授权停止：即使结束统计被堵住，监听组也应已关闭，不留下无人处理的权限等待。
+# 填满诊断 stderr 后授权停止：不消费诊断也须完成退出并释放权限组。
 import argparse
 import errno
 import fcntl
@@ -60,21 +60,16 @@ def main():
                     except BlockingIOError:
                         break
                 call(binary, 'stop', control)
-                # 不消费 stderr，主服务会在结束统计处等待；权限组必须已释放。
+                # 不消费 stderr；权限组必须已释放，诊断线程有限等待后退出。
                 assert open_errno(target) == 0
-                # 排空诊断，使退出完成；有些调度下首次输出尚未执行，循环读到真实退出。
-                deadline = time.monotonic() + 5
-                while process.poll() is None:
-                    drain(read_fd)
-                    assert time.monotonic() < deadline
-                    time.sleep(0.01)
+                process.wait(timeout=3)
                 assert process.returncode == 0
                 assert not control.exists()
-                print('PASS fanotify group closes before blocked shutdown diagnostics; authorized stop leaves no stranded permission request')
+                print('PASS full stderr does not block authorized shutdown; fanotify group released without draining diagnostics')
             finally:
                 drain(read_fd)
                 if process.poll() is None:
-                    # 已授权 stop 且 BPF detach 在诊断之前；继续排空，避免测试自身把退出堵住。
+                    # 失败清理仍排空诊断，保留对旧产物/异常路径的退出保障。
                     deadline = time.monotonic() + 5
                     while process.poll() is None and time.monotonic() < deadline:
                         drain(read_fd)

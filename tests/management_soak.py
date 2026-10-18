@@ -134,6 +134,8 @@ def main():
                     assert snapshot['revision'] == revision and snapshot['instance_ns'] == initial['instance_ns']
                     assert snapshot['pending'] <= 4 and snapshot['peak_pending'] <= 4
                     assert snapshot['analyzer_failures'] == 0 and snapshot['overflow'] == 0
+                    assert snapshot['diagnostic_dropped'] == snapshot['diagnostic_invalid'] == snapshot['diagnostic_errno'] == 0, snapshot
+                    assert snapshot['diagnostic_queued'] <= 256, snapshot
                     if args.verify_audit_output:
                         assert snapshot['audit_invalid'] == snapshot['audit_dropped'] == snapshot['audit_errno'] == 0, snapshot
                         assert snapshot['audit_queued'] <= 1024, snapshot

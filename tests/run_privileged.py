@@ -35,6 +35,7 @@ TESTS = (
     ('unified-service', 'unified_service.py'),
     ('audit-backpressure', 'audit_backpressure.py'),
     ('shutdown-order', 'shutdown_order.py'),
+    ('diagnostic-backpressure', 'diagnostic_backpressure.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
     ('baseline-mismatch', 'baseline_mismatch.py'),

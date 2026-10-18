@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 21 项（含审计输出队列与事件格式边界），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 22 项（含独立审计/诊断输出队列与事件格式边界），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -29,7 +29,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
-| shutdown-order | `shutdown_order.py` | 填满 stderr 后停止仍先关闭权限组，不留下无人处理的打开请求 |
+| diagnostic-backpressure | `diagnostic_backpressure.py` | stderr 启动已满、失败重载洪流、周期报告、恢复/断开时裁决与管理继续，停止不依赖排空诊断 |
+| shutdown-order | `shutdown_order.py` | 填满 stderr 后不排空也完成退出，释放权限组 |
 | audit-backpressure | `audit_backpressure.py` | 审计 stdout 堵塞/恢复/断开/持续洪流时的裁决、重载与停止；用户态丢失可诊断 |
 | audit-file | `integration.py` | 执行/凭证事件、旧 TID、文件只读的 13 类拒绝、读取与私有映射、退出解除 |
 | self-protection | `self_protection.py` | 信号、ptrace 类检查、管理端身份、授权停止、期限及 socket 清理 |
@@ -114,6 +115,8 @@ sudo python3 tests/run_privileged.py --build-dir build --only writer-scope unifi
 纯解析的 sanitizer/libFuzzer 入口另见 [配置模糊测试](POLICY_FUZZING.md)。
 
 审计出口的队列边界、线程分工、输出失败行为及诊断限制见 [有界审计出口](AUDIT_OUTPUT.md)。
+
+management_soak.py 的所有后端还核对 diagnostic_dropped/diagnostic_invalid/diagnostic_errno 为零，诊断队列不超过 256 条。
 
 单独运行 management_soak.py 时可用 --combined --verify-audit-output 开启当前审计出口健康检查；该模式要求所有相应字段存在且错误/丢弃为零，不把旧字段缺失当作通过。
 

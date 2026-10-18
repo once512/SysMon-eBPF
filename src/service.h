@@ -4,10 +4,12 @@
 #include "options.h"
 #include "policy_runtime.h"
 #include <memory>
+class DiagnosticOutput;
 class ControlServer;
 class BpfMonitor;
 class FanotifyMonitor;
 class MonitorService {
+    DiagnosticOutput &diagnostics_;
     Options options_;
     PolicyRuntime runtime_;
     std::unique_ptr<ControlServer> control_;
@@ -16,7 +18,7 @@ class MonitorService {
     management::Reply snapshot() const;
     void commit(const PolicyConfig &candidate);
 public:
-    explicit MonitorService(Options options);
+    MonitorService(Options options, DiagnosticOutput &diagnostics);
     ~MonitorService();
     MonitorService(const MonitorService &) = delete;
     MonitorService &operator=(const MonitorService &) = delete;

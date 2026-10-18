@@ -57,6 +57,7 @@ add_executable(secmon
     src/events.cpp
     src/event_format.cpp
     src/audit_sink.cpp
+    src/diagnostic_output.cpp
     src/file_policy.cpp
     src/writer_identity.cpp
     "${BPF_SKEL}")
@@ -90,6 +91,11 @@ if(BUILD_TESTING)
     target_link_libraries(secmon-audit-tests PRIVATE Threads::Threads)
     target_compile_options(secmon-audit-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME audit-output-queue COMMAND secmon-audit-tests)
+    add_executable(secmon-diagnostic-tests tests/diagnostic_output.cpp src/diagnostic_output.cpp src/audit_sink.cpp)
+    target_include_directories(secmon-diagnostic-tests PRIVATE src include)
+    target_link_libraries(secmon-diagnostic-tests PRIVATE Threads::Threads)
+    target_compile_options(secmon-diagnostic-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME diagnostic-output-queue COMMAND secmon-diagnostic-tests)
     add_executable(secmon-event-format-tests tests/event_format.cpp src/event_format.cpp)
     target_include_directories(secmon-event-format-tests PRIVATE src eBPF include)
     target_compile_options(secmon-event-format-tests PRIVATE -Wall -Wextra -Werror)

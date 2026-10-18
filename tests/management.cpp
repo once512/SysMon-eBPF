@@ -52,6 +52,14 @@ int main()
     reject([](Reply &x) { x.audit_queued = 1025; });
     reject([](Reply &x) { x.audit_errno = -1; });
     reject([](Reply &x) { x.audit_errno = 4096; });
+    reject([](Reply &x) { x.diagnostic_queued = 257; });
+    reject([](Reply &x) { x.diagnostic_errno = -1; });
+    reject([](Reply &x) { x.diagnostic_errno = 4096; });
+    reject([](Reply &x) { x.diagnostic_invalid = 1; });
+    r.diagnostic_written = 5;
+    r.diagnostic_dropped = 2;
+    r.diagnostic_invalid = 1;
+    require(reply_json(r).find("\"diagnostic_written\":5") != std::string::npos);
     r.writer_paths = 64;
     require(reply_json(r).find("\"writer_paths\":64") != std::string::npos);
     r.writer_paths = 0;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 事件处理、管理和重载都在此线程串行执行，不创建第二个监控进程或后台重载线程。
 #include "service.h"
+#include "diagnostic_output.h"
 #include "bpf/monitor.h"
 #include "fanotify/monitor.h"
 #include "fanotify/policy.h"
@@ -24,8 +25,8 @@ PolicyConfig initial_policy(const Options &options)
     return initial;
 }
 }
-MonitorService::MonitorService(Options options)
-    : options_(std::move(options)), runtime_(options_.policy_path, initial_policy(options_))
+MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
+    : diagnostics_(diagnostics), options_(std::move(options)), runtime_(options_.policy_path, initial_policy(options_))
 {
     stopping.store(false, std::memory_order_relaxed);
     struct sigaction action{};
@@ -66,6 +67,12 @@ management::Reply MonitorService::snapshot() const
 {
     const auto backend = bpf_ ? (fanotify_ ? management::Backend::combined : management::Backend::bpf) : management::Backend::fanotify;
     auto reply = runtime_.snapshot(backend);
+    const auto diagnostic = diagnostics_.stats();
+    reply.diagnostic_written = diagnostic.written;
+    reply.diagnostic_dropped = diagnostic.dropped;
+    reply.diagnostic_invalid = diagnostic.invalid;
+    reply.diagnostic_queued = diagnostic.queued;
+    reply.diagnostic_errno = diagnostic.output_errno;
     if (bpf_) {
         reply.protected_paths = runtime_.active().paths.size();
         reply.writer_paths = runtime_.active().writers.size();

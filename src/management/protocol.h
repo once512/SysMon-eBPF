@@ -71,9 +71,15 @@ struct Reply {
     std::uint64_t audit_invalid = 0;
     std::uint32_t audit_queued = 0;
     std::int32_t audit_errno = 0;
+    // stderr 与 stdout 审计各自有独立预算；所有监控后端都提供诊断出口状态。
+    std::uint64_t diagnostic_written = 0;
+    std::uint64_t diagnostic_dropped = 0;
+    std::uint64_t diagnostic_invalid = 0;
+    std::uint32_t diagnostic_queued = 0;
+    std::int32_t diagnostic_errno = 0;
 };
 // 只约束当前完整结构的布局；调整字段时同步修改本包两端与测试，不保留历史前缀。
-static_assert(sizeof(Reply) == 328);
+static_assert(sizeof(Reply) == 360);
 class Error : public std::runtime_error {
     Code code_;
 public:

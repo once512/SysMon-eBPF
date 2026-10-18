@@ -22,6 +22,7 @@
 - 同一次执行可能多次经过检查点（例如脚本与解释器处理），不按检查事件数量统计成功执行次数。`comm` 是检查时的当前任务名，可能仍为调用者名称；`filename` 是本次执行请求路径。
 - 在 `commit_creds` 返回后、fork 和 exec 完成时记录已观测凭证，按线程生命周期清理。
 - 凭证与基线不一致时设置事件 `flags` 的位 0，仅审计，不阻断。合法提交也可能来自攻击，基线不等同于可信授权。
+- stderr 诊断使用独立有界队列，阻塞/断开不拖住裁决和管理循环，状态查询提供诊断丢弃与出口错误；详见 [诊断出口](docs/AUDIT_OUTPUT.md)。
 - 审计 JSONL 经有界队列由独立 I/O 线程写 stdout；背压/输出错误可查询，不直接拖住 fanotify 裁决。每 10 秒及退出时向 stderr 输出内核丢失、基线失败和审计出口计数，详见 [审计出口](docs/AUDIT_OUTPUT.md)。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
 - `secmon-policyctl --socket SOCKET` 只读核对主服务的活动策略和可选预期 revision。
