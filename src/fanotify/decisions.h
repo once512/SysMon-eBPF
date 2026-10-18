@@ -3,6 +3,7 @@
 // 静态延迟用于实验；外部模式把实际分析交给独立进程，本队列仍负责截止时间和回退。
 #pragma once
 #include "owned_fd.h"
+#include "requester.h"
 #include "analysis/protocol.h"
 #include <chrono>
 #include <cstddef>
@@ -35,6 +36,7 @@ struct PermissionRequest {
     std::uint64_t revision;
     std::int32_t requester_pid;
     std::chrono::steady_clock::time_point received;
+    ProcessIdentity process{};
 };
 
 // Owns only events already delivered by the kernel, never the kernel queue.
@@ -48,6 +50,7 @@ private:
     // 数字 PID 不参与 fanotify 回复定位。
     struct Request {
         OwnedFd fd;
+        ProcessReference process;
         PermissionRequest context;
     };
     DecisionConfig config_;
@@ -63,7 +66,8 @@ public:
     // 仅供协调器在验证后、同一事件循环内调用；纯值赋值，不再检查或分配。
     void commit_reconfigure(DecisionConfig config) noexcept { config_ = config; }
     void reconfigure(DecisionConfig config);
-    void submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid = 0, std::uint64_t revision = 0);
+    void submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid = 0, std::uint64_t revision = 0,
+                ProcessReference process = {});
     struct ReadyRequest { std::uint64_t id; int fd; };
     // 返回的是借用视图；
     // 调用者不得跨越队列完成/超时后继续把其中的裸 FD 当成有效请求。

@@ -33,6 +33,13 @@ static __always_inline void count_stat(u32 index)
     if (value)
         (*value)++;
 }
+/* Process identity is the TGID struct pid, independent of the acting thread or PID namespace.
+ * Older kernels without pidfs's ino field report zero rather than guessing from a numeric PID. */
+static __always_inline u64 process_inode(struct task_struct *task)
+{
+    if (!bpf_core_field_exists(struct pid, ino)) return 0;
+    return BPF_CORE_READ(task, signal, pids[PIDTYPE_TGID], ino);
+}
 #include "upchk.bpf.c"
 static __always_inline void emit_exec(struct task_struct *task,
                                      struct linux_binprm *bprm,
@@ -52,6 +59,7 @@ static __always_inline void emit_exec(struct task_struct *task,
     e->size = sizeof(*e);
     e->timestamp_ns = bpf_ktime_get_ns();
     e->start_ns = BPF_CORE_READ(task, start_boottime);
+    e->process_inode = process_inode(task);
     /* helper 返回高 32 位 TGID、低 32 位线程 PID；本项目 JSON 的 pid/tid 分别使用这两部分。 */
     /* helper 使用初始 PID namespace 的编号，不能直接与容器内部 getpid() 比较；用 NSpid 做关联。 */
     u64 id = bpf_get_current_pid_tgid();

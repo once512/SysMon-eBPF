@@ -20,6 +20,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
                      "--run-for SECONDS: optional internal lifetime, 1..3600; otherwise run until stopped.\n"
                      "Diagnostics: --bpf-only | --fanotify-only (same process and entry point).\n"
                      "--audit-permissions: emit fanotify reply JSONL; final fanotify stats go to stderr.\n"
+                     "--requester-pidfd: retain kernel requester pidfds; requires --audit-permissions.\n"
                      "Fanotify CLI instead of policy: --file PATH --decision allow|deny\n"
                      "  or --file PATH --analyzer ABSOLUTE_PATH --deny-marker TEXT\n"
                      "  --event open|access|exec --scan-limit-bytes 1..1048576\n"
@@ -42,6 +43,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
         const std::string_view arg(argv[i]);
         if (arg != "--protect-file" && !seen.insert(arg).second) throw std::invalid_argument("Duplicate option");
         if (arg == "--audit-permissions") options.permission_audit = true;
+        else if (arg == "--requester-pidfd") options.requester_pidfd = true;
         else if (arg == "--check") options.check = true;
         else if (arg == "--bpf-only" || arg == "--fanotify-only") {
             if (options.modules != Options::Modules::automatic) throw std::invalid_argument("Choose one diagnostic module");
@@ -65,7 +67,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
             else throw std::invalid_argument("Unknown option; use --help");
         }
     }
-    if ((options.check && argc != 2) || options.paths.size() > SECMON_MAX_PROTECTED_PATHS ||
+    if ((options.requester_pidfd && !options.permission_audit) || (options.check && argc != 2) || options.paths.size() > SECMON_MAX_PROTECTED_PATHS ||
         (!options.policy_path.empty() && (!options.paths.empty() || fan_args.size() > 1)) ||
         (options.modules == Options::Modules::bpf_only && (fan_args.size() > 1 || options.permission_audit)) ||
         (options.modules == Options::Modules::fanotify_only && !options.paths.empty()))

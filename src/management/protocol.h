@@ -17,7 +17,7 @@ enum class Code : std::uint32_t {
     prepare_failed = 4, busy = 5, restart_required = 6, internal_error = 7
 };
 enum class Backend : std::uint32_t { bpf = 1, fanotify = 2, combined = 3 };
-enum Flag : std::uint32_t { configured = 1, self_protected = 2, analyzer = 4, analyzer_online = 8, permission_audit = 16 };
+enum Flag : std::uint32_t { configured = 1, self_protected = 2, analyzer = 4, analyzer_online = 8, permission_audit = 16, requester_pidfd = 32 };
 // 只描述服务内存中的活动状态，查询不读取磁盘配置、不执行到期处理、不重启分析器。
 struct Reply {
     std::uint32_t magic_value = magic;

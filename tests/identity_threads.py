@@ -157,7 +157,7 @@ class Actor:
                 stream.close()
 
 
-def experiment(build, event, nested):
+def experiment(build, event, nested, requester_pidfd=False):
     with tempfile.TemporaryDirectory(prefix='secmon-thread-identity-') as temporary, ExitStack() as stack:
         root = Path(temporary)
         target = root / 'target'
@@ -165,7 +165,7 @@ def experiment(build, event, nested):
         identity = target.stat()
         held = os.open(target, os.O_RDWR | os.O_CLOEXEC)
         stack.callback(os.close, held)
-        service = AuditedService(build, root, target, f'protect "{target}"\nfanotify-event {event}\nfanotify-decision allow', combined=True)
+        service = AuditedService(build, root, target, f'protect "{target}"\nfanotify-event {event}\nfanotify-decision allow', combined=True, requester_pidfd=requester_pidfd)
         stack.callback(service.close)
         # The protected service deliberately rejects external /proc/fdinfo inspection.
         # A separate unprotected, read-only BPF observer supplies task baseline keys.
@@ -173,6 +173,9 @@ def experiment(build, event, nested):
         mapping = stack.enter_context(CredentialMap(observer.process.pid))
         subject = Actor(target, held, nested)
         stack.callback(subject.close)
+        reference = os.pidfd_open(subject.host_pid)
+        stack.callback(os.close, reference)
+        process_inode = os.fstat(reference).st_ino
         rounds = []
         exited_keys = set()
         leader_key = None
@@ -210,6 +213,9 @@ def experiment(build, event, nested):
         assert len(permissions) == len(denials) == len(samples) == 147
         assert sorted(row['request_id'] for row in permissions) == list(range(1, 148))
         for row in permissions:
+            if requester_pidfd:
+                assert row['requester_reference'] == 'present' and row['requester_identity_errno'] == 0
+                assert row['requester_process_inode'] == process_inode
             assert row['requester_pid_kind'] == 'tgid'
             assert row['pid_namespace_inode'] == os.stat('/proc/self/ns/pid').st_ino
             assert row['requester_pid'] == subject.host_pid  # TGID, not the acting worker TID.
@@ -224,6 +230,7 @@ def experiment(build, event, nested):
         expected = Counter((row['host_tid'], row['task_start_ns']) for row in samples)
         observed = Counter()
         for row in denials:
+            assert row['process_inode'] == process_inode
             assert row['pid'] == subject.host_pid and row['operation'] == 2 and row['errno'] == errno.EACCES
             assert (row['dev_major'], row['dev_minor'], row['ino']) == (os.major(identity.st_dev), os.minor(identity.st_dev), identity.st_ino)
             observed[(row['tid'], row['start_ns'])] += 1
@@ -236,7 +243,7 @@ def experiment(build, event, nested):
             values = re.findall(r'\b' + field + r'=(\d+)', diagnostics)
             assert values and int(values[-1]) == 0, (field, values)
         assert target.read_bytes() == b'synthetic identity fixture\n'
-        return dict(event=event, nested=nested, host_pid=subject.host_pid, leader_key=leader_key,
+        return dict(event=event, nested=nested, host_pid=subject.host_pid, process_inode=process_inode, leader_key=leader_key,
                     rounds=rounds, permissions=permissions, denials=denials, diagnostics=diagnostics,
                     ambiguous_permissions=sum(len(row['candidate_host_tids']) > 1 for row in permissions))
 
@@ -248,6 +255,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-dir', default='build')
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--requester-pidfd', action='store_true')
     parser.add_argument('--duration', type=int, default=0, help='repeat all four variants for 0..1200 seconds')
     args = parser.parse_args()
     if os.geteuid() != 0 or sys.flags.optimize:
@@ -265,7 +273,7 @@ def main():
         reports = []
         for nested in (False, True):
             for event in ('open', 'access'):
-                report = experiment(Path(args.build_dir).resolve(), event, nested)
+                report = experiment(Path(args.build_dir).resolve(), event, nested, args.requester_pidfd)
                 reports.append(report)
                 print(json.dumps(dict(experiment='identity-threads', cycle=cycle, event=event, nested=nested, permission_records=147,
                                       denial_records=147, ambiguous_permissions=report['ambiguous_permissions'], passed=True)), flush=True)

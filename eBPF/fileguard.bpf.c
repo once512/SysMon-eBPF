@@ -65,6 +65,7 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     e->timestamp_ns = bpf_ktime_get_ns();
     struct task_struct *task = bpf_get_current_task_btf();
     e->start_ns = BPF_CORE_READ(task, start_boottime);
+    e->process_inode = process_inode(task);
     u64 id = bpf_get_current_pid_tgid();
     e->pid = id >> 32;
     e->tid = (u32)id;

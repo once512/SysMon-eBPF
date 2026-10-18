@@ -40,7 +40,7 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
     if (e.kind == SECMON_SELF_DENIED_EVENT) {
         out << "{\"event\":\"self_denied\",\"timestamp_ns\":" << e.timestamp_ns
                   << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
-                  << ",\"start_ns\":" << e.start_ns
+                  << ",\"start_ns\":" << e.start_ns << ",\"process_inode\":" << e.process_inode
                   << ",\"target_pid\":" << e.target_pid << ",\"signal\":" << e.signal
                   << ",\"operation\":" << e.operation << ",\"errno\":1"
                   << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
@@ -52,7 +52,7 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
     if (e.kind == SECMON_FILE_DENIED) {
         out << "{\"event\":\"file_denied\",\"timestamp_ns\":" << e.timestamp_ns
                   << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
-                  << ",\"start_ns\":" << e.start_ns
+                  << ",\"start_ns\":" << e.start_ns << ",\"process_inode\":" << e.process_inode
                   << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
                   << ",\"dev_major\":" << e.file.major << ",\"dev_minor\":" << e.file.minor
                   << ",\"ino\":" << e.file.ino << ",\"operation\":" << e.operation
@@ -67,7 +67,7 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
     }
     out << "{\"event\":\"" << kind << "\",\"timestamp_ns\":" << e.timestamp_ns
               << ",\"old_tid\":" << e.old_tid
-              << ",\"start_ns\":" << e.start_ns << ",\"pid\":" << e.pid
+              << ",\"start_ns\":" << e.start_ns << ",\"process_inode\":" << e.process_inode << ",\"pid\":" << e.pid
               << ",\"tid\":" << e.tid << ",\"ppid\":" << e.ppid
               << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
               << ",\"target_euid\":" << e.target_euid << ",\"caps\":" << e.caps

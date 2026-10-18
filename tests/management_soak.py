@@ -26,11 +26,14 @@ def main():
     parser.add_argument('--backend', choices=('static', 'analysis'), default='static')
     parser.add_argument('--verify-audit-output', action='store_true', help='require healthy current audit queue and kernel counters throughout the load')
     parser.add_argument('--audit-permissions', action='store_true', help='verify each permission audit record against replies')
+    parser.add_argument('--requester-pidfd', action='store_true', help='retain and verify kernel process references')
     parser.add_argument('--combined', action='store_true', help='run both modules with scoped native writer probes')
     parser.add_argument('--event', choices=('open', 'access'), default='open')
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root/fanotify permissions')
+    if args.requester_pidfd and not args.audit_permissions:
+        parser.error('--requester-pidfd requires --audit-permissions')
     if args.verify_audit_output and not args.combined:
         parser.error('--verify-audit-output requires --combined')
     if not 5 <= args.duration <= 1800:
@@ -39,6 +42,11 @@ def main():
     binary = build / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-soak-') as temporary, ExitStack() as stack:
         root = Path(temporary)
+        process_inode = 0
+        if args.requester_pidfd:
+            reference = os.pidfd_open(os.getpid())
+            stack.callback(os.close, reference)
+            process_inode = os.fstat(reference).st_ino
         target, config, control = [root / name for name in ('target', 'policy', 'control')]
         target.write_bytes(b'clean'.ljust(32, b'.'))
         writer = os.open(target, os.O_RDWR | os.O_CLOEXEC)
@@ -61,7 +69,8 @@ def main():
         publish()
         with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
             process = subprocess.Popen([str(binary), *([] if args.combined else ['--fanotify-only']),
-                                        *(['--audit-permissions'] if args.audit_permissions else []), '--policy', str(config), '--control', str(control),
+                                        *(['--audit-permissions'] if args.audit_permissions else []),
+                                        *(['--requester-pidfd'] if args.requester_pidfd else []), '--policy', str(config), '--control', str(control),
                                         '--run-for', str(args.duration + 30)], stdout=output, stderr=errors)
             halt = threading.Event()
             condition = threading.Condition()
@@ -134,6 +143,7 @@ def main():
                     snapshot = call(binary, 'status', control)
                     queries += 1
                     max_latency = max(max_latency, time.monotonic() - before)
+                    assert snapshot['requester_pidfd'] == args.requester_pidfd
                     assert snapshot['revision'] == revision and snapshot['instance_ns'] == initial['instance_ns']
                     assert snapshot['pending'] <= 4 and snapshot['peak_pending'] <= 4
                     assert snapshot['analyzer_failures'] == 0 and snapshot['overflow'] == 0
@@ -145,7 +155,7 @@ def main():
                     current = len(list(Path(f'/proc/{process.pid}/fd').iterdir()))
                     peak = max(peak, current)
                     # 四个 pending FD、一个正在接管的事件 FD、一个临时管理连接的保守总预算。
-                    assert current <= base + 6, (base, current)
+                    assert current <= base + (11 if args.requester_pidfd else 6), (base, current)
                     if time.monotonic() >= next_update:
                         with condition:
                             paused = True
@@ -175,7 +185,7 @@ def main():
                         next_update = time.monotonic() + 2
                     if time.monotonic() >= next_report:
                         print(f'progress backend={args.backend} event={args.event} seconds={time.monotonic()-started:.0f}'
-                              f' queries={queries} updates={updates} peak_fds={peak}', flush=True)
+                              f' queries={queries} updates={updates} requests={sum(counts)} peak_fds={peak}', flush=True)
                         next_report += 30
                     halt.wait(0.1)
                 halt.set()
@@ -223,6 +233,7 @@ def main():
                 # 逐行校验，不把长测的全部 JSON 对象载入内存；标记数组按实际回复总量分配，每个请求一字节。
                 seen = bytearray(sum(counts))
                 recorded, allowed = 0, 0
+                namespace_inode = os.stat('/proc/self/ns/pid').st_ino
                 for line in output:
                     event = json.loads(line)
                     if event['event'] != 'fanotify_decision':
@@ -233,13 +244,18 @@ def main():
                     recorded += 1
                     allowed += event['decision'] == 'allow'
                     assert event['instance_ns'] == initial['instance_ns'] and event['listener_pid'] == process.pid
+                    assert event['requester_pid_kind'] == 'tgid'
+                    assert event['pid_namespace_inode'] == namespace_inode
+                    if args.requester_pidfd:
+                        assert event['requester_reference'] == 'present' and event['requester_identity_errno'] == 0
+                        assert event['requester_process_inode'] == process_inode
                     assert event['requester_pid'] == os.getpid() and 1 <= event['revision'] <= revision
                     assert event['permission_event'] == args.event
                     if event['reason'] in ('policy', 'analysis'):
                         assert (event['decision'] == 'allow') == bool(event['revision'] % 2), event
                 assert recorded == sum(counts) and allowed == counts[0]
                 print(json.dumps({'event': 'permission-audit-health', 'backend': args.backend, 'permission_event': args.event,
-                                  'records': recorded, 'updates': updates, 'unique_ids': True, 'reply_accounting': True}), flush=True)
+                                  'records': recorded, 'updates': updates, 'requester_pidfd':args.requester_pidfd, 'process_inode': process_inode, 'unique_ids': True, 'reply_accounting': True}), flush=True)
             if args.verify_audit_output:
                 errors.seek(0)
                 diagnostics = errors.read()

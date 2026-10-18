@@ -36,7 +36,7 @@ void validate_reply(const Reply &r, Command expected)
     // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
-        (r.flags & ~31U) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) || r.reserved_tail ||
+        (r.flags & ~63U) || ((r.flags & requester_pidfd) && !(r.flags & permission_audit)) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) || r.reserved_tail ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
         r.diagnostic_queued > SECMON_DIAGNOSTIC_MAX_RECORDS || r.diagnostic_errno < 0 || r.diagnostic_errno > 4095 ||
         r.diagnostic_invalid > r.diagnostic_dropped ||
@@ -72,7 +72,8 @@ std::string reply_json(const Reply &r)
     out << ",\"source_sha256\":";
     if (r.flags & configured) out << '\"' << digest_hex(r.source_digest) << '\"';
     else out << "null";
-    out << ",\"permission_audit\":" << ((r.flags & permission_audit) ? "true" : "false");
+    out << ",\"permission_audit\":" << ((r.flags & permission_audit) ? "true" : "false")
+        << ",\"requester_pidfd\":" << ((r.flags & requester_pidfd) ? "true" : "false");
     out << ",\"diagnostic_written\":" << r.diagnostic_written << ",\"diagnostic_dropped\":" << r.diagnostic_dropped
         << ",\"diagnostic_invalid\":" << r.diagnostic_invalid << ",\"diagnostic_queued\":" << r.diagnostic_queued
         << ",\"diagnostic_errno\":" << r.diagnostic_errno;

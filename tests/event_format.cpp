@@ -17,12 +17,14 @@ int main()
     require(!format_event(&event, sizeof(event) - 1));
     require(!format_event(&event, sizeof(event)));
     event.start_ns = 123456789;
+    event.process_inode = 987654321;
     for (unsigned kind : {SECMON_EXEC_CHECK, SECMON_EXEC_SUCCESS, SECMON_FILE_DENIED, SECMON_SELF_DENIED_EVENT}) {
         event.kind = kind;
         const auto line = format_event(&event, sizeof(event));
         require(line && line->back() == '\n');
         require(line->find("\"event\":") != std::string::npos);
         require(line->find("\"start_ns\":123456789") != std::string::npos);
+        require(line->find("\"process_inode\":987654321") != std::string::npos);
     }
     event.version = 999;
     require(!format_event(&event, sizeof(event)));

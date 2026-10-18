@@ -51,3 +51,8 @@ expect_invalid(--policy /a --file /unused --decision allow)
 expect_invalid(--audit-permissions --audit-permissions)
 expect_invalid(--audit-permissions --bpf-only)
 expect_invalid(--check --audit-permissions)
+
+expect_invalid(--requester-pidfd)
+expect_invalid(--requester-pidfd --audit-permissions --bpf-only)
+expect_invalid(--requester-pidfd --requester-pidfd --audit-permissions)
+expect_invalid(--check --requester-pidfd --audit-permissions)

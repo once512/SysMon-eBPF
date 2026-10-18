@@ -2,6 +2,8 @@
 // fanotify 权限事件会挂起请求方：读取事件得到 FD，向同一 group 写 fanotify_response 才作出裁决。
 // 这不同于只观察事件的通知接口；close 事件 FD 本身不等同于发送拒绝，关闭整个 group 会释放未决请求。
 #include "gate.h"
+#include "metadata.h"
+#include <array>
 #include "audit_sink.h"
 #include "management/protocol.h"
 #include <algorithm>
@@ -40,12 +42,12 @@ int pin_file(const std::string &path)
 }
 // group FD 是监听/回复通道；
 // 事件 FD 是具体文件对象引用，不能把两者互换传给分析器。
-int create_group()
+int create_group(bool requester_pidfd)
 {
     // FAN_CLASS_CONTENT 支持权限裁决；NONBLOCK 只让监听端读取不阻塞，请求方仍等待裁决。
     // 第二组参数指定事件 FD 的打开方式：只读/CLOEXEC；不是把被监控业务的打开模式改成只读。
     // group 是 fanotify_init 返回的监听 FD；mark 是附着到 inode 的订阅，两者不是同一个对象。
-    int fd = fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC | FAN_NONBLOCK,
+    int fd = fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC | FAN_NONBLOCK | (requester_pidfd ? FAN_REPORT_PIDFD : 0),
                           O_RDONLY | O_LARGEFILE | O_CLOEXEC);
     if (fd < 0) fail("fanotify_init (requires CAP_SYS_ADMIN and permission-event support)");
     return fd;
@@ -54,8 +56,8 @@ int create_group()
 
 PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event,
                                const AnalyzerConfig &analyzer, const std::string &policy_path,
-                               AuditSink *audit, std::uint64_t instance_ns, std::uint64_t revision)
-    : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
+                               AuditSink *audit, std::uint64_t instance_ns, std::uint64_t revision, bool requester_pidfd)
+    : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group(requester_pidfd)), mask_(permission_mask(event)), requester_pidfd_(requester_pidfd),
       audit_(audit), revision_(revision),
       pending_(config, [this](int fd, const PermissionRequest &request, Verdict verdict) { respond(fd, request, verdict); })
 {
@@ -104,33 +106,22 @@ bool PermissionGate::poll_once(int timeout_ms)
     if (ready[0].revents & (POLLERR | POLLHUP | POLLNVAL))
         throw std::runtime_error("fanotify poll reported an unusable group");
     if (!(ready[0].revents & POLLIN)) return false;
-    // No FAN_REPORT_* flags: the kernel returns fixed-size metadata records.
-    // Read one record so an exception cannot strand FDs from an unread batch.
-    fanotify_event_metadata event{};
-    // 一次只接收一个 metadata，立即用 OwnedFd 接管 event.fd，避免批量读取中途抛错遗留其他 FD。
-    const auto size = read(group_.get(), &event, sizeof(event));
+    // Buffer admits exactly one PIDFD-mode event, or one legacy event (the tail is too small for a second).
+    std::array<char, sizeof(fanotify_event_metadata) + sizeof(fanotify_event_info_pidfd)> buffer{};
+    const auto size = read(group_.get(), buffer.data(), buffer.size());
     if (size < 0) {
         if (errno == EAGAIN || errno == EINTR) return false;
         fail("fanotify read");
     }
-    if (size != sizeof(event)) throw std::runtime_error("Short fanotify metadata record");
-    // 一旦 read 返回完整 metadata 就接管其 FD；
-    // 后面的版本/掩码检查抛错时，也有对象负责回收。
-    OwnedFd event_fd(event.fd);
-    if (event.vers != FANOTIFY_METADATA_VERSION || event.event_len != sizeof(event) ||
-        event.metadata_len != sizeof(event))
-        throw std::runtime_error("Unexpected fanotify metadata ABI");
-    // 内核队列溢出意味着监控覆盖不完整，选择报错关闭；不要把它当成用户态 max_pending 容量回退。
+    const auto received = PendingDecisions::Clock::now();
+    auto event = decode_permission_metadata(buffer.data(), static_cast<std::size_t>(size), requester_pidfd_);
     if (event.mask & FAN_Q_OVERFLOW) {
         ++stats_.overflow;
-        // Stop visibly rather than presenting incomplete coverage as healthy.
         throw std::runtime_error("fanotify queue overflow; closing group releases pending requests");
     }
-    if (event.fd < 0 || event.mask != mask_)
+    if (event.file.get() < 0 || event.mask != mask_)
         throw std::runtime_error("Unexpected fanotify permission event");
-    // 这里转移事件 FD 所有权，而不只是复制整数；
-    // submit 返回后 gate 的局部 OwnedFd 已为空。
-    pending_.submit(std::move(event_fd), PendingDecisions::Clock::now(), event.pid, revision_);
+    pending_.submit(std::move(event.file), received, event.pid, revision_, std::move(event.requester));
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());
     service_analysis();
     return true;

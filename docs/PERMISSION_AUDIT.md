@@ -77,3 +77,5 @@ sudo python3 -B tests/run_privileged.py --build-dir build \
 可选持续负载依次运行静态 open、分析 open、分析 access，每种运行指定秒数（0 禁用，5..1800 秒），逐行验证审计记录、连续唯一请求号、回复总量、策略版本与管理状态。它使用按实际回复总数分配的字节标记数组，不把全部 JSON 对象载入内存。
 
 本轮固定产物、30 项特权专题与三组逐条对账负载的实际结果见 [验证记录](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)。
+
+可选 `--requester-pidfd` 增加内核进程引用及经 pidfs 验证的 requester_process_inode，与 BPF process_inode 做受约束的进程级关联；字段、资源和失败合同见 [请求方 pidfd](REQUESTER_PIDFD.md)。默认不开启，不增加这些权限记录字段。

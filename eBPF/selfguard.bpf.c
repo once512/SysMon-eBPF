@@ -33,6 +33,7 @@ static __always_inline int guard_task(struct task_struct *target, u32 operation,
         e->signal = sig;
         e->timestamp_ns = bpf_ktime_get_ns();
         e->start_ns = BPF_CORE_READ(current, start_boottime);
+        e->process_inode = process_inode(current);
         u64 id = bpf_get_current_pid_tgid();
         e->pid = id >> 32;
         e->tid = (u32)id;

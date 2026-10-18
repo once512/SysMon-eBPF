@@ -39,6 +39,8 @@ TESTS = (
     ('decoy-workloads', 'decoy_workloads.py'),
     ('identity-threads', 'identity_threads.py'),
     ('permission-namespace', 'permission_namespace.py'),
+    ('requester-pidfd', 'requester_pidfd.py'),
+    ('requester-lifecycle', 'requester_lifecycle.py'),
     ('permission-audit-backpressure', 'permission_audit_backpressure.py'),
     ('shutdown-order', 'shutdown_order.py'),
     ('diagnostic-backpressure', 'diagnostic_backpressure.py'),
@@ -57,6 +59,8 @@ def main():
     parser.add_argument('--management-soak-duration', type=int, default=0)
     parser.add_argument('--combined-soak-duration', type=int, default=0, help='add same-process scoped-writer static/analysis management loads')
     parser.add_argument('--permission-audit-soak-duration', type=int, default=0, help='add combined permission-audit record accounting loads')
+    parser.add_argument('--requester-pidfd-soak-duration', type=int, default=0, help='add three combined pidfd identity/accounting loads')
+    parser.add_argument('--requester-identity-soak-duration', type=int, default=0, help='repeat all pidfd thread/namespace variants')
     parser.add_argument('--writer-soak-duration', type=int, default=0)
     parser.add_argument('--only', choices=[name for name, _ in TESTS], nargs='+')
     args = parser.parse_args()
@@ -72,10 +76,18 @@ def main():
         parser.error('permission-audit-soak-duration must be 0 or 5..1800 seconds')
     if not (args.writer_soak_duration == 0 or 5 <= args.writer_soak_duration <= 1800):
         parser.error('writer-soak-duration must be 0 or 5..1800 seconds')
+    if not (args.requester_pidfd_soak_duration == 0 or 5 <= args.requester_pidfd_soak_duration <= 1800):
+        parser.error('requester-pidfd-soak-duration must be 0 or 5..1800 seconds')
+    if not (args.requester_identity_soak_duration == 0 or 5 <= args.requester_identity_soak_duration <= 1200):
+        parser.error('requester-identity-soak-duration must be 0 or 5..1200 seconds')
     root = Path(__file__).resolve().parent
     build = Path(args.build_dir).resolve()
     commands = [(name, [sys.executable, str(root / script), '--build-dir', str(build)])
                 for name, script in TESTS if args.only is None or name in args.only]
+    commands += [(name + '-pidfd', [sys.executable, str(root / script), '--build-dir', str(build), '--requester-pidfd'])
+                 for name, script in (('identity-threads', 'identity_threads.py'), ('permission-namespace', 'permission_namespace.py'),
+                                      ('permission-audit-backpressure', 'permission_audit_backpressure.py'))
+                 if args.only is None or name in args.only]
     if args.soak_duration:
         commands += [(f'soak-{mode}', [sys.executable, str(root / 'fanotify_soak.py'),
                       '--build-dir', str(build), '--duration', str(args.soak_duration), '--mode', mode])
@@ -100,6 +112,14 @@ def main():
         commands += [(f'permission-audit-soak-{backend}-{event}', [sys.executable, str(root / 'management_soak.py'),
                       '--build-dir', str(build), '--duration', str(args.permission_audit_soak_duration),
                       '--combined', '--verify-audit-output', '--audit-permissions', '--backend', backend, '--event', event])
+                     for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
+    if args.requester_identity_soak_duration:
+        commands.append(('requester-identity-soak', [sys.executable, str(root / 'identity_threads.py'),
+                         '--build-dir', str(build), '--duration', str(args.requester_identity_soak_duration), '--requester-pidfd']))
+    if args.requester_pidfd_soak_duration:
+        commands += [(f'requester-pidfd-soak-{backend}-{event}', [sys.executable, str(root / 'management_soak.py'),
+                      '--build-dir', str(build), '--duration', str(args.requester_pidfd_soak_duration),
+                      '--combined', '--verify-audit-output', '--audit-permissions', '--requester-pidfd', '--backend', backend, '--event', event])
                      for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
     if args.writer_soak_duration:
         commands.append(('writer-soak', [sys.executable, str(root / 'writer_soak.py'),

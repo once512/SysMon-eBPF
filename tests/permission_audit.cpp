@@ -51,6 +51,16 @@ int main()
     reject([](auto &) {}, {false, static_cast<DecisionReason>(99)});
     reject([](auto &) {}, {false, DecisionReason::policy, analysis::ScanError::read_failed, EIO});
     reject([](auto &) {}, {false, DecisionReason::analyzer_error, analysis::ScanError::read_failed, -1});
+    reject([](auto &r) { r.process.state = static_cast<ProcessReferenceState>(99); }, {true, DecisionReason::policy});
+    reject([](auto &r) { r.process = {ProcessReferenceState::present, 0, 0}; }, {true, DecisionReason::policy});
+    reject([](auto &r) { r.process = {ProcessReferenceState::present, 123, EIO}; }, {true, DecisionReason::policy});
+    reject([](auto &r) { r.process.inode = 123; }, {true, DecisionReason::policy});
+    for (auto state : {ProcessReferenceState::unavailable, ProcessReferenceState::error}) {
+        request.process = {state, 0, 0};
+        const auto encoded = format_permission_decision(identity, request, {true, DecisionReason::policy}, responded);
+        require(encoded.find("\"requester_process_inode\":0") != std::string::npos, "missing identity cannot become a cookie");
+    }
+    request.process = {ProcessReferenceState::present, std::numeric_limits<std::uint64_t>::max(), 0};
     request.id = request.revision = identity.pid_namespace_inode = identity.instance_ns = identity.inode = std::numeric_limits<std::uint64_t>::max();
     identity.major = identity.minor = std::numeric_limits<std::uint32_t>::max();
     identity.event = PermissionEvent::exec;

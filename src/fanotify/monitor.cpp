@@ -9,8 +9,8 @@
 static_assert(std::is_nothrow_move_assignable_v<FanotifyOptions>);
 static_assert(std::is_nothrow_move_constructible_v<FanotifyOptions>);
 FanotifyMonitor::FanotifyMonitor(FanotifyOptions options, const std::string &policy_path, AuditSink *audit,
-                                 std::uint64_t instance_ns, std::uint64_t revision)
-    : options_(std::move(options)), gate_(options_.path, options_.decision, options_.event, options_.analyzer, policy_path, audit, instance_ns, revision)
+                                 std::uint64_t instance_ns, std::uint64_t revision, bool requester_pidfd)
+    : options_(std::move(options)), gate_(options_.path, options_.decision, options_.event, options_.analyzer, policy_path, audit, instance_ns, revision, requester_pidfd)
 {
     std::cerr << "Fanotify active; decision=" << (options_.decision.external ? "analysis" : (options_.decision.allow ? "allow" : "deny"))
               << " analyzer_pid=" << gate_.analyzer_pid() << " event=" << permission_name(options_.event) << '\n';

@@ -52,7 +52,7 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
     if (use_fan) {
         if (active.fanotify) apply_fanotify_policy(active, fan_options);
         fanotify_ = std::make_unique<FanotifyMonitor>(std::move(fan_options), options_.policy_path,
-            options_.permission_audit ? audit_.get() : nullptr, runtime_.snapshot(management::Backend::fanotify).instance_ns, active.revision);
+            options_.permission_audit ? audit_.get() : nullptr, runtime_.snapshot(management::Backend::fanotify).instance_ns, active.revision, options_.requester_pidfd);
     }
     std::cerr << "Policy active revision=" << active.revision << '\n';
     std::cerr << "Service active; bpf=" << bool(bpf_) << " fanotify=" << bool(fanotify_) << '\n';
@@ -86,6 +86,7 @@ management::Reply MonitorService::snapshot() const
         if (control_) reply.flags |= management::self_protected;
     }
     if (options_.permission_audit) reply.flags |= management::permission_audit;
+    if (options_.requester_pidfd) reply.flags |= management::requester_pidfd;
     if (audit_) {
         const auto audit = audit_->stats();
         reply.audit_written = audit.written;

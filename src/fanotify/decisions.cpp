@@ -30,14 +30,14 @@ void PendingDecisions::reconfigure(DecisionConfig config)
     commit_reconfigure(config);
 }
 
-void PendingDecisions::submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid, std::uint64_t revision)
+void PendingDecisions::submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid, std::uint64_t revision, ProcessReference process)
 {
     if (fd.get() < 0) throw std::invalid_argument("Cannot submit an invalid event FD");
     // 先兑现已经到期的旧请求，再判断容量；已超时条目不应继续占据用户态 pending 预算。
     process_due(now);
     // 容量回退也必须具有唯一请求号；耗尽时关闭整个服务，不复用旧请求身份。
     if (!next_id_) throw std::runtime_error("Analysis request ID exhausted");
-    const PermissionRequest context{next_id_++, revision, requester_pid, now};
+    const PermissionRequest context{next_id_++, revision, requester_pid, now, process.identity};
     if (pending_.size() >= config_.max_pending) {
         // 满队列的新事件仍必须回复；
         // 它不进入 pending，函数退出后参数中的 OwnedFd 关闭其引用。
@@ -45,7 +45,7 @@ void PendingDecisions::submit(OwnedFd fd, Clock::time_point now, std::int32_t re
         return;
     }
     // 接收时间与递增 ID 一起保存；ID 不复用，避免过期或重复响应错误地命中新请求。
-    pending_.push_back({std::move(fd), context});
+    pending_.push_back({std::move(fd), std::move(process), context});
     process_due(now);
 }
 

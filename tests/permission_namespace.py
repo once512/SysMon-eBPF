@@ -16,6 +16,7 @@ from permission_audit import contents, request
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-dir', default='build')
+    parser.add_argument('--requester-pidfd', action='store_true')
     args = parser.parse_args()
     if os.geteuid() != 0 or sys.flags.optimize:
         parser.error('run as root without Python optimization')
@@ -36,7 +37,8 @@ def main():
                 process = subprocess.Popen(['unshare', '--mount', '--pid', '--fork', '--mount-proc',
                                             '--propagation', 'private', '--kill-child=KILL', '--', sys.executable, '-B', '-c', launcher,
                                             str(metadata), str(build / 'secmon'),
-                                            *([] if combined else ['--fanotify-only']), '--audit-permissions', '--policy', str(policy),
+                                            *([] if combined else ['--fanotify-only']), '--audit-permissions',
+                                            *(['--requester-pidfd'] if args.requester_pidfd else []), '--policy', str(policy),
                                             '--control', str(control), '--run-for', '30'], stdout=output, stderr=errors)
                 try:
                     deadline = time.monotonic() + 10
@@ -64,7 +66,8 @@ def main():
                     assert outer.returncode != 0 and 'Management peer PID mismatch' in outer.stderr
                     status = namespace_call('status')
                     assert status['backend'] == ('combined' if combined else 'fanotify')
-                    assert request(target)['errno'] == 0
+                    outer_request = request(target)
+                    assert outer_request['errno'] == 0
                     # Enter only the PID namespace; namespace /proc membership is not used as identity proof.
                     code = 'import json,os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.close(fd); print(json.dumps({"pid":os.getpid()}))'
                     result = subprocess.run(['nsenter', '--target', str(holder_host_pid), '--pid', '--',
@@ -80,6 +83,11 @@ def main():
                     assert len(events) == 2
                     assert [row['requester_pid'] for row in events] == [0, inner_pid], events
                     assert [row['request_id'] for row in events] == [1, 2]
+                    if args.requester_pidfd:
+                        assert events[0]['requester_reference'] == 'unavailable'
+                        assert events[0]['requester_process_inode'] == events[0]['requester_identity_errno'] == 0
+                        assert events[1]['requester_reference'] == 'present' and events[1]['requester_process_inode'] > 0
+                        assert events[1]['requester_identity_errno'] == 0
                     for row in events:
                         assert row['requester_pid_kind'] == 'tgid'
                         assert row['listener_pid'] == listener_local_pid and row['pid_namespace_inode'] == namespace_inode

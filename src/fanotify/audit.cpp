@@ -25,6 +25,11 @@ std::string format_permission_decision(const PermissionAuditIdentity &identity, 
         !analysis::valid_scan_error(verdict.scan_error, verdict.scan_errno) ||
         (verdict.scan_error != analysis::ScanError::none && verdict.reason != DecisionReason::analyzer_error))
         throw std::invalid_argument("Invalid permission audit context");
+    const auto *reference = process_reference_name(request.process.state);
+    if (request.process.error < 0 || request.process.error > 4095 ||
+        (request.process.state != ProcessReferenceState::present && (request.process.inode || request.process.error)) ||
+        (request.process.state == ProcessReferenceState::present && ((request.process.inode == 0 && request.process.error == 0) || (request.process.inode != 0 && request.process.error != 0))))
+        throw std::invalid_argument("Invalid requester identity snapshot");
     const auto *reason = reason_name(verdict.reason);
     const auto *event = permission_name(identity.event);
     std::ostringstream out;
@@ -40,6 +45,10 @@ std::string format_permission_decision(const PermissionAuditIdentity &identity, 
         << "\",\"scan_errno\":" << verdict.scan_errno
         << ",\"received_ns\":" << duration_cast<nanoseconds>(request.received.time_since_epoch()).count()
         << ",\"responded_ns\":" << duration_cast<nanoseconds>(responded.time_since_epoch()).count()
-        << ",\"latency_us\":" << duration_cast<microseconds>(responded - request.received).count() << "}\n";
+        << ",\"latency_us\":" << duration_cast<microseconds>(responded - request.received).count();
+    if (request.process.state != ProcessReferenceState::disabled)
+        out << ",\"requester_reference\":\"" << reference << "\",\"requester_process_inode\":" << request.process.inode
+            << ",\"requester_identity_errno\":" << request.process.error;
+    out << "}\n";
     return out.str();
 }

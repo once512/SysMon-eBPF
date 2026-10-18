@@ -54,7 +54,7 @@ def request(path, event='open'):
 
 
 class AuditedService:
-    def __init__(self, build, root, target, fields, combined=False):
+    def __init__(self, build, root, target, fields, combined=False, requester_pidfd=False):
         self.build, self.root, self.target = build, root, target
         self.binary = build / 'secmon'
         self.policy, self.control = root / 'policy', root / 'control'
@@ -66,13 +66,14 @@ class AuditedService:
         self.output, self.errors = tempfile.TemporaryFile(), tempfile.TemporaryFile()
         self.process = subprocess.Popen([str(self.binary), *([] if combined else ['--fanotify-only']),
                                          '--policy', str(self.policy), '--control', str(self.control),
-                                         '--audit-permissions', '--run-for', '60'], stdout=self.output, stderr=self.errors)
+                                         '--audit-permissions', *(['--requester-pidfd'] if requester_pidfd else []), '--run-for', '60'], stdout=self.output, stderr=self.errors)
         try:
             deadline = time.monotonic() + 10
             while 'Service active;' not in contents(self.errors):
                 assert self.process.poll() is None and time.monotonic() < deadline, contents(self.errors)
                 time.sleep(0.01)
             self.initial = self.status()
+            assert self.initial['requester_pidfd'] == requester_pidfd
             assert self.initial['permission_audit'] is True and self.initial['audit_errno'] == 0
             assert self.initial['backend'] == ('combined' if combined else 'fanotify')
         except BaseException:

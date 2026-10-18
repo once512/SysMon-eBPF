@@ -27,8 +27,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--build-dir', default='build')
     parser.add_argument('--permission-audit', action='store_true')
+    parser.add_argument('--requester-pidfd', action='store_true')
     parser.add_argument('--fanotify-only', action='store_true')
     args = parser.parse_args(argv)
+    if args.requester_pidfd and not args.permission_audit:
+        parser.error('--requester-pidfd requires --permission-audit')
     if args.fanotify_only and not args.permission_audit:
         parser.error('--fanotify-only requires --permission-audit')
     assert os.geteuid() == 0
@@ -49,7 +52,8 @@ def main(argv=None):
             publish(1, a, 'allow')
             with tempfile.TemporaryFile(mode='w+') as errors:
                 process = subprocess.Popen([str(binary), *(['--audit-permissions'] if args.permission_audit else []),
-                                            *(['--fanotify-only'] if args.fanotify_only else []), '--policy', str(config), '--control', str(control), '--run-for', '30'],
+                                            *(['--fanotify-only'] if args.fanotify_only else []),
+                                            *(['--requester-pidfd'] if args.requester_pidfd else []), '--policy', str(config), '--control', str(control), '--run-for', '30'],
                                            stdout=subprocess.PIPE, stderr=errors, pipesize=4096)
                 flood = None
                 try:

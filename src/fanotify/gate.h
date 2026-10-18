@@ -20,6 +20,7 @@ class PermissionGate {
     OwnedFd target_; // Pin before marking; release after the fanotify group.
     OwnedFd group_;
     std::uint64_t mask_;
+    bool requester_pidfd_;
     GateStats stats_;
     AuditSink *audit_; // 借用服务统一出口；不创建第二个 stdout 写线程。
     PermissionAuditIdentity audit_identity_;
@@ -31,7 +32,8 @@ public:
     PermissionGate(const std::string &path, DecisionConfig config,
                    PermissionEvent event = PermissionEvent::open,
                    const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {},
-                   AuditSink *audit = nullptr, std::uint64_t instance_ns = 0, std::uint64_t revision = 0);
+                   AuditSink *audit = nullptr, std::uint64_t instance_ns = 0, std::uint64_t revision = 0,
+                   bool requester_pidfd = false);
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     // pending 的回复 lambda 捕获当前 this；

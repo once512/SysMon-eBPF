@@ -1,17 +1,17 @@
 # 审计身份合同与并发边界
 
-当前审计能描述发生过的内核拒绝和已写回的权限裁决。它没有为 fanotify 请求提供可认证的任务生命周期引用。本合同限制下游关联能够声称的内容，不授予进程任何新权限。
+当前审计能描述发生过的内核拒绝和已写回的权限裁决。默认不持有 fanotify 请求方生命周期引用；可显式启用 [内核 pidfd 审计模式](REQUESTER_PIDFD.md)，取得接收时的进程引用和经验证的 pidfs 进程 inode。本合同限制下游关联能够声称的内容，不授予进程任何新权限。
 
 ## 两类记录使用的坐标
 
 | 来源 | 数字身份 | 生命周期信息 | 时钟 |
 |---|---|---|---|
 | BPF file_denied / self_denied / exec | pid 为内核初始 PID namespace 的 TGID，tid 为实际任务 TID | start_ns 为该任务的 task_struct.start_boottime，不是所有线程共享的进程启动时间 | timestamp_ns 为 bpf_ktime_get_ns 的单调时间；start_ns 为 boottime，不能直接相减 |
-| fanotify_decision | requester_pid 为创建组的监听器 PID namespace 中的 TGID；requester_pid_kind 固定 tgid | 没有 requester 启动时间、pidfd 或可信可执行文件身份 | received_ns/responded_ns 为用户态接收/回复单调时间，不是内核访问发生时间 |
+| fanotify_decision | requester_pid 为创建组的监听器 PID namespace 中的 TGID；requester_pid_kind 固定 tgid | 默认无 requester 生命周期引用；可选 pidfd 模式记录经过 pidfs 验证的进程 inode，仍无可信可执行文件身份 | received_ns/responded_ns 为用户态接收/回复单调时间，不是内核访问发生时间 |
 
 fanotify 的 `pid_namespace_inode` 在初始化时从 `/proc/self/ns/pid` 缓存；服务不改变 PID namespace，也没有开启 FAN_REPORT_TID。每次请求不查询 `/proc/<pid>`。`listener_pid` 与 requester 使用相同 namespace 坐标。该 inode 在本机当前启动上下文中用于区分坐标，不是跨启动、跨机器的唯一 ID。
 
-BPF 任务键应按 `(boot 上下文, pid, tid, start_ns)` 理解。`start_ns` 区分线程生命周期，不自动认证执行内容或进程历史；exec 的线程身份变化仍须按已有 exec/基线合同处理。不能用 `pid + start_ns` 把不同工作线程当成不同进程，也不能把 BPF 纳秒值与 `/proc/stat` 的时钟 tick 当作同精度身份。
+BPF 的 process_inode 是可选 pidfs 进程键，与 tid/start_ns 的任务键不同；内核字段不可用时为 0。BPF 任务键应按 `(boot 上下文, pid, tid, start_ns)` 理解。`start_ns` 区分线程生命周期，不自动认证执行内容或进程历史；exec 的线程身份变化仍须按已有 exec/基线合同处理。不能用 `pid + start_ns` 把不同工作线程当成不同进程，也不能把 BPF 纳秒值与 `/proc/stat` 的时钟 tick 当作同精度身份。
 
 ## 允许与不允许的关联
 
@@ -23,7 +23,7 @@ BPF 任务键应按 `(boot 上下文, pid, tid, start_ns)` 理解。`start_ns` �
 
 `self_denied.start_ns` 描述调用方任务，与该记录的 pid/tid 配对，不是 target_pid 对应的目标生命周期。自保护执行依赖内核 task storage/pidfd；该机制不意味着输出中的 target_pid 单独成为稳定身份。
 
-生产自动响应尚未启用。下一步若增加稳定 requester 身份，应先验证内核提供的生命周期引用、支持矩阵、事件附件解析、FD 上限与回收、任务退出及不可见身份的失败语义，再设计与 BPF task/group 身份的绑定。当前不使用无生命周期保护的数字 PID 来执行响应。
+生产自动响应尚未启用。可选 pidfd 模式已覆盖内核引用、附件解析、FD 回收、退出和不可见身份；BPF 新增 process_inode 用于进程级关联。只有同一机器/boot 且已验证 pidfs 的非零 cookie 可以关联，0 不可匹配；该键不补出 fanotify 的实际线程或统一操作 ID。下一步需评估行为规则、误报及响应时仍持有引用的合同。当前不使用无生命周期保护的数字 PID 来执行响应。
 
 ## 可复现实验
 

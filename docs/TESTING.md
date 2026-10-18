@@ -34,6 +34,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | decoy-workloads | `decoy_workloads.py` | 完整文件索引/备份、硬链接/符号链接、改名与原路径 inode 替换 |
 | identity-threads | `identity_threads.py` | 并发 TGID/TID、task start 键、线程重建/退出及宿主/子 namespace |
 | permission-namespace | `permission_namespace.py` | 子 namespace 监听器的局部 TGID、不可见请求 PID=0 与坐标字段 |
+| requester-pidfd | `requester_pidfd.py` | 取消、容量、停止、超时、分析成功/错误、FD 压力及直接 exec 的内核引用与回收 |
+| requester-lifecycle | `requester_lifecycle.py` | 宿主/子 namespace 的 exec、非 leader exec、leader 单独退出和稳定进程 inode |
 | permission-audit-backpressure | `permission_audit_backpressure.py` | 两种后端下逐请求审计的堵塞/恢复/断开/持续洪流，裁决/重载/停止仍可用 |
 | diagnostic-backpressure | `diagnostic_backpressure.py` | stderr 启动已满、失败重载洪流、周期报告、恢复/断开时裁决与管理继续，停止不依赖排空诊断 |
 | shutdown-order | `shutdown_order.py` | 填满 stderr 后不排空也完成退出，释放权限组 |
@@ -154,4 +156,4 @@ sudo python3 -B tests/run_privileged.py --build-dir build --only identity-thread
 sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --report /tmp/identity-soak.json
 ```
 
-当前默认 runner 为 34 个专题。持续身份循环覆盖完整服务/观察器及线程创建退出，核对基线键回收和控制器 FD；报告保留累计循环数、累计回复/拒绝数及最后完整循环的原始证据。并发时间窗只输出候选线程集合，不把 TGID 升格为线程身份。前提、字段和限制见 [身份合同](IDENTITY_CONTRACT.md)。
+当前默认 runner 运行 39 个专题/模式变体（36 个可选专题，另追加线程、namespace、背压的 pidfd 变体）。持续身份循环覆盖完整服务/观察器及线程创建退出，核对基线键回收和控制器 FD；报告保留累计循环数、累计回复/拒绝数及最后完整循环的原始证据。并发时间窗只输出候选线程集合，不把 TGID 升格为线程身份。前提、字段和限制见 [身份合同](IDENTITY_CONTRACT.md)。

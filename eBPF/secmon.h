@@ -5,7 +5,7 @@
 #include <secmon/policy_limits.h>
 #include <secmon/file_operations.h>
 /* 当前唯一事件布局标识，供宿主检错；不存在历史事件解码或兼容分支。 */
-#define SECMON_ABI_VERSION 4
+#define SECMON_ABI_VERSION 5
 #define SECMON_COMM_LEN 16
 #define SECMON_PATH_LEN 256
 #define SECMON_BASELINE_MISMATCH 1U
@@ -46,6 +46,8 @@ struct exec_event {
     unsigned long long timestamp_ns;
     // 该启动时间与上面的事件时间来源不同，不直接相减计算运行时长；此处只用它区分任务生命周期。
     unsigned long long start_ns;
+    // Boot-scoped pidfs inode of the process TGID; zero when unavailable.
+    unsigned long long process_inode;
     unsigned long long caps;
     unsigned int pid;
     unsigned int tid;
