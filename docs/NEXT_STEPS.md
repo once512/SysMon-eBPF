@@ -49,4 +49,4 @@ BPF 和 fanotify 借用服务拥有的唯一 stdout 队列；开启权限审计�
 
 ## 身份关联阶段进展
 
-已增加 [审计身份合同](IDENTITY_CONTRACT.md)：fanotify 记录明确 TGID 类型与创建组的 PID namespace inode；覆盖并发线程、线程重建/退出、双向 namespace 可见性。保留 fanotify 的线程归属歧义和不可见 PID=0，尚未提供 requester 生命周期引用或启用自动响应。下一步验证内核生命周期引用及资源/退出语义，再推进可信关联。
+已增加 [审计身份合同](IDENTITY_CONTRACT.md)，结果见 [身份阶段验证](VALIDATION_IDENTITY_2026_10_18.md)：fanotify 记录明确 TGID 类型与创建组的 PID namespace inode；覆盖并发线程、线程重建/退出、双向 namespace 可见性。保留 fanotify 的线程归属歧义和不可见 PID=0，尚未提供 requester 生命周期引用或启用自动响应。下一步验证内核生命周期引用及资源/退出语义，再推进可信关联。
