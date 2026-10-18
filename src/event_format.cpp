@@ -40,6 +40,7 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
     if (e.kind == SECMON_SELF_DENIED_EVENT) {
         out << "{\"event\":\"self_denied\",\"timestamp_ns\":" << e.timestamp_ns
                   << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
+                  << ",\"start_ns\":" << e.start_ns
                   << ",\"target_pid\":" << e.target_pid << ",\"signal\":" << e.signal
                   << ",\"operation\":" << e.operation << ",\"errno\":1"
                   << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid

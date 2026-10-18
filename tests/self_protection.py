@@ -142,6 +142,8 @@ sys.exit(1)
         events = [json.loads(line) for line in output.read_text().splitlines()]
         denials = [e for e in events if e['event'] == 'self_denied']
         assert denials, 'missing self denial events'
+        assert all(e['pid'] == os.getpid() and e['tid'] == os.getpid() for e in denials)
+        assert len({e['start_ns'] for e in denials}) == 1 and denials[0]['start_ns'] > 0
         assert all(e['target_pid'] == monitor.pid and e['errno'] == errno.EPERM for e in denials)
         assert any(e['operation'] == 9 for e in denials), 'missing signal denial event'
         assert any(e['operation'] == 10 for e in denials), 'missing ptrace denial event'

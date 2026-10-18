@@ -6,7 +6,7 @@
 
 | 来源 | 数字身份 | 生命周期信息 | 时钟 |
 |---|---|---|---|
-| BPF file_denied / exec | pid 为内核初始 PID namespace 的 TGID，tid 为实际任务 TID | start_ns 为该任务的 task_struct.start_boottime，不是所有线程共享的进程启动时间 | timestamp_ns 为 bpf_ktime_get_ns 的单调时间；start_ns 为 boottime，不能直接相减 |
+| BPF file_denied / self_denied / exec | pid 为内核初始 PID namespace 的 TGID，tid 为实际任务 TID | start_ns 为该任务的 task_struct.start_boottime，不是所有线程共享的进程启动时间 | timestamp_ns 为 bpf_ktime_get_ns 的单调时间；start_ns 为 boottime，不能直接相减 |
 | fanotify_decision | requester_pid 为创建组的监听器 PID namespace 中的 TGID；requester_pid_kind 固定 tgid | 没有 requester 启动时间、pidfd 或可信可执行文件身份 | received_ns/responded_ns 为用户态接收/回复单调时间，不是内核访问发生时间 |
 
 fanotify 的 `pid_namespace_inode` 在初始化时从 `/proc/self/ns/pid` 缓存；服务不改变 PID namespace，也没有开启 FAN_REPORT_TID。每次请求不查询 `/proc/<pid>`。`listener_pid` 与 requester 使用相同 namespace 坐标。该 inode 在本机当前启动上下文中用于区分坐标，不是跨启动、跨机器的唯一 ID。
@@ -20,6 +20,8 @@ BPF 任务键应按 `(boot 上下文, pid, tid, start_ns)` 理解。`start_ns` �
 - namespace 坐标不同或 requester_pid 非正时，不能直接与 BPF 数字 PID 拼接。尤其 `0` 可能表示请求方不在监听器可见的 namespace 内，不是 PID 0 内核任务的证据。
 - 进程退出后再读取 `/proc/<pid>`，可能已经读到另一个生命周期；查询成功不能修复原事件缺失的身份。不得据此自动授权、发信号或隔离。
 - inode/时间关联也不是因果证明。fanotify allow 表示成功回复，BPF file_denied 表示独立检查点拒绝；二者没有统一操作 ID，也没有保证一一对应。
+
+`self_denied.start_ns` 描述调用方任务，与该记录的 pid/tid 配对，不是 target_pid 对应的目标生命周期。自保护执行依赖内核 task storage/pidfd；该机制不意味着输出中的 target_pid 单独成为稳定身份。
 
 生产自动响应尚未启用。下一步若增加稳定 requester 身份，应先验证内核提供的生命周期引用、支持矩阵、事件附件解析、FD 上限与回收、任务退出及不可见身份的失败语义，再设计与 BPF task/group 身份的绑定。当前不使用无生命周期保护的数字 PID 来执行响应。
 
