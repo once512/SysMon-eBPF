@@ -3,6 +3,7 @@
 #include "diagnostic_output.h"
 #include "owned_fd.h"
 #include <cerrno>
+#include <atomic>
 #include <chrono>
 #include <fcntl.h>
 #include <iostream>
@@ -101,6 +102,27 @@ int main()
         const auto stats = output.stats();
         require(stats.written == 256 && stats.dropped == 244 && stats.output_errno == 0, "drain after diagnostic recovery");
         require(pipe.drain().size() == 256 * 8, "complete queued lines after recovery");
+    }
+    {
+        OwnedFd null(open("/dev/null", O_WRONLY | O_CLOEXEC));
+        require(null.get() >= 0, "null diagnostics");
+        DiagnosticOutput output(null.get());
+        std::atomic<bool> done{false};
+        const std::string oversized(SECMON_DIAGNOSTIC_MAX_LINE_BYTES + 1, 'X');
+        std::thread producer([&] {
+            for (unsigned i = 0; i < 10000; ++i) std::cerr << oversized << '\n';
+            done.store(true);
+        });
+        bool consistent = true;
+        while (!done.load()) {
+            const auto stats = output.stats();
+            if (stats.invalid != stats.dropped || stats.queued || stats.written) consistent = false;
+            std::this_thread::yield();
+        }
+        producer.join();
+        const auto stats = output.stats();
+        require(consistent && stats.invalid == 10000 && stats.dropped == 10000,
+                "concurrent oversized diagnostics have coherent invalid/drop snapshots");
     }
     {
         Pipe pipe;

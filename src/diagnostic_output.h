@@ -9,7 +9,7 @@
 
 class DiagnosticOutput : private std::streambuf {
     AuditSink sink_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::array<char, SECMON_DIAGNOSTIC_MAX_LINE_BYTES> line_{};
     std::size_t used_ = 0;
     bool overlong_ = false;
@@ -25,5 +25,9 @@ public:
     ~DiagnosticOutput() override;
     DiagnosticOutput(const DiagnosticOutput &) = delete;
     DiagnosticOutput &operator=(const DiagnosticOutput &) = delete;
-    AuditStats stats() const { return sink_.stats(); }
+    AuditStats stats() const {
+        // finish 将超长行分别计入 invalid/dropped；快照不能观察到两次增加之间的中间状态。
+        std::lock_guard<std::mutex> lock(mutex_);
+        return sink_.stats();
+    }
 };
