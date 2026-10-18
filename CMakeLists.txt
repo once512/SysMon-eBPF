@@ -69,7 +69,7 @@ target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy Threads::Th
 # fanotify 与 BPF 链接进同一个服务；分析器仍是独立降权进程。
 target_sources(secmon PRIVATE src/fanotify/monitor.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
-    src/fanotify/policy.cpp src/fanotify/status.cpp src/fanotify/stats.cpp
+    src/fanotify/policy.cpp src/fanotify/audit.cpp src/fanotify/status.cpp src/fanotify/stats.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
 
 add_executable(secmon-policyctl src/management/main.cpp)
@@ -140,6 +140,10 @@ if(BUILD_TESTING)
     target_include_directories(secmon-decision-tests PRIVATE src)
     target_compile_options(secmon-decision-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME fanotify-decisions COMMAND secmon-decision-tests)
+    add_executable(secmon-permission-audit-tests tests/permission_audit.cpp src/fanotify/audit.cpp src/fanotify/event_kind.cpp)
+    target_include_directories(secmon-permission-audit-tests PRIVATE src include)
+    target_compile_options(secmon-permission-audit-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME fanotify-audit-format COMMAND secmon-permission-audit-tests)
     add_executable(secmon-privilege-report tests/privilege_report.cpp)
     target_compile_options(secmon-privilege-report PRIVATE -Wall -Wextra -Werror)
     add_test(NAME scenario-privilege-report COMMAND secmon-privilege-report)

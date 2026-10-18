@@ -2,6 +2,7 @@
 // fanotify 权限事件会挂起请求方：读取事件得到 FD，向同一 group 写 fanotify_response 才作出裁决。
 // 这不同于只观察事件的通知接口；close 事件 FD 本身不等同于发送拒绝，关闭整个 group 会释放未决请求。
 #include "gate.h"
+#include "audit_sink.h"
 #include "management/protocol.h"
 #include <algorithm>
 #include <utility>
@@ -12,6 +13,7 @@
 #include <system_error>
 #include <sys/fanotify.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 namespace {
@@ -51,10 +53,17 @@ int create_group()
 }
 
 PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event,
-                               const AnalyzerConfig &analyzer, const std::string &policy_path)
+                               const AnalyzerConfig &analyzer, const std::string &policy_path,
+                               AuditSink *audit, std::uint64_t instance_ns, std::uint64_t revision)
     : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group()), mask_(permission_mask(event)),
-      pending_(config, [this](int fd, Verdict verdict) { respond(fd, verdict); })
+      audit_(audit), revision_(revision),
+      pending_(config, [this](int fd, const PermissionRequest &request, Verdict verdict) { respond(fd, request, verdict); })
 {
+    if (audit_) {
+        struct stat target{};
+        if (fstat(target_.get(), &target)) fail("stat permission audit target");
+        audit_identity_ = {instance_ns, getpid(), major(target.st_dev), minor(target.st_dev), target.st_ino, event};
+    }
     // 配置若就是被标记对象，重载读取它会等待本监听器给自己裁决；
     // 必须在添加 mark 前排除。
     if (!policy_path.empty()) {
@@ -119,13 +128,13 @@ bool PermissionGate::poll_once(int timeout_ms)
         throw std::runtime_error("Unexpected fanotify permission event");
     // 这里转移事件 FD 所有权，而不只是复制整数；
     // submit 返回后 gate 的局部 OwnedFd 已为空。
-    pending_.submit(std::move(event_fd), PendingDecisions::Clock::now());
+    pending_.submit(std::move(event_fd), PendingDecisions::Clock::now(), event.pid, revision_);
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());
     service_analysis();
     return true;
 }
 
-void PermissionGate::respond(int fd, Verdict verdict)
+void PermissionGate::respond(int fd, const PermissionRequest &request, Verdict verdict)
 {
     // 回复用的是当前事件 FD，而不是业务进程 PID；写入 group 成功后，队列才会关闭对应事件 FD。
     fanotify_response response{fd, static_cast<unsigned int>(verdict.allow ? FAN_ALLOW : FAN_DENY)};
@@ -134,6 +143,11 @@ void PermissionGate::respond(int fd, Verdict verdict)
     while (written < 0 && errno == EINTR);
     if (written < 0) fail("fanotify permission response");
     if (written != sizeof(response)) throw std::runtime_error("Short fanotify response");
+    const auto responded = PendingDecisions::Clock::now();
+    if (audit_) {
+        try { audit_->enqueue(format_permission_decision(audit_identity_, request, verdict, responded)); }
+        catch (...) { audit_->note_drop(); } // 审计失败不能把已成功的内核回复变成重试或退出。
+    }
     if (verdict.allow) ++stats_.allowed;
     else ++stats_.denied;
     // allowed/denied 统计实际回复总量；
@@ -216,7 +230,7 @@ void PermissionGate::validate_reconfigure(DecisionConfig config) const
 void PermissionGate::reconfigure(DecisionConfig config)
 {
     validate_reconfigure(config);
-    commit_reconfigure(config);
+    commit_reconfigure(config, revision_);
 }
 
 void PermissionGate::shutdown()

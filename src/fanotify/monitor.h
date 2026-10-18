@@ -10,9 +10,10 @@ class FanotifyMonitor {
     FanotifyOptions options_;
     PermissionGate gate_;
 public:
-    FanotifyMonitor(FanotifyOptions options, const std::string &policy_path);
+    FanotifyMonitor(FanotifyOptions options, const std::string &policy_path, AuditSink *audit,
+                    std::uint64_t instance_ns, std::uint64_t revision);
     FanotifyOptions prepare(const PolicyConfig &candidate) const;
-    void commit(FanotifyOptions candidate) noexcept;
+    void commit(FanotifyOptions candidate, std::uint64_t revision) noexcept;
     void poll_once(int timeout_ms) { gate_.poll_once(timeout_ms); }
     int target_fd() const { return gate_.target_fd(); }
     void snapshot(management::Reply &reply) const;

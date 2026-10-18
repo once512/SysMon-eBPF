@@ -29,19 +29,26 @@ struct Verdict {
     int scan_errno = 0;
 };
 
+// 身份和版本在接收时固定；不通过可能复用的 PID 在回复时重建主体。
+struct PermissionRequest {
+    std::uint64_t id;
+    std::uint64_t revision;
+    std::int32_t requester_pid;
+    std::chrono::steady_clock::time_point received;
+};
+
 // Owns only events already delivered by the kernel, never the kernel queue.
 // The delay simulates deferred analysis; no file content is opened or read.
 class PendingDecisions {
 public:
     using Clock = std::chrono::steady_clock;
-    using Reply = std::function<void(int, Verdict)>;
+    using Reply = std::function<void(int, const PermissionRequest &, Verdict)>;
 private:
     // Request 持有 FD、不可复用的请求号和接收时刻；
     // 数字 PID 不参与 fanotify 回复定位。
     struct Request {
         OwnedFd fd;
-        std::uint64_t id;
-        Clock::time_point received;
+        PermissionRequest context;
     };
     DecisionConfig config_;
     Reply reply_;
@@ -56,7 +63,7 @@ public:
     // 仅供协调器在验证后、同一事件循环内调用；纯值赋值，不再检查或分配。
     void commit_reconfigure(DecisionConfig config) noexcept { config_ = config; }
     void reconfigure(DecisionConfig config);
-    void submit(OwnedFd fd, Clock::time_point now);
+    void submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid = 0, std::uint64_t revision = 0);
     struct ReadyRequest { std::uint64_t id; int fd; };
     // 返回的是借用视图；
     // 调用者不得跨越队列完成/超时后继续把其中的裸 FD 当成有效请求。

@@ -7,9 +7,10 @@
 | 文件 | 职责 | 阅读重点 |
 | --- | --- | --- |
 | `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助、停止和重载；解析过程不访问 BPF 或 socket |
-| `src/main.cpp` / `src/service.cpp` | 唯一入口与主服务协调 | main 处理参数/管理动作，MonitorService 持有两模块、一个运行策略和管理端 |
+| `src/main.cpp` / `src/service.cpp` | 唯一入口与主服务协调 | main 处理参数/管理动作，MonitorService 持有两模块、一个运行策略、管理端和统一 stdout 审计出口 |
 | `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
 | `src/event_format.cpp` / `src/events.cpp` | ABI/JSONL 纯编码、回调入队和内核统计 | 校验长度/布局/种类，C 回调不抛异常；每 CPU 统计逐 CPU 求和 |
+| `src/fanotify/audit.h/.cpp` | 权限回复的 JSONL 编码 | 请求携带接收时的身份/revision，成功写回后编码；不重新解析路径或查询 PID |
 | `src/audit_sink.h/.cpp` | 有界审计出口 | 主循环只入队，I/O 线程写 stdout；背压和出口错误计数可查询 |
 | `src/diagnostic_output.h/.cpp` | 服务期的独立 stderr 出口 | 将 cerr 和 libbpf 日志按完整行送入独立预算的 AuditSink；快照保持无效/丢弃计数一致，flush 不等待实际输出 |
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
@@ -23,7 +24,7 @@
 
 头文件暴露接口与资源所有权，系统调用和协议细节放在对应 `.cpp`。`MonitorService` 通过这些接口协调运行，避免再次把各个功能实现堆回入口。
 
-正常退出时先处理 fanotify 已交付请求并停止分析器，再 detach BPF、消费剩余审计事件并报告统计。异常退出依赖对象逆序析构；BpfMonitor 内部按 ring buffer、skeleton、固定 inode 集合释放。研究资源顺序时应同时读服务成员与模块成员的声明。
+正常退出时先处理 fanotify 已交付请求并停止分析器，再 detach BPF、消费剩余审计事件、排空服务拥有的统一出口后报告统计。异常退出依赖对象逆序析构；BpfMonitor 内部按 ring buffer、skeleton、固定 inode 集合释放。研究资源顺序时应同时读服务成员与模块成员的声明。
 
 ## 内核侧：跟踪一次执行
 

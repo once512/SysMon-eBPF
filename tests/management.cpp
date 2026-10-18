@@ -37,7 +37,8 @@ int main()
     reject([](Reply &x) { x.code = static_cast<Code>(99); });
     reject([](Reply &x) { x.last_code = static_cast<Code>(99); });
     reject([](Reply &x) { x.backend = static_cast<Backend>(99); });
-    reject([](Reply &x) { x.flags = 16; });
+    reject([](Reply &x) { x.flags = 32; });
+    reject([](Reply &x) { x.flags |= permission_audit; });
     reject([](Reply &x) { x.fallbacks = 8; });
     reject([](Reply &x) { x.protected_paths = 257; });
     reject([](Reply &x) { x.pending = 4097; });
@@ -73,6 +74,11 @@ int main()
     r.pending = 1; r.peak_pending = 3; r.max_pending = 4; r.fallbacks = 5;
     require(reply_json(r).find("\"permission_event\":\"access\"") != std::string::npos);
     require(reply_json(r).find("\"analyzer_online\":true") != std::string::npos);
+    r.flags |= permission_audit;
+    r.audit_written = 12;
+    const auto fan_audit = reply_json(r);
+    require(fan_audit.find("\"permission_audit\":true") != std::string::npos);
+    require(fan_audit.find("\"audit_written\":12") != std::string::npos);
     r.analysis_errors = 3; r.backend_error_requests = 1; r.scan_errors[5] = 2;
     r.last_scan_error = analysis::ScanError::oversized;
     require(reply_json(r).find("\"oversized\":2") != std::string::npos);

@@ -24,11 +24,12 @@ std::string read_file(const char *path)
 }
 }
 struct BpfMonitor::State {
-    AuditSink audit; // 先创建出口，最后回收；ring callback 始终借用其稳定地址。
+    AuditSink &audit; // 借用服务出口，生命期覆盖 skeleton/ring 与两个模块的停止。
     ProtectedFiles protected_files; // 晚于所有 BPF 链接释放，防止保护期间 inode 被复用。
     std::unique_ptr<secmon_bpf, decltype(&secmon_bpf__destroy)> skel{nullptr, secmon_bpf__destroy};
     std::unique_ptr<ring_buffer, decltype(&ring_buffer__free)> ring{nullptr, ring_buffer__free};
     bool attached = false;
+    explicit State(AuditSink &sink) : audit(sink) {}
 };
 void BpfMonitor::check_environment()
 {
@@ -44,7 +45,7 @@ void BpfMonitor::check_environment()
     if (!btf || !bpf_lsm)
         throw std::runtime_error("BTF or active BPF LSM unavailable (or securityfs inaccessible)");
 }
-BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect) : state_(std::make_unique<State>())
+BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect, AuditSink &audit) : state_(std::make_unique<State>(audit))
 {
     check_environment();
     auto &skel = state_->skel;
@@ -91,10 +92,6 @@ void BpfMonitor::poll_once(int timeout_ms)
 void BpfMonitor::report()
 {
     report_stats(bpf_map__fd(state_->skel->maps.stats));
-    const auto audit = audit_stats();
-    std::cerr << "audit_written=" << audit.written << " audit_dropped=" << audit.dropped
-              << " audit_invalid=" << audit.invalid << " audit_queued=" << audit.queued
-              << " audit_errno=" << audit.output_errno << '\n';
 }
 void BpfMonitor::shutdown()
 {
@@ -102,8 +99,4 @@ void BpfMonitor::shutdown()
     secmon_bpf__detach(state_->skel.get());
     state_->attached = false;
     ring_buffer__consume(state_->ring.get());
-    state_->audit.shutdown();
-    report();
 }
-
-AuditStats BpfMonitor::audit_stats() const { return state_->audit.stats(); }

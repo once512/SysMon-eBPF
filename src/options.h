@@ -7,6 +7,7 @@
 
 struct Options {
     bool check = false;
+    bool permission_audit = false;
     // 默认 BPF 常驻，配置有 fanotify 字段时同时启用；单模块模式仅供诊断/机制测试。
     enum class Modules { automatic, bpf_only, fanotify_only } modules = Modules::automatic;
     FanotifyOptions fanotify;

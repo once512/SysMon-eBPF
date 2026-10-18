@@ -6,6 +6,8 @@
 #include "gate_stats.h"
 #include "event_kind.h"
 #include "analysis/client.h"
+#include "audit.h"
+class AuditSink;
 #include <memory>
 #include <cstdint>
 #include <string>
@@ -19,13 +21,17 @@ class PermissionGate {
     OwnedFd group_;
     std::uint64_t mask_;
     GateStats stats_;
+    AuditSink *audit_; // 借用服务统一出口；不创建第二个 stdout 写线程。
+    PermissionAuditIdentity audit_identity_;
+    std::uint64_t revision_;
     PendingDecisions pending_;
-    void respond(int fd, Verdict verdict);
+    void respond(int fd, const PermissionRequest &request, Verdict verdict);
     void service_analysis();
 public:
     PermissionGate(const std::string &path, DecisionConfig config,
                    PermissionEvent event = PermissionEvent::open,
-                   const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {});
+                   const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {},
+                   AuditSink *audit = nullptr, std::uint64_t instance_ns = 0, std::uint64_t revision = 0);
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     // pending 的回复 lambda 捕获当前 this；
@@ -37,7 +43,10 @@ public:
     // 返回 false 不表示分析器离线。
     bool poll_once(int timeout_ms);
     void validate_reconfigure(DecisionConfig config) const;
-    void commit_reconfigure(DecisionConfig config) noexcept { pending_.commit_reconfigure(config); }
+    void commit_reconfigure(DecisionConfig config, std::uint64_t revision) noexcept {
+        pending_.commit_reconfigure(config);
+        revision_ = revision;
+    }
     void reconfigure(DecisionConfig config);
     // 先回复已交付请求并关闭 group，再停止分析器；在结束统计可能阻塞前释放内核未读等待。
     // 不依赖外层对象析构才能关闭 mark；调用后不再 poll/reconfigure。

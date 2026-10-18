@@ -26,7 +26,7 @@ bool closed(int fd)
     errno = 0;
     return fcntl(fd, F_GETFD) < 0 && errno == EBADF;
 }
-struct ReplyRecord { int fd; Verdict verdict; };
+struct ReplyRecord { int fd; Verdict verdict; PermissionRequest request; };
 }
 
 int main()
@@ -34,9 +34,9 @@ int main()
     try {
         const auto start = Clock::time_point{};
         std::vector<ReplyRecord> replies;
-        auto reply = [&](int fd, Verdict verdict) {
+        auto reply = [&](int fd, const PermissionRequest &request, Verdict verdict) {
             require(fcntl(fd, F_GETFD) >= 0, "Event FD must remain open through reply");
-            replies.push_back({fd, verdict});
+            replies.push_back({fd, verdict, request});
         };
         DecisionConfig config;
         config.allow = true;
@@ -81,19 +81,26 @@ int main()
         config.delay = 10ms;
         {
             PendingDecisions queue(config, reply);
-            queue.submit(descriptor(), start);
-            queue.submit(descriptor(), start + 1ms);
+            queue.submit(descriptor(), start, 101, 7);
+            queue.submit(descriptor(), start + 1ms, 102, 7);
             auto overflow = descriptor();
             const int raw = overflow.get();
-            queue.submit(std::move(overflow), start + 2ms);
+            queue.submit(std::move(overflow), start + 2ms, 103, 7);
             require(queue.size() == 2 && replies.size() == 1 && closed(raw), "Bound pending ownership");
             require(!replies[0].verdict.allow && replies[0].verdict.reason == DecisionReason::capacity,
                     "Capacity fallback must deny by default");
+            require(replies[0].request.id == 3 && replies[0].request.requester_pid == 103 &&
+                    replies[0].request.revision == 7 && replies[0].request.received == start + 2ms,
+                    "Capacity reply retains unique ID, sender, receive time and revision");
             queue.process_due(start + 10ms);
+            require(replies[1].request.id == 1 && replies[1].request.requester_pid == 101 && replies[1].request.revision == 7,
+                    "Delayed reply retains original request context");
             require(queue.size() == 1 && replies.size() == 2, "FIFO timestamps stay independent");
             queue.shutdown();
             require(queue.size() == 0 && replies.size() == 3 && !replies[2].verdict.allow &&
                     replies[2].verdict.reason == DecisionReason::shutdown, "Graceful shutdown denies delivered event");
+            require(replies[2].request.id == 2 && replies[2].request.requester_pid == 102 && replies[2].request.revision == 7,
+                    "Shutdown reply retains the original pending request context");
             queue.shutdown();
             require(replies.size() == 3, "Shutdown is idempotent");
         }
@@ -121,7 +128,7 @@ int main()
         int failed_fd = -1;
         {
             config.delay = 10ms;
-            PendingDecisions queue(config, [](int, Verdict) { throw std::runtime_error("simulated write failure"); });
+            PendingDecisions queue(config, [](int, const PermissionRequest &, Verdict) { throw std::runtime_error("simulated write failure"); });
             auto fd = descriptor();
             failed_fd = fd.get();
             queue.submit(std::move(fd), start);

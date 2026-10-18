@@ -2,6 +2,8 @@
 // 事件处理、管理和重载都在此线程串行执行，不创建第二个监控进程或后台重载线程。
 #include "service.h"
 #include "diagnostic_output.h"
+#include "audit_sink.h"
+#include "events.h"
 #include "bpf/monitor.h"
 #include "fanotify/monitor.h"
 #include "fanotify/policy.h"
@@ -40,12 +42,17 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
     const bool use_fan = options_.modules != Options::Modules::bpf_only && (active.fanotify || !fan_options.path.empty());
     if (options_.modules == Options::Modules::fanotify_only && !use_fan)
         throw std::runtime_error("Policy has no fanotify configuration");
+    if (options_.permission_audit && !use_fan)
+        throw std::runtime_error("--audit-permissions requires an enabled fanotify module");
+    if (options_.modules != Options::Modules::fanotify_only || options_.permission_audit)
+        audit_ = std::make_unique<AuditSink>();
     // 所有启动失败都通过对象逆序析构回收；任一模块失败，整个服务启动失败。
     if (options_.modules != Options::Modules::fanotify_only)
-        bpf_ = std::make_unique<BpfMonitor>(active, control_ != nullptr);
+        bpf_ = std::make_unique<BpfMonitor>(active, control_ != nullptr, *audit_);
     if (use_fan) {
         if (active.fanotify) apply_fanotify_policy(active, fan_options);
-        fanotify_ = std::make_unique<FanotifyMonitor>(std::move(fan_options), options_.policy_path);
+        fanotify_ = std::make_unique<FanotifyMonitor>(std::move(fan_options), options_.policy_path,
+            options_.permission_audit ? audit_.get() : nullptr, runtime_.snapshot(management::Backend::fanotify).instance_ns, active.revision);
     }
     std::cerr << "Policy active revision=" << active.revision << '\n';
     std::cerr << "Service active; bpf=" << bool(bpf_) << " fanotify=" << bool(fanotify_) << '\n';
@@ -60,7 +67,7 @@ void MonitorService::commit(const PolicyConfig &candidate)
     // prepare 完成所有可能失败的 fanotify 检查。BPF install 内部先准备完整候选再原子替换 Map。
     // 若 BPF 失败，两个模块保持旧策略；一旦成功，余下提交仅做 noexcept 的值移动。
     if (bpf_) bpf_->install(candidate);
-    if (fanotify_) fanotify_->commit(std::move(*next));
+    if (fanotify_) fanotify_->commit(std::move(*next), candidate.revision);
     // 这是用户态提交顺序保证，不声称不同内核钩子或在途系统调用的全局原子切换。
 }
 management::Reply MonitorService::snapshot() const
@@ -76,13 +83,16 @@ management::Reply MonitorService::snapshot() const
     if (bpf_) {
         reply.protected_paths = runtime_.active().paths.size();
         reply.writer_paths = runtime_.active().writers.size();
-        const auto audit = bpf_->audit_stats();
+        if (control_) reply.flags |= management::self_protected;
+    }
+    if (options_.permission_audit) reply.flags |= management::permission_audit;
+    if (audit_) {
+        const auto audit = audit_->stats();
         reply.audit_written = audit.written;
         reply.audit_dropped = audit.dropped;
         reply.audit_invalid = audit.invalid;
         reply.audit_queued = audit.queued;
         reply.audit_errno = audit.output_errno;
-        if (control_) reply.flags |= management::self_protected;
     }
     if (fanotify_) fanotify_->snapshot(reply);
     return reply;
@@ -108,13 +118,17 @@ void MonitorService::run()
         // 两个模块轮流处理有界工作；fanotify 开启时 BPF 不阻塞等待，避免把裁决延迟叠加到审计等待上。
         if (bpf_) bpf_->poll_once(fanotify_ ? 0 : 50);
         if (fanotify_) fanotify_->poll_once(10);
-        if (bpf_ && std::chrono::steady_clock::now() >= next_report) {
-            bpf_->report();
+        if (audit_ && std::chrono::steady_clock::now() >= next_report) {
+            if (bpf_) bpf_->report();
+            report_audit_stats(audit_->stats());
             next_report = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         }
     }
     if (fanotify_) fanotify_->shutdown();
     if (bpf_) bpf_->shutdown();
+    if (audit_) audit_->shutdown();
+    if (bpf_) bpf_->report();
+    if (audit_) report_audit_stats(audit_->stats());
     // 审计流继续使用 stdout JSONL；混合模式的结束统计写 stderr，避免污染事件消费者。
-    if (fanotify_) fanotify_->report(bpf_ ? std::cerr : std::cout);
+    if (fanotify_) fanotify_->report(audit_ ? std::cerr : std::cout);
 }

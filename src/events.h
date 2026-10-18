@@ -9,3 +9,6 @@
 std::optional<std::string> format_event(const void *data, std::size_t size);
 int consume(void *context, void *data, std::size_t size) noexcept;
 void report_stats(int map_fd);
+
+struct AuditStats;
+void report_audit_stats(const AuditStats &stats);

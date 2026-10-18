@@ -36,7 +36,7 @@ void validate_reply(const Reply &r, Command expected)
     // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
-        (r.flags & ~15U) || (r.fallbacks & ~7U) || r.reserved_tail ||
+        (r.flags & ~31U) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) || r.reserved_tail ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
         r.diagnostic_queued > SECMON_DIAGNOSTIC_MAX_RECORDS || r.diagnostic_errno < 0 || r.diagnostic_errno > 4095 ||
         r.diagnostic_invalid > r.diagnostic_dropped ||
@@ -72,14 +72,16 @@ std::string reply_json(const Reply &r)
     out << ",\"source_sha256\":";
     if (r.flags & configured) out << '\"' << digest_hex(r.source_digest) << '\"';
     else out << "null";
+    out << ",\"permission_audit\":" << ((r.flags & permission_audit) ? "true" : "false");
     out << ",\"diagnostic_written\":" << r.diagnostic_written << ",\"diagnostic_dropped\":" << r.diagnostic_dropped
         << ",\"diagnostic_invalid\":" << r.diagnostic_invalid << ",\"diagnostic_queued\":" << r.diagnostic_queued
         << ",\"diagnostic_errno\":" << r.diagnostic_errno;
     // 按后端输出实际支持的字段，不给 BPF 状态填造 fanotify 的裁决业务计数。
     if (r.backend != Backend::fanotify)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")
-            << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths
-            << ",\"audit_written\":" << r.audit_written << ",\"audit_dropped\":" << r.audit_dropped
+            << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths;
+    if (r.backend != Backend::fanotify || (r.flags & permission_audit))
+        out << ",\"audit_written\":" << r.audit_written << ",\"audit_dropped\":" << r.audit_dropped
             << ",\"audit_invalid\":" << r.audit_invalid << ",\"audit_queued\":" << r.audit_queued
             << ",\"audit_errno\":" << r.audit_errno;
     if (r.backend != Backend::bpf) {

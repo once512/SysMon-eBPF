@@ -61,7 +61,7 @@ def main():
                                 reply.worker_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                                             'instance_ns', 'event', 'mode', 'fallbacks', 'reserved'):
-                                    setattr(reply, case, {'abi': 4, 'size': ctypes.sizeof(Reply) - 1, 'command': (1 if command_id != 1 else 3), 'flags': 16,
+                                    setattr(reply, case, {'abi': 4, 'size': ctypes.sizeof(Reply) - 1, 'command': (1 if command_id != 1 else 3), 'flags': 32,
                                                          'instance_ns': 0, 'event': 4, 'mode': 4,
                                                          'fallbacks': 8, 'reserved': 1}.get(case, 99))
                                 if case == 'audit-queue': reply.audit_queued = 1025

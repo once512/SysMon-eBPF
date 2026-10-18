@@ -53,9 +53,11 @@ flowchart TD
     Service --> Server[ControlServer]
     Service --> BPF[BpfMonitor]
     BPF --> Pins[ProtectedFiles / skeleton]
-    BPF --> Audit[AuditSink：有界队列和 I/O 线程]
+    Service --> Audit[AuditSink：有界队列和 I/O 线程]
+    BPF -.入队.-> Audit
     Service --> Fan[FanotifyMonitor]
     Fan --> Gate[PermissionGate]
+    Gate -.可选入队.-> Audit
     Gate --> Pending[PendingDecisions]
     Gate --> Analyzer[AnalysisClient]
     Gate --> Data[GateStats 数据]

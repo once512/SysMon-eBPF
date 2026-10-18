@@ -108,3 +108,5 @@ sudo python3 tests/fanotify_soak.py --build-dir build --duration 30 --mode timeo
 崩溃测试先 SIGSTOP 监听者，启动一个打开请求并确认它尚未退出，再 SIGKILL 监听者，确认打开请求被释放且后续打开成功。此测试验证服务故障放行，不代表生产故障隔离能力。
 
 本轮未触发真实队列溢出、未验证跨文件系统/挂载命名空间及与其他 fanotify 监听者的组合，也未验证真实攻击检测。已新增确定性截止时间和 FD 所有权测试、真实延迟/超时回退与容量回退测试；持续负载结果单独记录在 DESIGN 中。后续仍需在隔离环境验证真实内核队列溢出，并设计独立分析组件与调度暂停后的故障策略。
+
+可通过 --audit-permissions 开启有界逐请求回复 JSONL，开启后最终汇总改写 stderr。身份、revision、原因及实验边界见 [逐请求裁决审计](PERMISSION_AUDIT.md)。

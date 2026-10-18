@@ -34,6 +34,8 @@ TESTS = (
     ('policy-consistency', 'policy_consistency.py'),
     ('unified-service', 'unified_service.py'),
     ('audit-backpressure', 'audit_backpressure.py'),
+    ('permission-audit', 'permission_audit.py'),
+    ('permission-audit-backpressure', 'permission_audit_backpressure.py'),
     ('shutdown-order', 'shutdown_order.py'),
     ('diagnostic-backpressure', 'diagnostic_backpressure.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
@@ -50,6 +52,7 @@ def main():
     parser.add_argument('--analysis-soak-duration', type=int, default=0)
     parser.add_argument('--management-soak-duration', type=int, default=0)
     parser.add_argument('--combined-soak-duration', type=int, default=0, help='add same-process scoped-writer static/analysis management loads')
+    parser.add_argument('--permission-audit-soak-duration', type=int, default=0, help='add combined permission-audit record accounting loads')
     parser.add_argument('--writer-soak-duration', type=int, default=0)
     parser.add_argument('--only', choices=[name for name, _ in TESTS], nargs='+')
     args = parser.parse_args()
@@ -61,6 +64,8 @@ def main():
         parser.error('soak-duration must be 0..1800 seconds')
     if not (args.combined_soak_duration == 0 or 5 <= args.combined_soak_duration <= 1800):
         parser.error('combined-soak-duration must be 0 or 5..1800 seconds')
+    if not (args.permission_audit_soak_duration == 0 or 5 <= args.permission_audit_soak_duration <= 1800):
+        parser.error('permission-audit-soak-duration must be 0 or 5..1800 seconds')
     if not (args.writer_soak_duration == 0 or 5 <= args.writer_soak_duration <= 1800):
         parser.error('writer-soak-duration must be 0 or 5..1800 seconds')
     root = Path(__file__).resolve().parent
@@ -86,6 +91,11 @@ def main():
         commands += [(f'combined-soak-{backend}-{event}', [sys.executable, str(root / 'management_soak.py'),
                       '--build-dir', str(build), '--duration', str(args.combined_soak_duration), '--combined', '--verify-audit-output',
                       '--backend', backend, '--event', event])
+                     for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
+    if args.permission_audit_soak_duration:
+        commands += [(f'permission-audit-soak-{backend}-{event}', [sys.executable, str(root / 'management_soak.py'),
+                      '--build-dir', str(build), '--duration', str(args.permission_audit_soak_duration),
+                      '--combined', '--verify-audit-output', '--audit-permissions', '--backend', backend, '--event', event])
                      for backend, event in (('static', 'open'), ('analysis', 'open'), ('analysis', 'access'))]
     if args.writer_soak_duration:
         commands.append(('writer-soak', [sys.executable, str(root / 'writer_soak.py'),

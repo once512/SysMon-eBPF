@@ -36,3 +36,10 @@ void report_stats(int fd)
                   << total << '\n';
     }
 }
+
+void report_audit_stats(const AuditStats &audit)
+{
+    std::cerr << "audit_written=" << audit.written << " audit_dropped=" << audit.dropped
+              << " audit_invalid=" << audit.invalid << " audit_queued=" << audit.queued
+              << " audit_errno=" << audit.output_errno << '\n';
+}

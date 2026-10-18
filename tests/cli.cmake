@@ -47,3 +47,7 @@ expect_invalid(--control relative)
 expect_invalid(--control /a --self-protect /b)
 expect_invalid(--check --fanotify-only)
 expect_invalid(--policy /a --file /unused --decision allow)
+
+expect_invalid(--audit-permissions --audit-permissions)
+expect_invalid(--audit-permissions --bpf-only)
+expect_invalid(--check --audit-permissions)

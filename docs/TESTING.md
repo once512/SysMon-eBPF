@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 22 项（含独立审计/诊断输出队列与事件格式边界），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+当前 CTest 有 23 项（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -29,6 +29,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
+| permission-audit | `permission_audit.py` | 逐请求身份/对象、revision/回滚、六类原因、open/access/exec 与汇总对账 |
+| permission-audit-backpressure | `permission_audit_backpressure.py` | 两种后端下逐请求审计的堵塞/恢复/断开/持续洪流，裁决/重载/停止仍可用 |
 | diagnostic-backpressure | `diagnostic_backpressure.py` | stderr 启动已满、失败重载洪流、周期报告、恢复/断开时裁决与管理继续，停止不依赖排空诊断 |
 | shutdown-order | `shutdown_order.py` | 填满 stderr 后不排空也完成退出，释放权限组 |
 | audit-backpressure | `audit_backpressure.py` | 审计 stdout 堵塞/恢复/断开/持续洪流时的裁决、重载与停止；用户态丢失可诊断 |
@@ -131,3 +133,12 @@ sudo python3 -B tests/diagnostic_backpressure.py --build-dir build --reload-coun
 四种场景依次运行，内部服务期限随请求数扩大；不要同时重新链接该 build 目录。洪流后的诊断丢弃属于预期结果，管理拒绝计数必须仍与尝试次数一致，临时管道恢复后队列可排空，断开时 errno 必须为 EPIPE。
 
 本轮诊断隔离的构建快照、背压实验与持续负载范围见 [诊断隔离验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)。
+
+逐请求权限审计可增加三项带审计记录对账的联合持续负载（每项 0 或 5..1800 秒）：
+
+```bash
+sudo python3 -B tests/run_privileged.py --build-dir build \
+    --only permission-audit permission-audit-backpressure --permission-audit-soak-duration 30
+```
+
+具体字段与输出模式见 [fanotify 逐请求裁决审计](PERMISSION_AUDIT.md)。management_soak.py 也可单独使用 --audit-permissions；联合模式可同时指定 --verify-audit-output 检查共享队列和内核计数。

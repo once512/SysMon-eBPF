@@ -29,7 +29,7 @@ sudo ./build/secmon --stop /run/secmon/control.sock
 
 pid 与 instance_ns 一起用于识别当前实例，不是持久 UUID、任务启动时间或跨 PID namespace 的授权标识。重启后计数和历史归零，未实现持久防回滚。比较 revision 与 source_sha256 才能核对活动版本及原始配置内容；摘要不是签名或授权。配置字节相同也不证明路径解析到了同一 inode 或处于同一命名空间。
 
-启用 BPF 时另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。用户态审计队列还返回 audit_written/audit_dropped/audit_invalid/audit_queued/audit_errno，具体口径见 [审计出口](AUDIT_OUTPUT.md)。所有后端另返回 diagnostic_written/diagnostic_dropped/diagnostic_invalid/diagnostic_queued/diagnostic_errno，描述独立 stderr 出口；计数与限制同见上述文档。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
+permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启动选项。启用 BPF 时另返回 protected_paths、writer_paths 和 self_protected，前者按配置路径条数计，硬链接别名不合并。启用 BPF 或开启权限审计的 fanotify-only 后端，用户态审计队列还返回 audit_written/audit_dropped/audit_invalid/audit_queued/audit_errno，具体口径见 [审计出口](AUDIT_OUTPUT.md)。所有后端另返回 diagnostic_written/diagnostic_dropped/diagnostic_invalid/diagnostic_queued/diagnostic_errno，描述独立 stderr 出口；计数与限制同见上述文档。BPF 事件统计仍由既有 stderr 周期报告，本接口不把占位数值展示成已读取的内核统计。
 
 启用 fanotify 时另返回当前事件、裁决模式、延迟/超时/容量、三种回退设置、已交付 pending 与峰值、累计允许/拒绝/分析错误/后端故障/内核溢出。analyzer_online 表示宿主**已观测**的通道状态，不是瞬时进程健康保证；查询本身不做 ping/reap。analyzer_pid 可能是尚未回收的原子进程 PID，不能把该数字当成独立授权的发信号目标。内部终止仍使用 pidfd。
 

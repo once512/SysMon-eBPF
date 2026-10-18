@@ -4,6 +4,7 @@
 #include "options.h"
 #include "policy_runtime.h"
 #include <memory>
+class AuditSink;
 class DiagnosticOutput;
 class ControlServer;
 class BpfMonitor;
@@ -12,6 +13,7 @@ class MonitorService {
     DiagnosticOutput &diagnostics_;
     Options options_;
     PolicyRuntime runtime_;
+    std::unique_ptr<AuditSink> audit_; // 两个模块借用；最后释放，整个 stdout 只有一个写线程。
     std::unique_ptr<ControlServer> control_;
     std::unique_ptr<BpfMonitor> bpf_;
     std::unique_ptr<FanotifyMonitor> fanotify_;

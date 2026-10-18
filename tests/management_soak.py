@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--duration', type=int, default=30)
     parser.add_argument('--backend', choices=('static', 'analysis'), default='static')
     parser.add_argument('--verify-audit-output', action='store_true', help='require healthy current audit queue and kernel counters throughout the load')
+    parser.add_argument('--audit-permissions', action='store_true', help='verify each permission audit record against replies')
     parser.add_argument('--combined', action='store_true', help='run both modules with scoped native writer probes')
     parser.add_argument('--event', choices=('open', 'access'), default='open')
     args = parser.parse_args()
@@ -59,7 +60,8 @@ def main():
             stage.replace(config)
         publish()
         with tempfile.TemporaryFile(mode='w+') as output, tempfile.TemporaryFile(mode='w+') as errors:
-            process = subprocess.Popen([str(binary), *([] if args.combined else ['--fanotify-only']), '--policy', str(config), '--control', str(control),
+            process = subprocess.Popen([str(binary), *([] if args.combined else ['--fanotify-only']),
+                                        *(['--audit-permissions'] if args.audit_permissions else []), '--policy', str(config), '--control', str(control),
                                         '--run-for', str(args.duration + 30)], stdout=output, stderr=errors)
             halt = threading.Event()
             condition = threading.Condition()
@@ -79,6 +81,7 @@ def main():
                 base = len(list(Path(f'/proc/{process.pid}/fd').iterdir()))
                 peak = base
                 initial = call(binary, 'status', control)
+                assert initial['permission_audit'] == args.audit_permissions
                 if probe:
                     assert initial['backend'] == 'combined' and initial['pid'] == process.pid
                     probe.check(revision)
@@ -205,7 +208,7 @@ def main():
                 os.close(writer)
             errors.seek(0)
             assert process.returncode == 0, errors.read()
-            if args.combined:
+            if args.combined or args.audit_permissions:
                 errors.seek(0)
                 reports = [json.loads(line) for line in errors.read().splitlines() if line.startswith('{')]
                 stats = next(report for report in reports if 'shutdown_denied' in report)
@@ -215,6 +218,28 @@ def main():
             assert stats['allowed'] == counts[0] and stats['denied'] == counts[1]
             assert stats['shutdown_denied'] == stats['overflow'] == stats['analyzer_failures'] == 0
             assert stats['allowed'] > 0 and stats['denied'] > 0
+            if args.audit_permissions:
+                output.seek(0)
+                # 逐行校验，不把长测的全部 JSON 对象载入内存；标记数组按实际回复总量分配，每个请求一字节。
+                seen = bytearray(sum(counts))
+                recorded, allowed = 0, 0
+                for line in output:
+                    event = json.loads(line)
+                    if event['event'] != 'fanotify_decision':
+                        continue
+                    request_id = event['request_id']
+                    assert 1 <= request_id <= len(seen) and not seen[request_id - 1]
+                    seen[request_id - 1] = 1
+                    recorded += 1
+                    allowed += event['decision'] == 'allow'
+                    assert event['instance_ns'] == initial['instance_ns'] and event['listener_pid'] == process.pid
+                    assert event['requester_pid'] == os.getpid() and 1 <= event['revision'] <= revision
+                    assert event['permission_event'] == args.event
+                    if event['reason'] in ('policy', 'analysis'):
+                        assert (event['decision'] == 'allow') == bool(event['revision'] % 2), event
+                assert recorded == sum(counts) and allowed == counts[0]
+                print(json.dumps({'event': 'permission-audit-health', 'backend': args.backend, 'permission_event': args.event,
+                                  'records': recorded, 'updates': updates, 'unique_ids': True, 'reply_accounting': True}), flush=True)
             if args.verify_audit_output:
                 errors.seek(0)
                 diagnostics = errors.read()

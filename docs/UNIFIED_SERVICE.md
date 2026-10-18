@@ -9,6 +9,9 @@ flowchart TD
     Service --> Control[一个 ControlServer]
     Service --> BPF[BpfMonitor]
     Service --> Fan[FanotifyMonitor]
+    Service --> Audit[统一 AuditSink]
+    BPF -.借用出口.-> Audit
+    Fan -.可选借用出口.-> Audit
     BPF --> Skel[skeleton / Map / ring buffer / inode FD]
     Fan --> Gate[PermissionGate / mark / 队列]
     Gate --> Worker[独立降权分析器]
@@ -36,7 +39,7 @@ sudo ./build/secmon --stop /run/secmon/control.sock
 
 同一线程串行处理管理命令、BPF 事件和 fanotify 裁决。联合模式中 BPF 以零等待、每轮最多 128 条消费，fanotify 每轮最多等待 10ms，并受请求截止时间进一步限制。该数值是 poll 等待上限，不是端到端时延承诺。没有第二个监控进程或独立重载线程。AuditSink 另用专门 I/O 线程消费有界 JSONL 队列，避免 stdout 管道堵塞主循环；该线程不修改策略。
 
-审计事件仍写 stdout JSONL。BPF 周期统计和联合模式 fanotify 结束统计写 stderr，避免将统计混入事件消费者。`--fanotify-only` 诊断模式的结束统计仍写 stdout，方便机制测试读取。服务期 stderr（含 libbpf）使用独立有界输出线程，状态包含 diagnostic_* 计数；预算和故障边界见 [审计/诊断出口](AUDIT_OUTPUT.md)。
+审计事件仍写 stdout JSONL。BPF 周期统计和联合模式 fanotify 结束统计写 stderr，避免将统计混入事件消费者。`--fanotify-only` 未开启权限审计时的结束统计写 stdout；--audit-permissions 开启时 stdout 为审计 JSONL，结束统计改写 stderr。服务拥有统一 AuditSink，两个模块借用同一出口，先关闭权限组/卸载 BPF 再排空队列。服务期 stderr（含 libbpf）使用独立有界输出线程，状态包含 diagnostic_* 计数；预算和故障边界见 [审计/诊断出口](AUDIT_OUTPUT.md)。
 
 ## 联合重载的失败边界
 

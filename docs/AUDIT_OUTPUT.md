@@ -1,11 +1,13 @@
 # 有界审计出口与主循环公平性
 
-主进程同时承载 BPF 与 fanotify 后，审计 JSONL 不能再直接写阻塞 stdout。否则日志读端停住，安全裁决和 root 管理也会一起等待。本模块把格式转换、排队和实际 I/O 分开；它没有创建另一个监控进程。
+主进程同时承载 BPF 与 fanotify 后，BPF 及可选逐请求权限审计的 JSONL 不能再直接写阻塞 stdout。否则日志读端停住，安全裁决和 root 管理也会一起等待。本模块把格式转换、排队和实际 I/O 分开；它没有创建另一个监控进程。
 
 ```mermaid
 flowchart LR
     Ring[BPF ring buffer] --> Format[event_format：校验和编码]
     Format --> Queue[AuditSink：有界队列]
+    FanReply[成功的 fanotify 权限回复] --> Permission[fanotify/audit：身份与裁决编码]
+    Permission --> Queue
     Queue --> IO[独立 I/O 线程]
     IO --> Out[stdout]
     Loop[主事件循环] --> Ring
@@ -21,7 +23,7 @@ flowchart LR
 | [diagnostic_output.cpp](../src/diagnostic_output.cpp) | 服务期的 cerr 整行适配、独立诊断队列，移除对 cout 的同步 flush；libbpf 日志也经此出口 |
 | [audit_limits.h](../include/secmon/audit_limits.h) | 最大 1024 条、1 MiB、单条 4096 字节的统一边界 |
 
-队列包含正在写出的头部记录，按完整字符串长度记有效字节预算；对象/分配器和线程栈另有开销，该预算不是整个进程堆内存峰值。生产者只在短临界区检查/追加，写线程在 write/send/poll 期间不持队列锁；队列满、超过预算或出口离线时丢弃新记录，并报告 audit_dropped。启用 BPF 时 stdout 专用于该出口，其他主服务模块不能再绕过队列写 std::cout。主循环每次最多消费 128 条 BPF 记录，避免持续审计洪流一直占用执行权而饿死 fanotify 或管理。
+队列包含正在写出的头部记录，按完整字符串长度记有效字节预算；对象/分配器和线程栈另有开销，该预算不是整个进程堆内存峰值。生产者只在短临界区检查/追加，写线程在 write/send/poll 期间不持队列锁；队列满、超过预算或出口离线时丢弃新记录，并报告 audit_dropped。启用 BPF 或 --audit-permissions 时 stdout 专用于服务拥有的唯一 AuditSink；两个模块仅借用出口，其他主服务模块不能绕过队列写 std::cout。逐请求权限审计的字段、版本和原因见 [权限审计](PERMISSION_AUDIT.md)。主循环每次最多消费 128 条 BPF 记录，避免持续审计洪流一直占用执行权而饿死 fanotify 或管理。
 
 ## 输出引用与失败行为
 
@@ -29,7 +31,7 @@ flowchart LR
 
 socket 无法通过 proc 重新打开，因此也复制 FD，每次 send 使用 MSG_DONTWAIT/MSG_NOSIGNAL。管道写线程单独屏蔽 SIGPIPE，断开记录 EPIPE，不修改整个进程的信号处理，也不把安全服务意外终止。出口发生永久错误后不自动重开，后续记录计为丢弃，BPF/fanotify 仍继续执行规则。
 
-正常停止先关闭 BPF 事件来源、消费剩余 ring 记录，再给非阻塞出口约 200ms 排空；超时剩余条目计为丢弃。流式输出若在部分写入后断开，末尾可能是不完整行；完整写出计数只在整条记录完成后增加，不声称崩溃/断开后日志总是完整。
+正常停止先回复已交付请求并关闭 fanotify 组，再关闭 BPF 事件来源、消费剩余 ring 记录，再给非阻塞出口约 200ms 排空；超时剩余条目计为丢弃。流式输出若在部分写入后断开，末尾可能是不完整行；完整写出计数只在整条记录完成后增加，不声称崩溃/断开后日志总是完整。
 
 普通文件的 O_NONBLOCK 不能保证底层存储 I/O 本身不等待；独立 I/O 线程隔离主循环，但存储故障时 join 仍可能受影响。
 
@@ -41,11 +43,11 @@ socket 无法通过 proc 重新打开，因此也复制 FD，每次 send 使用 
 
 libbpf 的默认 stderr 回调在服务期间替换为有界格式转换，然后写入相同适配器；DEBUG 级别维持默认关闭，超出格式缓冲区的尾部不完整日志受整行边界约束。独立分析器仍有自己的 stderr，异常时可由既有请求超时/故障回退隔离。短时 --help/--check/--status/--reload/--stop 命令没有活跃裁决循环，继续直接输出。
 
-正常退出先释放 fanotify/BPF 资源，再给已启用的 stdout 审计出口和 stderr 诊断出口各约 200ms 排空。fanotify-only 的最终 stdout 统计仍为资源释放后的同步输出。stderr 为无人读取的阻塞管道或已断开时，不再阻塞活跃主循环或无限拖住正常退出。普通文件底层存储故障的 join 限制同样适用于诊断线程；这不是磁盘故障下的硬实时保证。
+正常退出先释放 fanotify/BPF 资源，再给已启用的 stdout 审计出口和 stderr 诊断出口各约 200ms 排空。未开启 --audit-permissions 的 fanotify-only 最终 stdout 统计仍为资源释放后的同步输出；开启时汇总写 stderr。stderr 为无人读取的阻塞管道或已断开时，不再阻塞活跃主循环或无限拖住正常退出。普通文件底层存储故障的 join 限制同样适用于诊断线程；这不是磁盘故障下的硬实时保证。
 
 ## 管理状态与计数口径
 
-启用 BPF 的状态（bpf/combined）包含：
+启用 BPF 的状态（bpf/combined），或开启 --audit-permissions 的 fanotify-only 状态包含：
 
 | 字段 | 含义 |
 | --- | --- |

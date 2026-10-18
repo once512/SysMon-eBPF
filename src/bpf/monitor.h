@@ -10,13 +10,12 @@ class BpfMonitor {
     std::unique_ptr<State> state_;
 public:
     static void check_environment();
-    BpfMonitor(const PolicyConfig &policy, bool self_protect);
+    BpfMonitor(const PolicyConfig &policy, bool self_protect, AuditSink &audit);
     ~BpfMonitor();
     BpfMonitor(const BpfMonitor &) = delete;
     BpfMonitor &operator=(const BpfMonitor &) = delete;
     void install(const PolicyConfig &candidate);
     void poll_once(int timeout_ms);
     void report();
-    AuditStats audit_stats() const;
     void shutdown();
 };
