@@ -83,6 +83,7 @@ def main():
         for thread in threads:
             thread.start()
         started, revision, rejected = time.monotonic(), 1, 0
+        next_report = started + 30
         try:
             while time.monotonic() - started < args.duration:
                 assert not failures, failures
@@ -109,6 +110,10 @@ def main():
                 status = call(build / 'secmon', 'status', control)
                 assert status['revision'] == revision and status['source_sha256'] == digest
                 assert status['reloads'] == revision - 1 and status['rejections'] == rejected
+                if time.monotonic() >= next_report:
+                    print(f'progress writer seconds={time.monotonic() - started:.0f} updates={revision - 1} '
+                          f'rejected={rejected} idle_fds={current} peak_idle_fds={peak}', flush=True)
+                    next_report += 30
                 stop.wait(0.25)
         finally:
             stop.set()
