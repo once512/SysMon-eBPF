@@ -136,6 +136,8 @@ class AuditedService:
         for event in events:
             assert event['instance_ns'] == self.initial['instance_ns']
             assert event['listener_pid'] == self.process.pid
+            assert event['requester_pid_kind'] == 'tgid'
+            assert event['pid_namespace_inode'] == os.stat('/proc/self/ns/pid').st_ino
             assert (event['major'], event['minor'], event['inode']) == (
                 os.major(self.identity.st_dev), os.minor(self.identity.st_dev), self.identity.st_ino)
             assert event['permission_event'] == self.event

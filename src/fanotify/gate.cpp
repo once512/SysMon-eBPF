@@ -60,9 +60,11 @@ PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, P
       pending_(config, [this](int fd, const PermissionRequest &request, Verdict verdict) { respond(fd, request, verdict); })
 {
     if (audit_) {
-        struct stat target{};
+        struct stat target{}, pid_namespace{};
+        // Cache the group creator's PID namespace once, never look up requesters by numeric PID.
+        if (stat("/proc/self/ns/pid", &pid_namespace)) fail("stat permission audit PID namespace");
         if (fstat(target_.get(), &target)) fail("stat permission audit target");
-        audit_identity_ = {instance_ns, getpid(), major(target.st_dev), minor(target.st_dev), target.st_ino, event};
+        audit_identity_ = {instance_ns, getpid(), major(target.st_dev), minor(target.st_dev), target.st_ino, event, pid_namespace.st_ino};
     }
     // 配置若就是被标记对象，重载读取它会等待本监听器给自己裁决；
     // 必须在添加 mark 前排除。

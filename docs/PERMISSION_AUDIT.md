@@ -20,14 +20,16 @@ sudo ./build/secmon --fanotify-only --file /absolute/target --decision deny \
 示例字段如下（数值仅作字段说明）：
 
 ```json
-{"event":"fanotify_decision","listener_pid":321,"instance_ns":123,"request_id":1,"requester_pid":456,"revision":7,"major":8,"minor":1,"inode":999,"permission_event":"open","decision":"deny","reason":"policy","scan_error":"none","scan_errno":0,"received_ns":1000000,"responded_ns":3500000,"latency_us":2500}
+{"event":"fanotify_decision","listener_pid":321,"instance_ns":123,"request_id":1,"requester_pid":456,"requester_pid_kind":"tgid","pid_namespace_inode":4026531836,"revision":7,"major":8,"minor":1,"inode":999,"permission_event":"open","decision":"deny","reason":"policy","scan_error":"none","scan_errno":0,"received_ns":1000000,"responded_ns":3500000,"latency_us":2500}
 ```
 
 | 字段 | 含义 |
 | --- | --- |
 | listener_pid / instance_ns | 监听服务 PID 和同管理状态一致的实例时刻；实例时刻不是持久 UUID 或身份认证 |
 | request_id | 本权限门的递增非零请求号，容量回退也占用一个；重启后重新开始 |
-| requester_pid | 原样保存 `fanotify_event_metadata.pid`，不在回复时通过 `/proc` 补查身份 |
+| requester_pid | 原样保存 `fanotify_event_metadata.pid`；当前组未启用 FAN_REPORT_TID，因此是 TGID，外层不可见任务可为 0 |
+| requester_pid_kind | 固定 `tgid`，避免将进程组 ID 误作实际操作线程 TID |
+| pid_namespace_inode | 创建组时缓存的监听进程 PID namespace inode；requester_pid 和 listener_pid 使用这一坐标，不是永久全局 UUID |
 | revision | 用户态接收事件时的活动策略 revision，命令行无文件策略时可为 0 |
 | major / minor / inode | 从启动时固定的目标对象缓存的设备及 inode；别名和重命名仍指向原对象 |
 | permission_event | `open` / `access` / `exec`，与实际订阅入口一致 |
@@ -37,7 +39,7 @@ sudo ./build/secmon --fanotify-only --file /absolute/target --decision deny \
 | received_ns / responded_ns | 用户态 `steady_clock` 的接收/回复时刻，单位 ns |
 | latency_us | 两时刻之差，向下取整到微秒；不含用户态接收前的内核排队时间 |
 
-请求关联使用 `(listener_pid, instance_ns, request_id)`。请求号按接收分配，回复顺序可以不同：例如第二个请求先容量回退，第一个请求稍后才完成分析。`requester_pid` 仅保留 fanotify 返回值；没有 PID namespace 转换、UID/EUID 认证或与 BPF 任务生命周期身份的自动绑定，不应将它当作长期授权主体。
+同一启动上下文中的请求关联使用 `(pid_namespace_inode, listener_pid, instance_ns, request_id)`；跨机器/跨启动汇总还需要采集端提供机器及 boot 身份。请求号按接收分配，回复顺序可以不同：例如第二个请求先容量回退，第一个请求稍后才完成分析。`requester_pid` 仅保留 fanotify 返回值；没有 PID namespace 转换、UID/EUID 认证或与 BPF 任务生命周期身份的自动绑定，不应将它当作长期授权主体。namespace inode 是坐标说明，不能补出 requester 的进程启动时间，也不能把 0 转换成可归属的任务。线程与生命周期边界见 [身份合同](IDENTITY_CONTRACT.md)。
 
 | reason | 发生条件 | 对应汇总 |
 | --- | --- | --- |

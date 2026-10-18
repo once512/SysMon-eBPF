@@ -12,7 +12,7 @@
 
 ## 当前实现
 
-目前实现执行与凭证审计、指定文件对象的只读保护与授权修改原型，以及可选的 secmon 进程自保护；同一主进程内提供 fanotify 单文件裁决，另以独立降权进程完成有界字节标记扫描实验。真实恶意行为识别、诱饵和完整保险箱仍待实现。
+目前实现执行与凭证审计、指定文件对象的只读保护与授权修改原型，以及可选的 secmon 进程自保护；同一主进程内提供 fanotify 单文件裁决，另以独立降权进程完成有界字节标记扫描实验。已有临时真实诱饵的受控证据与完整文件读取/备份实验；生产诱饵管理、真实恶意行为识别和完整保险箱仍待实现。
 
 总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)，当前待办见 [下一步](docs/NEXT_STEPS.md)。
 
@@ -22,7 +22,7 @@
 - 同一次执行可能多次经过检查点（例如脚本与解释器处理），不按检查事件数量统计成功执行次数。`comm` 是检查时的当前任务名，可能仍为调用者名称；`filename` 是本次执行请求路径。
 - 在 `commit_creds` 返回后、fork 和 exec 完成时记录已观测凭证，按线程生命周期清理。
 - 凭证与基线不一致时设置事件 `flags` 的位 0，仅审计，不阻断。合法提交也可能来自攻击，基线不等同于可信授权。
-- `--audit-permissions` 可记录每次 fanotify 权限回复的请求身份、对象、revision、原因和耗时，与 BPF 事件共用有界 stdout；见 [逐请求裁决审计](docs/PERMISSION_AUDIT.md)。
+- `--audit-permissions` 可记录每次 fanotify 权限回复的请求身份、对象、revision、原因和耗时，与 BPF 事件共用有界 stdout；见 [逐请求裁决审计](docs/PERMISSION_AUDIT.md)。TGID/线程、namespace 及生命周期关联边界见 [身份合同](docs/IDENTITY_CONTRACT.md)。
 - stderr 诊断使用独立有界队列，阻塞/断开不拖住裁决和管理循环，状态查询提供诊断丢弃与出口错误；详见 [诊断出口](docs/AUDIT_OUTPUT.md) 与 [本轮验证](docs/VALIDATION_DIAGNOSTIC_2026_10_18.md)。
 - 审计 JSONL 经有界队列由独立 I/O 线程写 stdout；背压/输出错误可查询，不直接拖住 fanotify 裁决。每 10 秒及退出时向 stderr 输出内核丢失、基线失败和审计出口计数，详见 [审计出口](docs/AUDIT_OUTPUT.md)。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。

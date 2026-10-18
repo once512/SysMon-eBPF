@@ -37,6 +37,8 @@ TESTS = (
     ('permission-audit', 'permission_audit.py'),
     ('decoy-evidence', 'decoy_evidence.py'),
     ('decoy-workloads', 'decoy_workloads.py'),
+    ('identity-threads', 'identity_threads.py'),
+    ('permission-namespace', 'permission_namespace.py'),
     ('permission-audit-backpressure', 'permission_audit_backpressure.py'),
     ('shutdown-order', 'shutdown_order.py'),
     ('diagnostic-backpressure', 'diagnostic_backpressure.py'),
