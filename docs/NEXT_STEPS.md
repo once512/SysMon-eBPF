@@ -1,6 +1,6 @@
 # 当前能力与下一步
 
-更新于 2026-10-18。诊断隔离进展见 [本轮验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)，目标授权及此前验证见 [授权与审计记录](VALIDATION_SCOPED_2026_10_18.md)，总体方向及历史决策保留在 [DESIGN](../DESIGN.md)。
+更新于 2026-10-18。逐请求权限审计结果见 [最新验证](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)，诊断隔离进展见 [本轮验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)，目标授权及此前验证见 [授权与审计记录](VALIDATION_SCOPED_2026_10_18.md)，总体方向及历史决策保留在 [DESIGN](../DESIGN.md)。
 
 目前已有一个主服务、BPF/fanotify 两个资源对象、独立降权分析器和短时管理工具；配置和活动 revision 统一。文件修改例外已能按执行 inode、EUID、目标和文件检查点声明，审计 stdout 使用有界队列，停止时先关闭权限组再输出统计。
 

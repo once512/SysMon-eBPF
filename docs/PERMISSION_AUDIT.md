@@ -73,3 +73,5 @@ sudo python3 -B tests/run_privileged.py --build-dir build \
 `permission-audit` 核对身份/文件对象、别名与重命名、并发、revision、失败回滚、六类完成原因、扫描错误及汇总对账；`permission-audit-backpressure` 在联合和 fanotify-only 两种模式下分别验证堵塞/恢复、断开和持续洪流中的重载与停止。fanotify-only 还核对完整写出加丢弃等于实际回复数。
 
 可选持续负载依次运行静态 open、分析 open、分析 access，每种运行指定秒数（0 禁用，5..1800 秒），逐行验证审计记录、连续唯一请求号、回复总量、策略版本与管理状态。它使用按实际回复总数分配的字节标记数组，不把全部 JSON 对象载入内存。
+
+本轮固定产物、30 项特权专题与三组逐条对账负载的实际结果见 [验证记录](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)。
