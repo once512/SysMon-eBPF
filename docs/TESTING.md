@@ -121,3 +121,13 @@ management_soak.py 的所有后端还核对 diagnostic_dropped/diagnostic_invali
 单独运行 management_soak.py 时可用 --combined --verify-audit-output 开启当前审计出口健康检查；该模式要求所有相应字段存在且错误/丢弃为零，不把旧字段缺失当作通过。
 
 本轮目标授权、审计出口与持续负载的具体产物/范围/数字见 [2026-10-18 验证记录](VALIDATION_SCOPED_2026_10_18.md)。
+
+诊断洪流可单独提高到每种场景 400..10000 次失败重载，并并发核对 status/权限请求与主服务 FD 预算：
+
+```bash
+sudo python3 -B tests/diagnostic_backpressure.py --build-dir build --reload-count 3000
+```
+
+四种场景依次运行，内部服务期限随请求数扩大；不要同时重新链接该 build 目录。洪流后的诊断丢弃属于预期结果，管理拒绝计数必须仍与尝试次数一致，临时管道恢复后队列可排空，断开时 errno 必须为 EPIPE。
+
+本轮诊断隔离的构建快照、背压实验与持续负载范围见 [诊断隔离验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)。

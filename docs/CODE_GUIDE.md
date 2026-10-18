@@ -11,6 +11,7 @@
 | `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
 | `src/event_format.cpp` / `src/events.cpp` | ABI/JSONL 纯编码、回调入队和内核统计 | 校验长度/布局/种类，C 回调不抛异常；每 CPU 统计逐 CPU 求和 |
 | `src/audit_sink.h/.cpp` | 有界审计出口 | 主循环只入队，I/O 线程写 stdout；背压和出口错误计数可查询 |
+| `src/diagnostic_output.h/.cpp` | 服务期的独立 stderr 出口 | 将 cerr 和 libbpf 日志按完整行送入独立预算的 AuditSink；快照保持无效/丢弃计数一致，flush 不等待实际输出 |
 | `src/owned_fd.h` | 文件描述符 RAII | 禁止复制，析构时关闭 FD，避免重复关闭 |
 | `src/policy_config.h` / `src/policy_config.cpp` | 配置值模型和纯字段分派 | 严格唯一字段集合、运行 revision、错误行号；不访问文件系统 |
 | `src/policy/source.cpp` / `src/policy/fanotify_fields.cpp` | 安全读取与 fanotify 值构建 | 前者固定/复核来源并计算摘要，后者区分静态/分析字段约束 |
