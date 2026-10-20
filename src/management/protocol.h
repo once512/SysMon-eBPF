@@ -9,7 +9,7 @@
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 3;
+constexpr std::uint16_t version = 4;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 // 这些 code 描述管理操作结果，不能拿来代替 fanotify 的 Result 或内核钩子返回的负 errno。
 enum class Code : std::uint32_t {
@@ -64,7 +64,7 @@ struct Reply {
     std::array<std::uint64_t, analysis::scan_error_count> scan_errors{};
     // 显式 writer 路径条数，不等同不同 inode 数。
     std::uint32_t writer_paths = 0;
-    std::uint32_t reserved_tail = 0;
+    std::uint32_t fanotify_targets = 0;
     // 用户态出口计数与内核 ringbuf_dropped 分开；written 只计完整写出的 JSONL。
     std::uint64_t audit_written = 0;
     std::uint64_t audit_dropped = 0;

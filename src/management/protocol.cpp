@@ -36,7 +36,9 @@ void validate_reply(const Reply &r, Command expected)
     // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
-        (r.flags & ~63U) || ((r.flags & requester_pidfd) && !(r.flags & permission_audit)) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) || r.reserved_tail ||
+        (r.flags & ~63U) || ((r.flags & requester_pidfd) && !(r.flags & permission_audit)) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) ||
+        r.fanotify_targets > SECMON_MAX_FANOTIFY_TARGETS ||
+        (r.backend == Backend::bpf ? r.fanotify_targets != 0 : r.fanotify_targets == 0) ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
         r.diagnostic_queued > SECMON_DIAGNOSTIC_MAX_RECORDS || r.diagnostic_errno < 0 || r.diagnostic_errno > 4095 ||
         r.diagnostic_invalid > r.diagnostic_dropped ||
@@ -94,6 +96,7 @@ std::string reply_json(const Reply &r)
             << ",\"timeout_allow\":" << ((r.fallbacks & 1) ? "true" : "false")
             << ",\"overload_allow\":" << ((r.fallbacks & 2) ? "true" : "false")
             << ",\"analyzer_error_allow\":" << ((r.fallbacks & 4) ? "true" : "false")
+            << ",\"fanotify_targets\":" << r.fanotify_targets
             << ",\"analyzer_online\":" << ((r.flags & analyzer_online) ? "true" : "false")
             << ",\"analyzer_pid\":" << r.worker_pid << ",\"scan_limit_bytes\":" << r.scan_limit
             << ",\"allowed\":" << r.allowed << ",\"denied\":" << r.denied

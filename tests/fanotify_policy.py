@@ -163,7 +163,7 @@ def main():
         rejected = subprocess.run([str(binary), '--fanotify-only', '--policy', str(config), '--run-for', '1'],
                                   capture_output=True, text=True, timeout=5)
         assert rejected.returncode == 1 and 'Fanotify active;' not in rejected.stderr, rejected.stderr
-        assert 'cannot be the marked inode' in rejected.stderr
+        assert 'cannot be a marked inode' in rejected.stderr
         print('PASS self-marked policy rejected before activation; hard-link reload cannot deadlock')
 
 

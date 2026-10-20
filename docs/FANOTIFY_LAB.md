@@ -1,5 +1,7 @@
 # fanotify 单文件权限裁决实验
 
+本页保留单文件入门负载；当前服务也支持[最多 64 个固定普通文件](FANOTIFY_MULTITARGET.md)，共用 group、裁决及 pending 预算。
+
 fanotify 已作为对象编入统一 secmon 主服务。本文使用 `secmon --fanotify-only` 诊断模式单独研究权限门，不加载本次进程的 BPF；正常部署直接使用 secmon 加共用配置即可同时启用两个模块。实验范围为本机内核与文件系统上的同步权限裁决、对象身份、有界等待队列及退出行为。
 
 ## 运行

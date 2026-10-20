@@ -9,7 +9,7 @@ static_assert(std::is_nothrow_move_assignable_v<PolicyConfig>);
 
 PolicyRuntime::PolicyRuntime(std::string source, PolicyConfig initial)
     : source_(std::move(source)), active_(std::move(initial)) {}
-management::Code PolicyRuntime::reload(const std::function<void(const PolicyConfig &)> &commit, int excluded_fd)
+management::Code PolicyRuntime::reload(const std::function<void(const PolicyConfig &)> &commit, const std::vector<int> &excluded_fds)
 {
     using management::Code;
     // 每次尝试先清候选版本；
@@ -18,7 +18,7 @@ management::Code PolicyRuntime::reload(const std::function<void(const PolicyConf
     Code stage = Code::invalid_policy;
     try {
         if (source_.empty()) throw management::Error(Code::no_policy, "Reload requires --policy at startup");
-        auto candidate = load_policy(source_, excluded_fd);
+        auto candidate = load_policy(source_, excluded_fds);
         last_attempt_ = candidate.revision;
         if (candidate.revision <= active_.revision)
             throw management::Error(Code::not_newer, "Policy revision must increase");

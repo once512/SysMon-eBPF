@@ -5,9 +5,10 @@
 #include "event_kind.h"
 #include "analysis/client.h"
 #include <string>
+#include <vector>
 
 struct FanotifyOptions {
-    std::string path;
+    std::vector<std::string> paths;
     PermissionEvent event = PermissionEvent::open;
     DecisionConfig decision;
     AnalyzerConfig analyzer;

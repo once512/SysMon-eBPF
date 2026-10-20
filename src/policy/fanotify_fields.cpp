@@ -2,11 +2,20 @@
 // 先记录字段是否显式出现，读完后再验证静态/分析模式互斥，因此字段可换序。
 #include "fanotify_fields.h"
 #include "fields.h"
+#include <secmon/policy_limits.h>
+#include <algorithm>
 namespace policy_fields {
 void FanotifyFields::parse(const std::string &key, std::istream &fields)
 {
-    if (!seen_.insert(key).second) invalid("duplicate fanotify field: " + key);
-    if (key == "fanotify-file") value_.path = path(fields);
+    if (key != "fanotify-file" && !seen_.insert(key).second) invalid("duplicate fanotify field: " + key);
+    if (key == "fanotify-file") {
+        const auto target = path(fields);
+        if (value_.paths.size() == SECMON_MAX_FANOTIFY_TARGETS ||
+            std::find(value_.paths.begin(), value_.paths.end(), target) != value_.paths.end())
+            invalid("fanotify targets must be distinct, at most 64");
+        value_.paths.push_back(target);
+        seen_.insert(key);
+    }
     else if (key == "fanotify-analyzer") value_.analyzer = path(fields);
     else if (key == "fanotify-marker") value_.marker = quoted(fields, 256);
     else {
@@ -28,7 +37,7 @@ void FanotifyFields::parse(const std::string &key, std::istream &fields)
 std::optional<FanotifyPolicy> FanotifyFields::finish()
 {
     if (seen_.empty()) return std::nullopt;
-    if (value_.path.empty()) invalid("fanotify fields require fanotify-file");
+    if (value_.paths.empty()) invalid("fanotify fields require fanotify-file");
     if (value_.analyzer.empty()) {
         if (value_.decision.empty() || seen_.count("fanotify-marker") || seen_.count("fanotify-scan-limit-bytes") || seen_.count("fanotify-error-decision"))
             invalid("static fanotify requires a decision and forbids analyzer-only fields");

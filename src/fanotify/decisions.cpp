@@ -9,8 +9,8 @@
 
 // reply 回调只借用事件 FD；
 // 本队列始终负责该 FD 的最终关闭，回调不应自行接管。
-PendingDecisions::PendingDecisions(DecisionConfig config, Reply reply)
-    : config_(config), reply_(std::move(reply))
+PendingDecisions::PendingDecisions(DecisionConfig config, Reply reply, std::uint64_t *request_sequence)
+    : config_(config), reply_(std::move(reply)), next_id_(request_sequence ? request_sequence : &local_next_id_)
 {
     if (config_.delay.count() < 0 || config_.timeout.count() <= 0 ||
         config_.max_pending == 0 || !reply_)
@@ -30,14 +30,14 @@ void PendingDecisions::reconfigure(DecisionConfig config)
     commit_reconfigure(config);
 }
 
-void PendingDecisions::submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid, std::uint64_t revision, ProcessReference process)
+void PendingDecisions::submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid, std::uint64_t revision, ProcessReference process, PermissionObject object)
 {
     if (fd.get() < 0) throw std::invalid_argument("Cannot submit an invalid event FD");
     // 先兑现已经到期的旧请求，再判断容量；已超时条目不应继续占据用户态 pending 预算。
     process_due(now);
     // 容量回退也必须具有唯一请求号；耗尽时关闭整个服务，不复用旧请求身份。
-    if (!next_id_) throw std::runtime_error("Analysis request ID exhausted");
-    const PermissionRequest context{next_id_++, revision, requester_pid, now, process.identity};
+    if (!*next_id_) throw std::runtime_error("Analysis request ID exhausted");
+    const PermissionRequest context{(*next_id_)++, revision, requester_pid, now, process.identity, object};
     if (pending_.size() >= config_.max_pending) {
         // 满队列的新事件仍必须回复；
         // 它不进入 pending，函数退出后参数中的 OwnedFd 关闭其引用。

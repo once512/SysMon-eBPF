@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// 固定单目标与服务实例；格式转换不解析路径、不读取文件或按 PID 查询进程。
+// 每条回复的对象快照与服务实例；格式转换不解析路径或按 PID 查询进程。
 #pragma once
 #include "decisions.h"
 #include "event_kind.h"

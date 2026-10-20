@@ -16,6 +16,8 @@
 #include <sys/fanotify.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <secmon/policy_limits.h>
+#include <set>
 #include <unistd.h>
 
 namespace {
@@ -40,6 +42,37 @@ int pin_file(const std::string &path)
     }
     return fd;
 }
+std::vector<OwnedFd> pin_targets(const std::vector<std::string> &paths, const std::string &policy_path,
+                               const std::vector<std::pair<std::string, int>> &retained)
+{
+    if (paths.empty() || paths.size() > SECMON_MAX_FANOTIFY_TARGETS)
+        throw std::invalid_argument("Fanotify requires 1..64 targets");
+    OwnedFd policy;
+    struct stat source{};
+    if (!policy_path.empty()) {
+        policy = OwnedFd(open(policy_path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
+        if (policy.get() < 0 || fstat(policy.get(), &source)) fail("inspect fanotify policy");
+    }
+    std::set<std::pair<dev_t, ino_t>> identities;
+    std::vector<OwnedFd> targets;
+    targets.reserve(paths.size());
+    for (const auto &path : paths) {
+        const auto previous = std::find_if(retained.begin(), retained.end(), [&](const auto &binding) {
+            return binding.first == path;
+        });
+        OwnedFd target(previous == retained.end() ? pin_file(path) : fcntl(previous->second, F_DUPFD_CLOEXEC, 0));
+        if (target.get() < 0) fail("duplicate retained fanotify target");
+        struct stat value{};
+        if (fstat(target.get(), &value)) fail("stat pinned fanotify target");
+        if (!S_ISREG(value.st_mode)) throw std::invalid_argument("Fanotify target must remain a regular file");
+        if (!identities.emplace(value.st_dev, value.st_ino).second)
+            throw std::invalid_argument("Duplicate fanotify inode, including hard links");
+        if (policy.get() >= 0 && source.st_dev == value.st_dev && source.st_ino == value.st_ino)
+            throw std::invalid_argument("Fanotify policy file cannot be a marked inode");
+        targets.push_back(std::move(target));
+    }
+    return targets;
+}
 // group FD 是监听/回复通道；
 // 事件 FD 是具体文件对象引用，不能把两者互换传给分析器。
 int create_group(bool requester_pidfd)
@@ -54,35 +87,36 @@ int create_group(bool requester_pidfd)
 }
 }
 
-PermissionGate::PermissionGate(const std::string &path, DecisionConfig config, PermissionEvent event,
+PermissionGate::PermissionGate(const std::vector<std::string> &paths, DecisionConfig config, PermissionEvent event,
                                const AnalyzerConfig &analyzer, const std::string &policy_path,
-                               AuditSink *audit, std::uint64_t instance_ns, std::uint64_t revision, bool requester_pidfd)
-    : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), target_(pin_file(path)), group_(create_group(requester_pidfd)), mask_(permission_mask(event)), requester_pidfd_(requester_pidfd),
+                               AuditSink *audit, std::uint64_t instance_ns, std::uint64_t revision, bool requester_pidfd,
+                               std::uint64_t *request_sequence,
+                               const std::vector<std::pair<std::string, int>> &retained)
+    : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), targets_(pin_targets(paths, policy_path, retained)), group_(create_group(requester_pidfd)), mask_(permission_mask(event)), requester_pidfd_(requester_pidfd),
       audit_(audit), revision_(revision),
-      pending_(config, [this](int fd, const PermissionRequest &request, Verdict verdict) { respond(fd, request, verdict); })
+      pending_(config, [this](int fd, const PermissionRequest &request, Verdict verdict) { respond(fd, request, verdict); }, request_sequence)
 {
     if (audit_) {
-        struct stat target{}, pid_namespace{};
+        struct stat pid_namespace{};
         // Cache the group creator's PID namespace once, never look up requesters by numeric PID.
         if (stat("/proc/self/ns/pid", &pid_namespace)) fail("stat permission audit PID namespace");
-        if (fstat(target_.get(), &target)) fail("stat permission audit target");
-        audit_identity_ = {instance_ns, getpid(), major(target.st_dev), minor(target.st_dev), target.st_ino, event, pid_namespace.st_ino};
+        audit_identity_ = {instance_ns, getpid(), 0, 0, 0, event, pid_namespace.st_ino};
     }
     // 配置若就是被标记对象，重载读取它会等待本监听器给自己裁决；
     // 必须在添加 mark 前排除。
-    if (!policy_path.empty()) {
-        OwnedFd policy(open(policy_path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
-        struct stat source{}, target{};
-        if (policy.get() < 0 || fstat(policy.get(), &source) || fstat(target_.get(), &target))
-            throw std::runtime_error("Cannot inspect fanotify policy identity");
-        if (source.st_dev == target.st_dev && source.st_ino == target.st_ino)
-            throw std::runtime_error("Fanotify policy file cannot be the marked inode");
-    }
     // Follow the pinned FD rather than resolving the user's path a second time.
-    const auto pinned = "/proc/self/fd/" + std::to_string(target_.get());
-    // mark 选中固定的对象与事件类型，不是目录递归规则；通过 /proc/self/fd 引用避免再次解析目标路径。
-    if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_,
-                      AT_FDCWD, pinned.c_str())) fail("fanotify_mark permission event");
+    objects_.reserve(targets_.size());
+    target_fds_.reserve(targets_.size());
+    for (const auto &target : targets_) {
+        struct stat value{};
+        if (fstat(target.get(), &value)) fail("stat fanotify target");
+        objects_.push_back({major(value.st_dev), minor(value.st_dev), value.st_ino});
+        target_fds_.push_back(target.get());
+        const auto pinned = "/proc/self/fd/" + std::to_string(target.get());
+        // Any failure destroys the entire group, releasing all earlier marks.
+        if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_, AT_FDCWD, pinned.c_str()))
+            fail("fanotify_mark permission event");
+    }
 }
 
 bool PermissionGate::poll_once(int timeout_ms)
@@ -121,7 +155,13 @@ bool PermissionGate::poll_once(int timeout_ms)
     }
     if (event.file.get() < 0 || event.mask != mask_)
         throw std::runtime_error("Unexpected fanotify permission event");
-    pending_.submit(std::move(event.file), received, event.pid, revision_, std::move(event.requester));
+    struct stat value{};
+    if (fstat(event.file.get(), &value)) fail("stat permission event target");
+    const auto found = std::find_if(objects_.begin(), objects_.end(), [&](const auto &object) {
+        return object.major == major(value.st_dev) && object.minor == minor(value.st_dev) && object.inode == value.st_ino;
+    });
+    if (found == objects_.end()) throw std::runtime_error("Unmarked permission event target");
+    pending_.submit(std::move(event.file), received, event.pid, revision_, std::move(event.requester), *found);
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());
     service_analysis();
     return true;
@@ -138,7 +178,13 @@ void PermissionGate::respond(int fd, const PermissionRequest &request, Verdict v
     if (written != sizeof(response)) throw std::runtime_error("Short fanotify response");
     const auto responded = PendingDecisions::Clock::now();
     if (audit_) {
-        try { audit_->enqueue(format_permission_decision(audit_identity_, request, verdict, responded)); }
+        try {
+            auto identity = audit_identity_;
+            identity.major = request.object.major;
+            identity.minor = request.object.minor;
+            identity.inode = request.object.inode;
+            audit_->enqueue(format_permission_decision(identity, request, verdict, responded));
+        }
         catch (...) { audit_->note_drop(); } // 审计失败不能把已成功的内核回复变成重试或退出。
     }
     if (verdict.allow) ++stats_.allowed;

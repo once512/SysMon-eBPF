@@ -8,6 +8,7 @@
 #include <set>
 #include <stdexcept>
 #include <string_view>
+#include <algorithm>
 
 namespace {
 unsigned int number(std::string_view option, std::string_view text,
@@ -36,10 +37,16 @@ void parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
     std::set<std::string_view> seen;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
-        if (!seen.insert(arg).second) throw std::invalid_argument("Duplicate option: " + std::string(arg));
+        if (arg != "--file" && !seen.insert(arg).second) throw std::invalid_argument("Duplicate option: " + std::string(arg));
         if (i + 1 >= argc) throw std::invalid_argument("Missing value: " + std::string(arg));
         const std::string_view value(argv[++i]);
-        if (arg == "--file") options.path = value;
+        if (arg == "--file") {
+            if (value.empty()) throw std::invalid_argument("--file requires a nonempty path");
+            if (options.paths.size() == SECMON_MAX_FANOTIFY_TARGETS ||
+                std::find(options.paths.begin(), options.paths.end(), value) != options.paths.end())
+                throw std::invalid_argument("Fanotify targets must be distinct, at most 64");
+            options.paths.emplace_back(value);
+        }
         else if (arg == "--analyzer") options.analyzer.executable = value;
         else if (arg == "--deny-marker") options.analyzer.marker = value;
         else if (arg == "--scan-limit-bytes") options.analyzer.scan_limit = number(arg, value, 1, 1048576);
@@ -55,7 +62,7 @@ void parse_fanotify_options(int argc, char **argv, FanotifyOptions &options)
         else if (arg == "--overload-decision") options.decision.overload_allow = allow(arg, value);
         else throw std::invalid_argument("Unknown option: " + std::string(arg));
     }
-    if (options.path.empty()) throw std::invalid_argument("Fanotify options require --file");
+    if (options.paths.empty()) throw std::invalid_argument("Fanotify options require --file");
     options.decision.external = seen.count("--analyzer");
     if (options.decision.external) {
         if (!std::filesystem::path(options.analyzer.executable).is_absolute() ||

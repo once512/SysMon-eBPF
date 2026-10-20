@@ -130,14 +130,28 @@ class Actor:
         return self.read()
 
     def task_mapping(self):
+        # Python join/ready messages do not make a /proc task-directory walk an
+        # atomic snapshot of kernel teardown. Wait for the exact expected set;
+        # never silently discard an unexpected or permanently surviving task.
+        expected = {self.local['pid'], *self.local['tids']}
+        deadline = time.monotonic() + 3
         mapped = {}
-        for task in Path(f'/proc/{self.host_pid}/task').iterdir():
-            status = task.joinpath('status').read_text().splitlines()
-            ids = next(line.split()[1:] for line in status if line.startswith('NSpid:'))
-            assert int(ids[0]) == int(task.name)
-            mapped[int(ids[-1])] = int(task.name)
-        assert set(mapped) == {self.local['pid'], *self.local['tids']}, mapped
-        return mapped
+        while time.monotonic() < deadline:
+            mapped = {}
+            try:
+                for task in Path(f'/proc/{self.host_pid}/task').iterdir():
+                    status = task.joinpath('status').read_text().splitlines()
+                    ids = next(line.split()[1:] for line in status if line.startswith('NSpid:'))
+                    assert int(ids[0]) == int(task.name)
+                    mapped[int(ids[-1])] = int(task.name)
+            except (FileNotFoundError, ProcessLookupError):
+                # A task may disappear between readdir and opening its status.
+                pass
+            else:
+                if set(mapped) == expected:
+                    return mapped
+            time.sleep(0.005)
+        raise AssertionError(dict(expected=sorted(expected), observed=mapped))
 
     def close(self):
         if self.process.stdin.closed:
@@ -244,6 +258,7 @@ def experiment(build, event, nested, requester_pidfd=False):
             assert values and int(values[-1]) == 0, (field, values)
         assert target.read_bytes() == b'synthetic identity fixture\n'
         return dict(event=event, nested=nested, host_pid=subject.host_pid, process_inode=process_inode, leader_key=leader_key,
+                    audit_jsonl=contents(service.output),
                     rounds=rounds, permissions=permissions, denials=denials, diagnostics=diagnostics,
                     ambiguous_permissions=sum(len(row['candidate_host_tids']) > 1 for row in permissions))
 

@@ -21,7 +21,7 @@ class Reply(ctypes.Structure):
                   'delay_ms', 'timeout_ms', 'max_pending', 'fallbacks')], ('worker_pid', ctypes.c_int32),
                 ('scan_limit', ctypes.c_uint32), ('last_code', ctypes.c_uint32), ('reserved', ctypes.c_uint32), ('source_digest', ctypes.c_uint8 * 32), ('last_scan_error', ctypes.c_uint32),
                 ('last_scan_errno', ctypes.c_int32), ('backend_error_requests', ctypes.c_uint64),
-                ('scan_errors', ctypes.c_uint64 * 9), ('writer_paths', ctypes.c_uint32), ('reserved_tail', ctypes.c_uint32),
+                ('scan_errors', ctypes.c_uint64 * 9), ('writer_paths', ctypes.c_uint32), ('fanotify_targets', ctypes.c_uint32),
                 ('audit_written', ctypes.c_uint64), ('audit_dropped', ctypes.c_uint64), ('audit_invalid', ctypes.c_uint64),
                 ('audit_queued', ctypes.c_uint32), ('audit_errno', ctypes.c_int32),
                 ('diagnostic_written', ctypes.c_uint64), ('diagnostic_dropped', ctypes.c_uint64), ('diagnostic_invalid', ctypes.c_uint64),
@@ -56,12 +56,12 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 3, ctypes.sizeof(Reply)
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 4, ctypes.sizeof(Reply)
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
                                 reply.worker_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                                             'instance_ns', 'event', 'mode', 'fallbacks', 'reserved'):
-                                    setattr(reply, case, {'abi': 4, 'size': ctypes.sizeof(Reply) - 1, 'command': (1 if command_id != 1 else 3), 'flags': 32,
+                                    setattr(reply, case, {'abi': 3, 'size': ctypes.sizeof(Reply) - 1, 'command': (1 if command_id != 1 else 3), 'flags': 32,
                                                          'instance_ns': 0, 'event': 4, 'mode': 4,
                                                          'fallbacks': 8, 'reserved': 1}.get(case, 99))
                                 if case == 'audit-queue': reply.audit_queued = 1025
@@ -72,7 +72,7 @@ def main():
                                 if case == 'diagnostic-errno-range': reply.diagnostic_errno = 4096
                                 if case == 'diagnostic-accounting': reply.diagnostic_invalid = 1
                                 if case == 'writer-count': reply.writer_paths = 65
-                                if case == 'reserved-tail': reply.reserved_tail = 1
+                                if case == 'reserved-tail': reply.fanotify_targets = 65
                                 if case == 'scan-reason': reply.last_scan_error = 99
                                 if case == 'scan-errno': reply.last_scan_errno = -1
                                 if case == 'error-accounting': reply.backend_error_requests = 1

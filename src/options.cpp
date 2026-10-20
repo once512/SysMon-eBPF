@@ -21,7 +21,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
                      "Diagnostics: --bpf-only | --fanotify-only (same process and entry point).\n"
                      "--audit-permissions: emit fanotify reply JSONL; final fanotify stats go to stderr.\n"
                      "--requester-pidfd: retain kernel requester pidfds; requires --audit-permissions.\n"
-                     "Fanotify CLI instead of policy: --file PATH --decision allow|deny\n"
+                     "Fanotify CLI instead of policy: --file PATH [--file PATH ...] --decision allow|deny (1..64 targets)\n"
                      "  or --file PATH --analyzer ABSOLUTE_PATH --deny-marker TEXT\n"
                      "  --event open|access|exec --scan-limit-bytes 1..1048576\n"
                      "  --decision-delay-ms 0..60000 --request-timeout-ms 1..60000 --max-pending 1..4096\n"
@@ -41,7 +41,7 @@ CliAction parse_options(int argc, char **argv, Options &options)
         "--max-pending", "--timeout-decision", "--overload-decision"};
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
-        if (arg != "--protect-file" && !seen.insert(arg).second) throw std::invalid_argument("Duplicate option");
+        if (arg != "--protect-file" && arg != "--file" && !seen.insert(arg).second) throw std::invalid_argument("Duplicate option");
         if (arg == "--audit-permissions") options.permission_audit = true;
         else if (arg == "--requester-pidfd") options.requester_pidfd = true;
         else if (arg == "--check") options.check = true;

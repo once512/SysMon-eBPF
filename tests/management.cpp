@@ -50,7 +50,8 @@ int main()
     reject([](Reply &x) { x.instance_ns = 0; });
     reject([](Reply &x) { x.reserved = 1; });
     reject([](Reply &x) { x.writer_paths = 65; });
-    reject([](Reply &x) { x.reserved_tail = 1; });
+    reject([](Reply &x) { x.fanotify_targets = 65; });
+    reject([](Reply &x) { x.fanotify_targets = 1; });
     reject([](Reply &x) { x.audit_queued = 1025; });
     reject([](Reply &x) { x.audit_errno = -1; });
     reject([](Reply &x) { x.audit_errno = 4096; });
@@ -72,6 +73,7 @@ int main()
     reject([](Reply &x) { x.scan_errors[5] = 1; });
     reject([](Reply &x) { x.analysis_errors = UINT64_MAX; x.backend_error_requests = UINT64_MAX; x.scan_errors[5] = 1; });
     r.backend = Backend::fanotify; r.event = 2; r.mode = 3; r.flags |= analyzer | analyzer_online;
+    r.fanotify_targets = 1;
     r.pending = 1; r.peak_pending = 3; r.max_pending = 4; r.fallbacks = 5;
     require(reply_json(r).find("\"permission_event\":\"access\"") != std::string::npos);
     require(reply_json(r).find("\"analyzer_online\":true") != std::string::npos);

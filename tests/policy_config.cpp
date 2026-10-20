@@ -47,6 +47,12 @@ int main() {
     require(combined.fanotify && combined.paths.size() == 1 && combined.revision == 7);
     require(combined.fanotify->event == "access" && combined.fanotify->delay_ms == 4 &&
             combined.fanotify->timeout_ms == 900 && combined.fanotify->max_pending == 3 && combined.fanotify->timeout_allow);
+    std::string targets = "revision 1\nfanotify-decision allow\n";
+    for (int i = 0; i < 64; ++i) targets += "fanotify-file \"/target" + std::to_string(i) + "\"\n";
+    std::istringstream target_input(targets);
+    require(parse_policy(target_input).fanotify->paths.size() == 64);
+    reject(targets + "fanotify-file \"/overflow\"\n");
+    reject(targets + "fanotify-file \"/target0\"\n");
     const std::string base = "revision 1\nfanotify-file \"/gate\"\n";
     for (const auto *tail : {"", "fanotify-decision maybe", "fanotify-decision allow\nfanotify-decision deny",
             "fanotify-decision deny\nfanotify-event read", "fanotify-decision deny\nfanotify-timeout-decision maybe",

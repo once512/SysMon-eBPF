@@ -10,7 +10,7 @@
 #include <optional>
 
 struct FanotifyPolicy {
-    std::string path;
+    std::vector<std::string> paths;
     std::string event = "open";
     std::string decision; // Required for a static backend; empty with analyzer.
     std::string analyzer;
@@ -47,7 +47,7 @@ struct PolicyConfig {
 // 不会验证目标存在、所有者权限，也不会生成来源摘要。
 PolicyConfig parse_policy(std::istream &input);
 // Pins and reads one root-owned, non-writable-by-others regular file (no symlinks).
-// forbidden_inode_fd prevents a fanotify listener from opening its own marked inode.
-// forbidden_inode_fd 是借用句柄，-1 代表没有排除对象；
+// All forbidden_inode_fds are borrowed; exclude every marked inode before reading.
+// 空列表表示没有排除对象；句柄必须在本次加载期间保持有效。
 // 成功读取并计算摘要，不代表任何后端已经应用。
-PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd = -1);
+PolicyConfig load_policy(const std::string &path, const std::vector<int> &forbidden_inode_fds = {});

@@ -11,13 +11,17 @@ class AuditSink;
 #include <memory>
 #include <cstdint>
 #include <string>
+#include <vector>
+#include <utility>
 
-// A single inode mark with bounded decisions and an optional external scanner.
+// A bounded fixed inode set, one shared request budget and optional scanner.
 class PermissionGate {
     // 析构按成员声明的逆序进行：先销毁 pending，再关闭 group，最后才回收分析进程；
     // 不要随意调换。
     std::unique_ptr<AnalysisClient> analyzer_; // Destroy only after group closure.
-    OwnedFd target_; // Pin before marking; release after the fanotify group.
+    std::vector<OwnedFd> targets_; // Pin the entire set before creating any mark.
+    std::vector<PermissionObject> objects_;
+    std::vector<int> target_fds_; // Borrowed views for policy-source exclusions.
     OwnedFd group_;
     std::uint64_t mask_;
     bool requester_pidfd_;
@@ -29,11 +33,12 @@ class PermissionGate {
     void respond(int fd, const PermissionRequest &request, Verdict verdict);
     void service_analysis();
 public:
-    PermissionGate(const std::string &path, DecisionConfig config,
+    PermissionGate(const std::vector<std::string> &paths, DecisionConfig config,
                    PermissionEvent event = PermissionEvent::open,
                    const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {},
                    AuditSink *audit = nullptr, std::uint64_t instance_ns = 0, std::uint64_t revision = 0,
-                   bool requester_pidfd = false);
+                   bool requester_pidfd = false, std::uint64_t *request_sequence = nullptr,
+                   const std::vector<std::pair<std::string, int>> &retained = {});
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     // pending 的回复 lambda 捕获当前 this；
@@ -53,7 +58,8 @@ public:
     // 先回复已交付请求并关闭 group，再停止分析器；在结束统计可能阻塞前释放内核未读等待。
     // 不依赖外层对象析构才能关闭 mark；调用后不再 poll/reconfigure。
     void shutdown();
-    int target_fd() const { return target_.get(); } // Borrowed; never close or read.
+    const std::vector<int> &target_fds() const { return target_fds_; }
+    std::size_t target_count() const { return targets_.size(); }
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
     // 这是监督器最近观测到的通信状态；
     // 查询不会主动 ping，进程刚刚死亡而尚未处理断连时可能仍显示在线。

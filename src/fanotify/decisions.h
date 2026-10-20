@@ -31,12 +31,17 @@ struct Verdict {
 };
 
 // 身份和版本在接收时固定；不通过可能复用的 PID 在回复时重建主体。
+struct PermissionObject {
+    std::uint32_t major = 0, minor = 0;
+    std::uint64_t inode = 0;
+};
 struct PermissionRequest {
     std::uint64_t id;
     std::uint64_t revision;
     std::int32_t requester_pid;
     std::chrono::steady_clock::time_point received;
     ProcessIdentity process{};
+    PermissionObject object{};
 };
 
 // Owns only events already delivered by the kernel, never the kernel queue.
@@ -56,18 +61,21 @@ private:
     DecisionConfig config_;
     Reply reply_;
     std::deque<Request> pending_;
-    std::uint64_t next_id_ = 1;
+    std::uint64_t local_next_id_ = 1;
+    std::uint64_t *next_id_;
 public:
-    PendingDecisions(DecisionConfig config, Reply reply);
+    PendingDecisions(DecisionConfig config, Reply reply, std::uint64_t *request_sequence = nullptr);
     PendingDecisions(const PendingDecisions &) = delete;
     PendingDecisions &operator=(const PendingDecisions &) = delete;
+    PendingDecisions(PendingDecisions &&) = delete;
+    PendingDecisions &operator=(PendingDecisions &&) = delete;
     // Reject busy queues so already-delivered requests retain their original contract.
     void validate_reconfigure(DecisionConfig config) const;
     // 仅供协调器在验证后、同一事件循环内调用；纯值赋值，不再检查或分配。
     void commit_reconfigure(DecisionConfig config) noexcept { config_ = config; }
     void reconfigure(DecisionConfig config);
     void submit(OwnedFd fd, Clock::time_point now, std::int32_t requester_pid = 0, std::uint64_t revision = 0,
-                ProcessReference process = {});
+                ProcessReference process = {}, PermissionObject object = {});
     struct ReadyRequest { std::uint64_t id; int fd; };
     // 返回的是借用视图；
     // 调用者不得跨越队列完成/超时后继续把其中的裸 FD 当成有效请求。

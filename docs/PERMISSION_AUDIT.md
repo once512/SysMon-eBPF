@@ -31,7 +31,7 @@ sudo ./build/secmon --fanotify-only --file /absolute/target --decision deny \
 | requester_pid_kind | 固定 `tgid`，避免将进程组 ID 误作实际操作线程 TID |
 | pid_namespace_inode | 创建组时缓存的监听进程 PID namespace inode；requester_pid 和 listener_pid 使用这一坐标，不是永久全局 UUID |
 | revision | 用户态接收事件时的活动策略 revision，命令行无文件策略时可为 0 |
-| major / minor / inode | 从启动时固定的目标对象缓存的设备及 inode；别名和重命名仍指向原对象 |
+| major / minor / inode | 从事件 FD 核对固定目标集合后保存的本请求设备及 inode；别名和重命名仍指向原对象 |
 | permission_event | `open` / `access` / `exec`，与实际订阅入口一致 |
 | decision | 已写回的 `allow` / `deny` |
 | reason | 下表中的完成原因 |
@@ -55,6 +55,10 @@ sudo ./build/secmon --fanotify-only --file /absolute/target --decision deny \
 ## 版本、输出与失败
 
 请求身份、接收时刻和 revision 随 pending 一起保存。忙时重载被拒绝，候选准备失败也不会提前修改裁决版本；新版本只在联合提交成功后用于后续接收的请求。内核中尚未交付的请求不具有旧的用户态 revision 合同。
+
+一个 group 可订阅最多 64 个固定对象。每条请求也保存对象快照，因此不同目标的延迟、容量、超时、分析和停止回复不会混淆对象；共享预算与固定目标重载边界见[多目标订阅](FANOTIFY_MULTITARGET.md)。
+
+[受限在线目标切换](FANOTIFY_HANDOVER.md)保持服务内 request_id 连续，并新增 fanotify_target_handover 事件标明旧内核未读取请求按先前 allow 释放的边界。该事件不补造逐请求回复，也不参与访问后拒绝规则。
 
 `MonitorService` 拥有唯一 stdout `AuditSink`，BPF 和 fanotify 借用它；没有第二个 stdout 写线程。共同使用最多 1024 条、1 MiB、每条 4096 字节的预算，没有按事件种类保留配额。大量权限审计可以挤占其他用户态审计记录的预算。
 

@@ -24,4 +24,5 @@ struct GateStats {
     analysis::ScanError last_scan_error = analysis::ScanError::none;
     int last_scan_errno = 0;
     std::size_t peak_pending = 0;
+    std::uint64_t target_updates = 0;
 };

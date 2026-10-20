@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <limits>
 
 namespace {
 using Clock = PendingDecisions::Clock;
@@ -47,7 +48,7 @@ int main()
             PendingDecisions queue(config, reply);
             auto fd = descriptor();
             const int raw = fd.get();
-            queue.submit(std::move(fd), start);
+            queue.submit(std::move(fd), start, 123, 7, {}, {8, 9, 101});
             require(fd.get() == -1 && queue.size() == 1, "Submit must transfer FD ownership");
             require(queue.poll_timeout(100, start + 9500us) == 1, "Round fractional wait up");
             require(queue.poll_timeout(3, start) == 3, "Outer wait bound must hold");
@@ -57,6 +58,8 @@ int main()
             require(replies.size() == 1 && replies.back().verdict.allow &&
                     replies.back().verdict.reason == DecisionReason::policy, "Policy decision due");
             require(queue.size() == 0 && closed(raw), "Successful reply releases FD exactly once");
+            require(replies.back().request.object.major == 8 && replies.back().request.object.minor == 9 &&
+                    replies.back().request.object.inode == 101, "Object identity survives deferred reply");
         }
         replies.clear();
         {
@@ -198,6 +201,31 @@ int main()
             bool backend = false;
             try { queue.reconfigure(next); } catch (const std::invalid_argument &) { backend = true; }
             require(backend, "Queue cannot change backend mode");
+        }
+        replies.clear();
+        {
+            auto immediate = config;
+            immediate.external = false;
+            immediate.delay = 0ms;
+            std::uint64_t sequence = 1;
+            PendingDecisions first(immediate, reply, &sequence);
+            first.submit(descriptor(), start, 10, 20);
+            {
+                PendingDecisions replacement(immediate, reply, &sequence);
+                replacement.submit(descriptor(), start, 11, 21);
+                replacement.reconfigure(immediate);
+                replacement.submit(descriptor(), start, 12, 22);
+            }
+            first.submit(descriptor(), start, 13, 23);
+            require(replies.size() == 4 && replies[0].request.id == 1 && replies[1].request.id == 2 &&
+                    replies[2].request.id == 3 && replies[3].request.id == 4,
+                    "Gate replacement shares one monotonically increasing request sequence");
+            sequence = std::numeric_limits<std::uint64_t>::max();
+            first.submit(descriptor(), start);
+            require(replies.back().request.id == std::numeric_limits<std::uint64_t>::max(), "Final request ID remains valid");
+            bool exhausted = false;
+            try { first.submit(descriptor(), start); } catch (const std::runtime_error &) { exhausted = true; }
+            require(exhausted && sequence == 0, "Request ID exhaustion cannot wrap into reused identities");
         }
         config.max_pending = 0;
         bool rejected = false;

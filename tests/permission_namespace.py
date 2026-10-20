@@ -58,7 +58,7 @@ def main():
                                                capture_output=True, text=True, timeout=5)
                         assert reply.returncode == 0, (reply.stdout, reply.stderr)
                         result = json.loads(reply.stdout)
-                        assert result['code'] == 'ok' and result['protocol_version'] == 3
+                        assert result['code'] == 'ok' and result['protocol_version'] == 4
                         return result
                     # The client intentionally rejects a reply PID in different coordinates.
                     outer = subprocess.run([str(build / 'secmon'), '--status', str(control)],

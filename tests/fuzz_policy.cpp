@@ -32,7 +32,8 @@ std::string canonical(const PolicyConfig &policy)
     }
     if (policy.fanotify) {
         const auto &fan = *policy.fanotify;
-        out << "fanotify-file " << std::quoted(fan.path) << "\nfanotify-event " << fan.event
+        for (const auto &path : fan.paths) out << "fanotify-file " << std::quoted(path) << '\n';
+        out << "fanotify-event " << fan.event
             << "\nfanotify-timeout-ms " << fan.timeout_ms << "\nfanotify-max-pending " << fan.max_pending
             << "\nfanotify-timeout-decision " << (fan.timeout_allow ? "allow" : "deny")
             << "\nfanotify-overload-decision " << (fan.overload_allow ? "allow" : "deny") << '\n';

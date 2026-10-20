@@ -3,11 +3,11 @@
 #include "status.h"
 #include "gate.h"
 void fill_fanotify_status(management::Reply &reply, const FanotifyOptions &options,
-                                 const PermissionGate &gate)
+                                 const PermissionGate &gate, const GateStats &stats)
 {
     // 只借用已有计数；
     // 查询不会处理超时或读取工作进程回复，所以状态可能反映最近一次事件循环观察。
-    const auto &stats = gate.stats();
+    reply.fanotify_targets = gate.target_count();
     reply.allowed = stats.allowed;
     reply.denied = stats.denied;
     reply.analysis_errors = stats.analyzer_error;

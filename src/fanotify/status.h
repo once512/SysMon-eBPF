@@ -4,5 +4,6 @@
 #include "options.h"
 #include "management/protocol.h"
 class PermissionGate;
+struct GateStats;
 void fill_fanotify_status(management::Reply &reply, const FanotifyOptions &options,
-                                 const PermissionGate &gate);
+                                 const PermissionGate &gate, const GateStats &stats);

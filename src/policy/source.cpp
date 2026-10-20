@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
+PolicyConfig load_policy(const std::string &path, const std::vector<int> &forbidden_inode_fds)
 {
     if (path.empty() || path.front() != '/') throw std::runtime_error("Policy file must be absolute");
     OwnedFd pinned(open(path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
@@ -20,7 +20,7 @@ PolicyConfig load_policy(const std::string &path, int forbidden_inode_fd)
         before.st_uid != 0 || (before.st_mode & 022) || before.st_size > static_cast<off_t>(SECMON_POLICY_MAX_BYTES))
         throw std::runtime_error("Policy must be a root-owned regular file, not writable by group/others, at most 64 KiB");
     // 必须在 O_RDONLY 打开之前排除监听器自身目标：否则 open/access 权限事件会让服务等待自己的裁决。
-    if (forbidden_inode_fd >= 0) {
+    for (const int forbidden_inode_fd : forbidden_inode_fds) {
         struct stat forbidden{};
         if (fstat(forbidden_inode_fd, &forbidden)) throw std::runtime_error("Cannot inspect excluded policy inode");
         if (before.st_dev == forbidden.st_dev && before.st_ino == forbidden.st_ino)

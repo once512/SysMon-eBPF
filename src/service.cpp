@@ -39,7 +39,7 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
     if (!options_.control_path.empty()) control_ = std::make_unique<ControlServer>(options_.control_path);
     const auto &active = runtime_.active();
     auto fan_options = options_.fanotify;
-    const bool use_fan = options_.modules != Options::Modules::bpf_only && (active.fanotify || !fan_options.path.empty());
+    const bool use_fan = options_.modules != Options::Modules::bpf_only && (active.fanotify || !fan_options.paths.empty());
     if (options_.modules == Options::Modules::fanotify_only && !use_fan)
         throw std::runtime_error("Policy has no fanotify configuration");
     if (options_.permission_audit && !use_fan)
@@ -60,7 +60,7 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
 MonitorService::~MonitorService() = default;
 void MonitorService::commit(const PolicyConfig &candidate)
 {
-    std::optional<FanotifyOptions> next;
+    std::optional<FanotifyMonitor::Prepared> next;
     if (fanotify_) next = fanotify_->prepare(candidate);
     else if (candidate.fanotify && options_.modules != Options::Modules::bpf_only)
         throw management::Error(management::Code::restart_required, "Enabling fanotify requires restart");
@@ -100,6 +100,7 @@ management::Reply MonitorService::snapshot() const
 }
 void MonitorService::run()
 {
+    const std::vector<int> no_targets;
     const auto started = std::chrono::steady_clock::now();
     auto next_report = started + std::chrono::seconds(10);
     while (!stopping.load(std::memory_order_relaxed)) {
@@ -108,7 +109,7 @@ void MonitorService::run()
             auto code = management::Code::ok;
             if (command == ControlCommand::stop) stopping.store(true, std::memory_order_relaxed);
             else if (command == ControlCommand::reload) {
-                code = runtime_.reload([&](const PolicyConfig &candidate) { commit(candidate); }, fanotify_ ? fanotify_->target_fd() : -1);
+                code = runtime_.reload([&](const PolicyConfig &candidate) { commit(candidate); }, fanotify_ ? fanotify_->target_fds() : no_targets);
                 if (code == management::Code::ok) std::cerr << "Policy active revision=" << runtime_.active().revision << '\n';
             }
             auto reply = snapshot();
