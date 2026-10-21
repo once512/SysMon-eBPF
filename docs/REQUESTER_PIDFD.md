@@ -28,7 +28,7 @@ fanotify 组开启 FAN_REPORT_PIDFD，内核在事件 metadata 后附加一个 p
 
 ## 与 BPF 的关联范围
 
-BPF 事件 ABI 更新为 5，exec_check、exec_success、file_denied、self_denied 都增加 `process_inode`：读取当前任务 signal->pids[PIDTYPE_TGID] 的 pidfs inode，而不是实际 worker 的线程 PID。CO-RE 检查字段存在性，不可用时输出 0；旧事件布局不混用解码。
+引入 process_inode 时 BPF 事件 ABI 为 5；当前扩展凭证后为 6，exec_check、exec_success、file_denied、self_denied 都增加 `process_inode`：读取当前任务 signal->pids[PIDTYPE_TGID] 的 pidfs inode，而不是实际 worker 的线程 PID。CO-RE 检查字段存在性，不可用时输出 0；旧事件布局不混用解码。
 
 在已验证的 x86_64 开发内核 `6.12.0-211.61.1.el10_2.x86_64`，同一进程的 pidfd fstat inode、fanotify requester_process_inode 和 BPF process_inode 一致，并覆盖宿主/子 PID namespace、线程重建、主线程 exec、非主线程 exec、主线程单独退出。其他内核、架构、pidfs 版本不能仅凭头文件存在就认定已验证。
 
