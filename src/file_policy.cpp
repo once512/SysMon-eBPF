@@ -13,11 +13,51 @@
 #include <map>
 #include <time.h>
 #include <limits>
+#include <fstream>
+#include <sstream>
+#include <sys/stat.h>
 #include "secmon.h"
 
 #include "file_policy.h"
 #include "owned_fd.h"
 #include "writer_identity.h"
+
+namespace {
+std::uint64_t lease_deadline(unsigned int milliseconds)
+{
+    // /proc/PID/timens_offsets describes the namespace for children. Only use
+    // its offset when that is also the current clock namespace.
+    struct stat current{}, children{};
+    if (stat("/proc/self/ns/time", &current) || stat("/proc/self/ns/time_for_children", &children) ||
+        current.st_dev != children.st_dev || current.st_ino != children.st_ino)
+        throw std::runtime_error("Cannot resolve current boot-clock namespace for writer lease");
+    std::ifstream offsets("/proc/self/timens_offsets");
+    std::string line;
+    long long offset_seconds = 0, offset_nanoseconds = 0;
+    bool found = false;
+    while (std::getline(offsets, line)) {
+        std::istringstream fields(line);
+        std::string clock;
+        fields >> clock;
+        if (clock != "boottime") continue;
+        if (found || !(fields >> offset_seconds >> offset_nanoseconds) ||
+            offset_nanoseconds < 0 || offset_nanoseconds >= 1000000000LL)
+            throw std::runtime_error("Invalid boot-clock namespace offset");
+        found = true;
+    }
+    if (!found || offsets.bad()) throw std::runtime_error("Cannot read boot-clock namespace offset");
+    timespec now{};
+    if (clock_gettime(CLOCK_BOOTTIME, &now)) throw std::runtime_error("Cannot read boot-time lease clock");
+    // GNU++17 wide arithmetic handles both signed offsets and overflow before
+    // conversion. BPF's boot-time helper uses the unshifted kernel clock.
+    const __int128 global = static_cast<__int128>(now.tv_sec) * 1000000000 + now.tv_nsec -
+                            (static_cast<__int128>(offset_seconds) * 1000000000 + offset_nanoseconds);
+    const __int128 deadline = global + static_cast<__int128>(milliseconds) * 1000000;
+    if (global < 0 || deadline > std::numeric_limits<std::uint64_t>::max())
+        throw std::runtime_error("Writer lease deadline outside global clock range");
+    return static_cast<std::uint64_t>(deadline);
+}
+}
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
@@ -89,14 +129,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     if (config.writer_lease_ms) {
         if (writer_keys.empty() || config.writer_lease_ms < 100 || config.writer_lease_ms > 3600000)
             throw std::runtime_error("Invalid writer lease");
-        timespec now{};
-        if (clock_gettime(CLOCK_BOOTTIME, &now) || now.tv_sec < 0)
-            throw std::runtime_error("Cannot read boot-time lease clock");
-        const auto seconds = static_cast<std::uint64_t>(now.tv_sec);
-        const auto extra = static_cast<std::uint64_t>(now.tv_nsec) + config.writer_lease_ms * 1000000ULL;
-        if (seconds > (std::numeric_limits<std::uint64_t>::max() - extra) / 1000000000ULL)
-            throw std::runtime_error("Writer lease deadline overflow");
-        const auto deadline = seconds * 1000000000ULL + extra;
+        const auto deadline = lease_deadline(config.writer_lease_ms);
         // Only the unpublished candidate changes. Lease timing begins just
         // before map population/activation, conservatively before confirmation.
         for (const auto &key : writer_keys) {

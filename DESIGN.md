@@ -612,3 +612,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - BPF 事件 ABI 升至 6，执行 JSON 增加对应字段；文件/自保护事件不输出未采集的附加凭证。数字身份保留内核全局坐标，namespace 提供上下文。
 - 实际加载和三个凭证专题通过；其中 14 个字段逐个注入测试 Map，均触发 flags，exec 后完整观测值恢复。真实普通/setuid/setgid/file-capability/子 user namespace 执行逐项与进程自报值一致。
 - 这些变化仅补齐原规划中的凭证字段观察，不新增可信来源认证和提权阻断，不能将正常 commit_creds 当作合法性证明。最终全套与持续验证另行记录。
+
+### 2026-10-21：命名空间坐标与租期时钟修正
+
+- 新增真实 UID/GID 65534 到子 user namespace root 的测试，核对 BPF 数字 ID 保留全局坐标及 capability/namespace 上下文；同一程序不继承宿主 UID 0 写例外，DAC 放行的目标仍被 BPF 拒绝。
+- 审查发现 CLOCK_BOOTTIME 可能具有 time namespace 偏移，直接构造期限会与 BPF 全局启动时钟不一致。已先确认当前与子 namespace 相同，再读取偏移、以 GNU++17 宽整数换算并检查范围；无法确定时拒绝候选。
+- 从初始 time namespace 的独立时钟验证 +3600/-60 秒服务的真实到期和清理。该修正仅限 BPF 租期，未适配非零单调偏移下 fanotify/BPF 时间关联。
+- 新增两个专题后默认特权 runner 为 49 项；最终完整回归及持续验证结果在本轮收尾文档记录。

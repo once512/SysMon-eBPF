@@ -150,3 +150,6 @@ writer-lease-ms 1500
 ```
 
 授权程序依旧只按执行 inode/EUID 匹配，未认证动态库、插件或运行时完整性。要立即锁定，可发布更高 revision 删除对应 allow-writer；要续期，需显式确认新的成功重载。读授权、独立会话令牌和密钥管理未由此实现。
+
+
+租期时钟补充：宿主读取 time namespace 的启动时钟偏移并转换到 BPF 全局时钟，使用 GNU++17 宽整数检查符号及溢出。当前 time 与 time_for_children 必须一致，偏移无法确定时拒绝候选，不保留可能错误的期限。已验证 +3600/-60 秒偏移，不修改宿主时钟。该修正限于 BPF 租期，不代表带非零单调时钟偏移的 fanotify/BPF 联合证据时间可直接比较。机制依据：[time_namespaces(7)](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)。

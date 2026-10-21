@@ -22,6 +22,7 @@ TESTS = (
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
     ('writer-lease', 'writer_lease.py'),
+    ('lease-time-namespace', 'lease_time_namespace.py'),
     ('writer-scope', 'writer_scope.py'),
     ('writer-matrix', 'writer_matrix.py'),
     ('writer-capacity', 'writer_capacity.py'),
@@ -54,6 +55,7 @@ TESTS = (
     ('diagnostic-backpressure', 'diagnostic_backpressure.py'),
     ('baseline-lifecycle', 'baseline_lifecycle.py'),
     ('credential-transitions', 'credential_transitions.py'),
+    ('userns-credentials', 'userns_credentials.py'),
     ('baseline-mismatch', 'baseline_mismatch.py'),
 )
 

@@ -84,3 +84,6 @@ BPF 和 fanotify 借用服务拥有的唯一 stdout 队列；开启权限审计�
 ## 凭证观察覆盖（2026-10-21）
 
 已将基线和执行事件扩展为完整 UID/GID、五类 capabilities 及 user namespace 观察，并用真实 setuid/setgid/file-capability/子 user namespace 和 14 个单字段合成偏差验收。仍需定义可信转换来源、敏感点和真实攻击判据；这些字段本身不会使正常 commit_creds 变成已认证操作。
+
+
+时钟与坐标补充：本地 user namespace root 不等于全局 UID 0 的授权主体，已加入实际拒绝对照；租期已转换 time namespace 的启动时钟偏移。非零单调偏移下 fanotify 与 BPF 的时间关联仍未适配，不能将租期修正扩大成完整 time namespace 支持。

@@ -67,3 +67,8 @@ cred_map 的 value 当前为 80 字节：UID/EUID、有效 capabilities，以及
 合成偏差专题逐个覆盖 14 个字段（一个干净对照加 14 次单字段注入），只改当前测试 Map，不改真实 task->cred；每次 exec 后完整基线恢复并在退出后删除。真实普通、setuid、setgid、file-capability 和子 user namespace 执行的成功事件逐字段与进程自身报告对照。该 namespace fixture 使用宿主 root 到子 root 的对应映射，不构成任意 UID 映射或完整容器验收。
 
 这补齐观察覆盖，不认证提权路径，也不新增自动阻断。正常调用 commit_creds 的攻击仍可能更新基线；特定合法操作、历史缺失和内核失陷边界仍需独立分析。
+
+
+另有 `sudo python3 -B tests/userns_credentials.py --build-dir build`：外层 UID/GID 65534 映射为子 namespace 的本地 root，程序自报 UID/GID 0，BPF 八类数字 ID 仍为全局 65534，capability 和 namespace 上下文一致。同一执行 inode 的宿主 UID 0 写例外不会因此被继承；目标 DAC 刻意允许该用户写，实际由 BPF 拒绝。
+
+当前扩展字段不覆盖附加组、securebits、LSM 标签或全部 cred 结构，不能把“扩展凭证观察”理解为完整身份认证。
