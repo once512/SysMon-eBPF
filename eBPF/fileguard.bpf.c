@@ -43,9 +43,12 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     /* 这里查的是目标集合：未选中的 inode 不施加本层限制，不是给未知调用程序授予写权限。 */
     if (!entry) return 0;
     // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
+    u32 denial_flags = 0;
     if (!(entry->flags & SECMON_FILE_IDENTITY)) {
         if (!(entry->flags & SECMON_FILE_READONLY)) return 0;
-        if (authorized_writer(policy, entry, operation)) return 0;
+        int writer = authorized_writer(policy, entry, operation);
+        if (writer > 0) return 0;
+        if (writer < 0) denial_flags |= SECMON_WRITER_LEASE_EXPIRED;
     }
     count_stat(SECMON_POLICY_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
@@ -61,6 +64,7 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     e->size = sizeof(*e);
     e->kind = SECMON_FILE_DENIED;
     e->operation = operation;
+    e->flags = denial_flags;
     e->file = key;
     e->timestamp_ns = bpf_ktime_get_ns();
     struct task_struct *task = bpf_get_current_task_btf();

@@ -41,6 +41,8 @@ PolicyConfig parse_policy(std::istream &input)
                 // 规则按程序路径/目标路径去重；相同 inode 的别名冲突仍交给固定对象阶段判断。
                 if (!writers.emplace(value, target).second) invalid("duplicate writer/target grant");
                 result.writers.push_back({std::move(value), uid, std::move(target), operations});
+            } else if (key == "writer-lease-ms" && !result.writer_lease_ms) {
+                result.writer_lease_ms = number<unsigned int>(word(fields), 100, 3600000);
             } else if (key.compare(0, 9, "fanotify-") == 0) fanotify.parse(key, fields);
             else if (key == "revision" && !result.revision)
                 result.revision = number<std::uint64_t>(word(fields), 1, UINT64_MAX);
@@ -55,6 +57,8 @@ PolicyConfig parse_policy(std::istream &input)
     if (input.bad() || !result.revision) invalid("Invalid policy: missing positive revision or input failure");
     for (const auto &writer : result.writers)
         if (!paths.count(writer.target)) invalid("writer target must be an explicit protect path: " + writer.target);
+    if (result.writer_lease_ms && result.writers.empty())
+        invalid("writer-lease-ms requires at least one allow-writer grant");
     result.fanotify = fanotify.finish();
     return result;
 }

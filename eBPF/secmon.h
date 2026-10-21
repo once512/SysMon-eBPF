@@ -9,6 +9,7 @@
 #define SECMON_COMM_LEN 16
 #define SECMON_PATH_LEN 256
 #define SECMON_BASELINE_MISMATCH 1U
+#define SECMON_WRITER_LEASE_EXPIRED 2U
 enum secmon_event_kind { SECMON_EXEC_CHECK = 1, SECMON_EXEC_SUCCESS = 2, SECMON_FILE_DENIED = 3, SECMON_SELF_DENIED_EVENT = 4 };
 // inode 号只在相应文件系统/设备身份内有意义，不能单独作为跨设备策略键。
 /* 同样的 ino 数字可以同时存在于不同文件系统； */
@@ -31,6 +32,8 @@ struct file_policy_value {
     unsigned long long writer_rules;
     /* 每个操作对应一组规则位；只有主体规则与目标操作规则存在交集才允许。 */
     unsigned long long allowed_writers[SECMON_FILE_OPERATION_COUNT];
+    /* CLOCK_BOOTTIME nanoseconds, including suspend. Zero means no lease. */
+    unsigned long long writer_deadline_boot_ns;
 };
 // 同一个结构承载多类事件，kind 决定哪些字段有效；所有事件先清零，宿主再按 kind 输出。
 struct exec_event {

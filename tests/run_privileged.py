@@ -21,6 +21,7 @@ TESTS = (
     ('policy-layers', 'policy_composition.py'),
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
+    ('writer-lease', 'writer_lease.py'),
     ('writer-scope', 'writer_scope.py'),
     ('writer-matrix', 'writer_matrix.py'),
     ('writer-capacity', 'writer_capacity.py'),

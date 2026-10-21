@@ -26,6 +26,11 @@ int main()
         require(line->find("\"start_ns\":123456789") != std::string::npos);
         require(line->find("\"process_inode\":987654321") != std::string::npos);
     }
+    event.kind = SECMON_FILE_DENIED;
+    event.flags = SECMON_WRITER_LEASE_EXPIRED;
+    require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":true") != std::string::npos);
+    event.flags = 0;
+    require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":false") != std::string::npos);
     event.version = 999;
     require(!format_event(&event, sizeof(event)));
     // 内核缓冲地址不应被假定为符合 C++ 对齐要求，编码器使用 memcpy 建立本地副本。

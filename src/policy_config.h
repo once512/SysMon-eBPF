@@ -41,6 +41,9 @@ struct PolicyConfig {
         std::uint32_t operations;
     };
     std::vector<Writer> writers;
+    // Optional policy-wide maintenance lease. Zero means no deadline.
+    // A successful new BPF policy activation starts a new lease, never a failed reload.
+    unsigned int writer_lease_ms = 0;
 };
 // 有界单一文本格式；解析不访问文件系统，旧 version 指令按未知字段拒绝。
 // 返回经过文本与字段组合校验的值对象；

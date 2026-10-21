@@ -158,7 +158,7 @@ sudo python3 -B tests/run_privileged.py --build-dir build --only identity-thread
 sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --report /tmp/identity-soak.json
 ```
 
-当前默认 runner 运行 46 个专题/模式变体（43 个可选专题，另追加线程、namespace、背压的 pidfd 变体）。持续身份循环覆盖完整服务/观察器及线程创建退出，核对基线键回收和控制器 FD；报告保留累计循环数、累计回复/拒绝数及最后完整循环的原始证据。并发时间窗只输出候选线程集合，不把 TGID 升格为线程身份。前提、字段和限制见 [身份合同](IDENTITY_CONTRACT.md)。
+当前默认 runner 运行 47 个专题/模式变体（44 个可选专题，另追加线程、namespace、背压的 pidfd 变体）。持续身份循环覆盖完整服务/观察器及线程创建退出，核对基线键回收和控制器 FD；报告保留累计循环数、累计回复/拒绝数及最后完整循环的原始证据。并发时间窗只输出候选线程集合，不把 TGID 升格为线程身份。前提、字段和限制见 [身份合同](IDENTITY_CONTRACT.md)。
 
 真实审计流至离线规则的完整链路见 [行为观察规则](BEHAVIOR_OBSERVATION.md)。`behavior-workloads` 内含四种模式及第三方目录备份负载；可单独使用 `--duration 3600` 重复完整循环，并用 `--artifact-dir` 保留每个服务实例的原始流、结果及来源清单。持续运行应冻结 Python 脚本与可执行文件，避免验证中途改变实现。
 
@@ -173,3 +173,5 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 `fanotify-handover` 验证[即时静态 allow 模式的在线目标切换](FANOTIFY_HANDOVER.md)：共同 inode 保留、删除/重加、候选与 BPF 准备失败、唯一请求序列、累计统计及切换审计事件；另覆盖 64/65 边界、内核积压请求、busy/延迟/分析限制。可用 --rounds 128 --duration 1200 持续运行并保存逐实例采集包。
 
 `subscription-generations` 验证离线订阅代际与乱序边界；`subscription-lifecycle` 特权专题让同一进程持有旧 FD，验证保留/移除/重加同一 inode 时不沿用旧访问证据。
+
+`writer-lease` 验证内核按启动时钟收回维护写例外：已有 FD、新打开、mmap/mprotect、程序/目标范围、失败与同版本不续期、显式续期、删除授权和服务被 SIGSTOP 时仍到期。测试只暂停未启用自保护的临时实例，结束前恢复服务。

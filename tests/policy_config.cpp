@@ -70,6 +70,15 @@ int main() {
         require(parse_writer_operations(operation_names[i]) == (1U << i));
     require(parse_writer_operations("all") == SECMON_FILE_OPERATION_MASK);
     require(parse_writer_operations("mmap-write,setattr,link,rename,unlink,truncate,write,open-write") == SECMON_FILE_OPERATION_MASK);
+    const std::string lease_base = "revision 1\nprotect \"/data\"\nallow-writer \"/exe\" 0 \"/data\" all\n";
+    for (const auto *duration : {"100", "1500", "3600000"}) {
+        std::istringstream leased(lease_base + "writer-lease-ms " + duration);
+        require(parse_policy(leased).writer_lease_ms == std::stoul(duration));
+    }
+    for (const auto *duration : {"", "0", "99", "3600001", "-1", "+100", "100x", "18446744073709551616"})
+        reject(lease_base + "writer-lease-ms " + duration);
+    reject(lease_base + "writer-lease-ms 100\nwriter-lease-ms 200");
+    reject("revision 1\nwriter-lease-ms 100");
     const std::string data = "revision 1\nprotect \"/data\"\n";
     std::istringstream writer(base + "fanotify-decision deny\nprotect \"/data\"\nallow-writer \"/program\" 65534 \"/data\" open-write,write\n");
     auto authorized = parse_policy(writer);

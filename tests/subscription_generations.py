@@ -8,10 +8,14 @@ from pathlib import Path
 import random
 import subprocess
 import sys
+from unittest.mock import patch
+import io
+import os
 from offline_evidence import BOOT, permission, denial, run
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from evidence import SubscriptionIndex, Grouper, MAX_HANDOVERS
+import evidence
+from evidence import SubscriptionIndex, Grouper, consume, MAX_HANDOVERS
 from evaluate_capture import compare, DELIVERIES
 from chain_capture import summarize
 
@@ -126,6 +130,20 @@ def main():
     assert len(chain['processes']) == 2
     assert all(not p['multi_object_access_then_denial_observed'] for p in chain['processes'])
     assert {p['subscription_generation'] for p in chain['processes']} == {1, 2}
+    # Both byte/record budgets are checked before output and release spool FDs.
+    raw = b''.join((json.dumps(denial()) + '\n').encode() for _ in range(3))
+    baseline = len(os.listdir('/proc/self/fd'))
+    for limit, value in (('MAX_INPUT_RECORDS', 2), ('MAX_INPUT_BYTES', 16)):
+        emitted = []
+        with patch.object(evidence, limit, value):
+            try:
+                for row in consume(io.BytesIO(raw), Grouper('test', BOOT, 'limits')):
+                    emitted.append(row)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('batch budget accepted')
+        assert not emitted and len(os.listdir('/proc/self/fd')) == baseline
     # Index budget and CLI must reject before emitting apparently successful evidence.
     try:
         SubscriptionIndex(handover() for _ in range(MAX_HANDOVERS + 1))

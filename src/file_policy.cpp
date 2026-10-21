@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 #include <map>
+#include <time.h>
+#include <limits>
 #include "secmon.h"
 
 #include "file_policy.h"
@@ -19,7 +21,7 @@
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
-    static_assert(sizeof(file_policy_value) == 80);
+    static_assert(sizeof(file_policy_value) == 88);
     static_assert(SECMON_MAX_WRITER_RULES <= 64, "Rule bitmap must fit uint64");
     const auto &paths = config.paths;
     if (config.writers.size() > SECMON_MAX_WRITER_RULES) throw std::runtime_error("Too many authorized writers");
@@ -34,6 +36,8 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
                                      sizeof(file_policy_value), SECMON_POLICY_CAPACITY, nullptr));
     if (policy_map.get() < 0) throw std::runtime_error("Cannot create candidate policy map");
     std::map<std::string, file_key> target_keys;
+    std::vector<file_key> writer_keys;
+    writer_keys.reserve(config.writers.size());
     for (const auto &path : paths) {
         auto pinned = pin_policy_file(path, false);
         // 移动 FD 后仍可读取 pinned.key；
@@ -67,6 +71,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         value.flags |= SECMON_FILE_WRITER | SECMON_FILE_IDENTITY;
         value.writer_euid = writer.euid;
         value.writer_rules |= rule;
+        writer_keys.push_back(pinned.key);
         if (bpf_map_update_elem(policy_map.get(), &pinned.key, &value, BPF_ANY))
             throw std::runtime_error("Cannot prepare writer identity");
         // 从本候选已固定的 protect 对象引用取键，不额外解析目标路径，避免同一候选内路径替换。
@@ -80,6 +85,28 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         std::cerr << "Prepared writer inode " << pinned.key.major << ':' << pinned.key.minor
                   << ':' << pinned.key.ino << " euid=" << writer.euid << " path=" << writer.path
                   << " target=" << writer.target << " operations=" << writer.operations << '\n';
+    }
+    if (config.writer_lease_ms) {
+        if (writer_keys.empty() || config.writer_lease_ms < 100 || config.writer_lease_ms > 3600000)
+            throw std::runtime_error("Invalid writer lease");
+        timespec now{};
+        if (clock_gettime(CLOCK_BOOTTIME, &now) || now.tv_sec < 0)
+            throw std::runtime_error("Cannot read boot-time lease clock");
+        const auto seconds = static_cast<std::uint64_t>(now.tv_sec);
+        const auto extra = static_cast<std::uint64_t>(now.tv_nsec) + config.writer_lease_ms * 1000000ULL;
+        if (seconds > (std::numeric_limits<std::uint64_t>::max() - extra) / 1000000000ULL)
+            throw std::runtime_error("Writer lease deadline overflow");
+        const auto deadline = seconds * 1000000000ULL + extra;
+        // Only the unpublished candidate changes. Lease timing begins just
+        // before map population/activation, conservatively before confirmation.
+        for (const auto &key : writer_keys) {
+            file_policy_value value{};
+            if (bpf_map_lookup_elem(policy_map.get(), &key, &value))
+                throw std::runtime_error("Cannot inspect leased writer");
+            value.writer_deadline_boot_ns = deadline;
+            if (bpf_map_update_elem(policy_map.get(), &key, &value, BPF_EXIST))
+                throw std::runtime_error("Cannot prepare leased writer");
+        }
     }
     const unsigned int slot = 0;
     // 外层 Map update 的 value 是内层 Map FD；内核保存对象引用，成功后可关闭宿主的这个管理 FD。

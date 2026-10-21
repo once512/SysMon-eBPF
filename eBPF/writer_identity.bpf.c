@@ -1,7 +1,7 @@
 /* 授权读取当前任务已提交的 mm->exe_file，不用 comm、argv、用户路径或容易复用的 PID。 */
 /* 普通 fork 保留同一 mm/可执行对象；exec 换成新对象后，下次操作重新匹配，因此不永久继承授权。 */
 /* 脚本执行时该对象通常是解释器，信任通用解释器会放行它执行的所有代码，不能区分脚本。 */
-/* 本辅助函数返回逻辑值：0 表示没有主体例外；与 LSM 程序返回 0 表示本层不拒绝的含义不同。 */
+/* 返回 1 表示主体例外，0 表示不匹配，-1 表示匹配但租期已过；这不是 LSM 的返回语义。 */
 static __always_inline int authorized_writer(void *policy, const struct file_policy_value *target, u32 operation)
 {
     struct task_struct *task = bpf_get_current_task_btf();
@@ -22,5 +22,10 @@ static __always_inline int authorized_writer(void *policy, const struct file_pol
     /* 显式界限也让 verifier 能证明下面动态索引始终在 value 的八个元素内。 */
     if (!operation || operation > SECMON_FILE_OPERATION_COUNT) return 0;
     /* 主体与目标都在同一只读候选 Map 中：切换不会混用两版规则位编号。 */
-    return (writer->writer_rules & target->allowed_writers[operation - 1]) != 0;
+    if (!(writer->writer_rules & target->allowed_writers[operation - 1])) return 0;
+    // Expiry is enforced in-kernel even if the service is delayed/stopped.
+    // A lease never revokes a writable mapping already granted before expiry.
+    if (writer->writer_deadline_boot_ns && bpf_ktime_get_boot_ns() >= writer->writer_deadline_boot_ns)
+        return -1;
+    return 1;
 }
