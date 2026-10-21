@@ -31,3 +31,25 @@
 ## 保留边界
 
 已有映射不会被撤销，测试已实际证明到期后仍可通过旧共享映射修改字节。不会收回明文、取消在途 I/O，也没有跨服务间隙的持久 BPF 防护。会话面向匹配程序的所有实例，尚无最终用户认证、动态加载链认证、目录递归、完整特殊 I/O/文件系统覆盖、加密/密钥、备份恢复。虚拟诱饵、在线恶意判定与自动进程响应仍未实现。
+
+## 最终单实例持续验收结果
+
+冻结功能提交 `03b8ed9`，执行：
+
+```bash
+sudo python3 -B tests/vault_soak.py --build-dir build --duration 1000 \
+  --artifact-dir /tmp/secmon-vault-soak-20261021-F2vgwf
+```
+
+完整通过，进程退出码 0：
+
+- 单一服务 PID 83504，最终采样 uptime 1,000,185 ms；整体控制器运行 1,002.461 秒。不是重复启动短实例。
+- 909 轮、28,179 次原生命令、909 次短会话到期检查、2,000 次成功重载、130 次准备失败候选，累计 2,727 个会话历史 ID。
+- 15,453 条文件拒绝，含 4,545 条预期过期拒绝。独立重读原始流确认每轮分别为 17/5 条；过期拒绝仅来自两个预期进程，进程 inode/start_ns 在整个期间保持各自唯一。
+- 总审计 28,247 条，与最终 audit_written 一致；policy_denied 与全部文件拒绝数一致。每次周期/最终输出中的 ringbuf_dropped、baseline_update_failed、audit_dropped、audit_invalid、audit_errno 均为 0。
+- 每轮关闭后服务 FD 回基线，控制器起止 FD 为 4/4；最终服务 PID 已退出，未留下 secmon 测试进程。
+- 持续段前后共 259 项已提交文件及所用二进制摘要全部一致。随后只更新本文等验收/推进文档，不将文档变更混入被测功能提交。
+
+原始日志 `/tmp/secmon-vault-final-soak.log`。产物目录包含 audit.jsonl、diagnostics.log、cycles.jsonl、summary.json、source_sha256.json，以及独立核验后的 verified_manifest.json；后者记录各产物大小与 SHA-256。摘要中 secmon 为 `9011e4d226f62d69eb5774c75bf9ff9d58c2b49445dd151974ad441d0cc96549`，会话工具为 `504365562575c05342ee876e4e6971b48cacbb7e5eb44ca5b11d5f55fa499b80`。
+
+该结果覆盖受控指定文件会话的持续执行和审计守恒，不证明全部内核资源生命周期、生产性能、真实攻击识别率或未覆盖 I/O 的安全性。
