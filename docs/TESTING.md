@@ -63,8 +63,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | policy-reload | `policy_reload.py` | 真实 BPF 完整切换、版本拒绝、准备失败保留旧保护、配置权限、root 控制与重复切换 FD 回收 |
 | policy-layers | `policy_composition.py` | BPF 与 fanotify 同时启用，允许不覆盖拒绝，两层独立停止 |
 | baseline-lifecycle | `baseline_lifecycle.py` | 活线程 Map key/value、join 删除、合法降权、非主线程 exec 与最终删除 |
-| credential-transitions | `credential_transitions.py` | 临时普通、setuid 和 file-capability 程序的真实凭证与事件一致 |
-| baseline-mismatch | `baseline_mismatch.py` | 私有测试 Map 的合成不一致、flags 位 0、exec 后刷新，不修改真实任务凭证 |
+| credential-transitions | `credential_transitions.py` | 普通、setuid/setgid、file-capability 和子 user namespace 的完整凭证与事件一致 |
+| baseline-mismatch | `baseline_mismatch.py` | 私有测试 Map 的 14 个单字段合成不一致、flags 位 0、exec 后刷新，不修改真实任务凭证 |
 | soak-policy/soak-timeout | `fanotify_soak.py` | 可选的持续并发负载，用户态队列与 FD 上限、客户端结果和回复总量对账 |
 
 测试文件、socket、root 所有的辅助程序及权限设置均放在临时目录。BPF 专题会实际加载/挂载内核程序，随后解除；fanotify 实验会暂时影响对应临时文件的打开、读取或执行。合成不一致只写本次宿主 Map 中由受控测试进程保持存活的确切 key，不扫描或修改其他实例 Map，不执行真实内核攻击。

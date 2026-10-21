@@ -605,3 +605,10 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 - 私有 file_policy_value 从 80 增至 88 字节，追加 deadline，不改变公共事件二进制布局；文件拒绝 JSON 新增 writer_lease_expired，用于区分匹配但过期和普通不匹配。内核拒绝不依赖日志输出。
 - 该机制是临时维护写授权原语，不是完整保险箱：没有读授权或独立会话，不撤销已建立共享可写映射，status 规则条数不代表实时有效租约。完整语义见 docs/POLICY_CONFIG.md。
 - 专题实际验证到期、程序/目标隔离、旧 FD、新打开、共享映射/mprotect、失败不续期、续期后再到期、删除授权和服务 SIGSTOP 时的内核拒绝；两种实例场景均通过。完整回归与持续验证另行记录。
+
+### 2026-10-21：扩展完整凭证观测
+
+- cred_map value 从 16 扩至 80 字节，覆盖 UID/EUID/SUID/FSUID、GID/EGID/SGID/FSGID、五类 capability 集合和 user namespace inode；执行检查比较全部有效字段。先固定一次 cred 指针读取，减少字段读取混用指针的机会，但不宣称为全系统一致快照。
+- BPF 事件 ABI 升至 6，执行 JSON 增加对应字段；文件/自保护事件不输出未采集的附加凭证。数字身份保留内核全局坐标，namespace 提供上下文。
+- 实际加载和三个凭证专题通过；其中 14 个字段逐个注入测试 Map，均触发 flags，exec 后完整观测值恢复。真实普通/setuid/setgid/file-capability/子 user namespace 执行逐项与进程自报值一致。
+- 这些变化仅补齐原规划中的凭证字段观察，不新增可信来源认证和提权阻断，不能将正常 commit_creds 当作合法性证明。最终全套与持续验证另行记录。

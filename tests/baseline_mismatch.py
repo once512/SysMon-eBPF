@@ -11,20 +11,20 @@ from lifecycle_harness import Scenario, expect_keys, lifecycle_helper
 from monitor_harness import MonitorRun
 
 
-def inject_uid(mapping, pid, key, original):
-    # The exact key came from the held test process in this monitor's Map.
+def inject_field(mapping, pid, key, original, field):
     tid, start_ns = key
-    assert tid == pid and original[0] == original[1] == 0
+    assert tid == pid and original.uid == original.euid == 0
     raw = TaskKey((pid << 32) | tid, start_ns)
-    altered = Credentials(original[0] ^ 1, original[1], original[2])
+    altered = Credentials.from_buffer_copy(bytes(original))
+    owner, name = (altered.details, field.split('.', 1)[1]) if field.startswith('details.') else (altered, field)
+    setattr(owner, name, getattr(owner, name) ^ 1)
     update = mapping.lib.bpf_map_update_elem
     update.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
     update.restype = ctypes.c_int
-    # BPF_EXIST prevents accidentally inventing a key if the scenario regresses.
-    # flags=2 即 BPF_EXIST，仅改写仍存在的受控键；不新造任务身份，不触碰真实 task->cred。
+    # BPF_EXIST updates only the exact held task in this test's own Map.
     if update(mapping.fd, ctypes.byref(raw), ctypes.byref(altered), 2):
         raise OSError(ctypes.get_errno(), 'inject synthetic baseline divergence')
-    assert mapping.credentials(pid, key) == (altered.uid, altered.euid, altered.caps)
+    assert bytes(mapping.state(pid, key)) == bytes(altered)
 
 
 def main():
@@ -37,7 +37,10 @@ def main():
     cases = []
     with lifecycle_helper(build) as helper, MonitorRun(build / 'secmon') as audit:
         with CredentialMap(audit.process.pid) as mapping:
-            for inject in (False, True):
+            fields = [None, 'uid', 'euid', 'caps'] + ['details.' + name for name in
+                      ('suid', 'fsuid', 'gid', 'egid', 'sgid', 'fsgid', 'user_namespace_inode',
+                       'caps_permitted', 'caps_inheritable', 'caps_bounding', 'caps_ambient')]
+            for inject in fields:
                 scenario = Scenario(helper)
                 pid = scenario.process.pid
                 try:
@@ -46,15 +49,15 @@ def main():
                     scenario.command('join')
                     scenario.phase('threads_joined')
                     key, = expect_keys(mapping, pid, [pid])
-                    original = mapping.credentials(pid, key)
+                    original = mapping.state(pid, key)
                     if inject:
-                        inject_uid(mapping, pid, key, original)
+                        inject_field(mapping, pid, key, original, inject)
                     scenario.command('exec-leader')
                     leader = scenario.phase('exec_leader')
                     complete = scenario.phase('exec_complete')
                     assert leader['tid'] == complete['tid'] == pid
                     current, = expect_keys(mapping, pid, [pid])
-                    assert mapping.credentials(pid, current) == original
+                    assert bytes(mapping.state(pid, current)) == bytes(original)
                     scenario.command('exit')
                     scenario.process.wait(timeout=5)
                     assert scenario.process.returncode == 0
@@ -74,7 +77,7 @@ def main():
                 assert latest['flags'] == (1 if inject else 0), latest
                 assert latest['uid'] == latest['euid'] == 0
                 assert all(event['flags'] == 0 for event in successes)
-                print(f'PASS {"synthetic mismatch" if inject else "clean control"}: check flags, real credentials and refreshed baseline')
+                print(f'PASS {inject or "clean control"}: check flags, real credentials and complete refreshed baseline')
             assert 'ringbuf_dropped=0' in audit.diagnostics()
             assert 'baseline_update_failed=0' in audit.diagnostics()
     print('PASS synthetic flag pipeline; no real credential modification or exploit')

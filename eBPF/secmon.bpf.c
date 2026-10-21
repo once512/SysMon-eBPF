@@ -66,9 +66,11 @@ static __always_inline void emit_exec(struct task_struct *task,
     e->pid = id >> 32;
     e->tid = (u32)id;
     e->ppid = BPF_CORE_READ(task, real_parent, tgid);
-    e->caller_uid = BPF_CORE_READ(task, cred, uid.val);
-    e->caller_euid = BPF_CORE_READ(task, cred, euid.val);
-    e->caps = BPF_CORE_READ(task, cred, cap_effective.val);
+    struct secmon_credentials creds = read_creds(task);
+    e->caller_uid = creds.uid;
+    e->caller_euid = creds.euid;
+    e->caps = creds.caps;
+    e->credentials = creds.details;
     /* At bprm_check_security the candidate may predate setuid evaluation.
      * After exec commits credentials, bprm->cred is NULL: use committed task creds. */
     /* 执行检查阶段的 bprm->cred 可能尚未完成 setuid 计算；执行成功后它已被提交消耗，须读 task 当前凭证。 */

@@ -72,6 +72,14 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
               << ",\"tid\":" << e.tid << ",\"ppid\":" << e.ppid
               << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
               << ",\"target_euid\":" << e.target_euid << ",\"caps\":" << e.caps
+              << ",\"suid\":" << e.credentials.suid << ",\"fsuid\":" << e.credentials.fsuid
+              << ",\"gid\":" << e.credentials.gid << ",\"egid\":" << e.credentials.egid
+              << ",\"sgid\":" << e.credentials.sgid << ",\"fsgid\":" << e.credentials.fsgid
+              << ",\"user_namespace_inode\":" << e.credentials.user_namespace_inode
+              << ",\"caps_permitted\":" << e.credentials.caps_permitted
+              << ",\"caps_inheritable\":" << e.credentials.caps_inheritable
+              << ",\"caps_bounding\":" << e.credentials.caps_bounding
+              << ",\"caps_ambient\":" << e.credentials.caps_ambient
               << ",\"mode\":" << e.file_mode << ",\"flags\":" << e.flags
               << ",\"comm\":" << json_string(e.comm, sizeof(e.comm))
               << ",\"filename\":" << json_string(e.filename, sizeof(e.filename)) << "}\n";

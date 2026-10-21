@@ -4,12 +4,11 @@
  * not proof that a credential transition was authorized. */
 /* 把 TGID/TID 与 start_boottime 组合，避免数字 PID 复用后继承旧基线；结构清零保证键字节稳定。 */
 struct task_key { u64 id; u64 start_ns; };
-struct cred_baseline { u32 uid; u32 euid; u64 caps; };
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 65536);
     __type(key, struct task_key);
-    __type(value, struct cred_baseline);
+    __type(value, struct secmon_credentials);
 } cred_map SEC(".maps");
 
 /* 键按线程区分：同进程各 TID 可独立退出； */
@@ -24,18 +23,30 @@ static __always_inline struct task_key task_key_for(struct task_struct *task)
 }
 /* 读取 task->cred 的已提交有效凭证； */
 /* 不把 real_cred、准备中的 new cred 与当前操作身份混为一谈。 */
-static __always_inline struct cred_baseline read_creds(struct task_struct *task)
+static __always_inline struct secmon_credentials read_creds(struct task_struct *task)
 {
-    struct cred_baseline base = {};
-    base.uid = BPF_CORE_READ(task, cred, uid.val);
-    base.euid = BPF_CORE_READ(task, cred, euid.val);
-    base.caps = BPF_CORE_READ(task, cred, cap_effective.val);
+    struct secmon_credentials base = {};
+    const struct cred *cred = BPF_CORE_READ(task, cred);
+    base.uid = BPF_CORE_READ(cred, uid.val);
+    base.euid = BPF_CORE_READ(cred, euid.val);
+    base.caps = BPF_CORE_READ(cred, cap_effective.val);
+    base.details.suid = BPF_CORE_READ(cred, suid.val);
+    base.details.fsuid = BPF_CORE_READ(cred, fsuid.val);
+    base.details.gid = BPF_CORE_READ(cred, gid.val);
+    base.details.egid = BPF_CORE_READ(cred, egid.val);
+    base.details.sgid = BPF_CORE_READ(cred, sgid.val);
+    base.details.fsgid = BPF_CORE_READ(cred, fsgid.val);
+    base.details.user_namespace_inode = BPF_CORE_READ(cred, user_ns, ns.inum);
+    base.details.caps_permitted = BPF_CORE_READ(cred, cap_permitted.val);
+    base.details.caps_inheritable = BPF_CORE_READ(cred, cap_inheritable.val);
+    base.details.caps_bounding = BPF_CORE_READ(cred, cap_bset.val);
+    base.details.caps_ambient = BPF_CORE_READ(cred, cap_ambient.val);
     return base;
 }
 static __always_inline void save_baseline(struct task_struct *task)
 {
     struct task_key key = task_key_for(task);
-    struct cred_baseline base = read_creds(task);
+    struct secmon_credentials base = read_creds(task);
     /* BPF_ANY 表示新增或覆盖；HASH Map 达到容量或更新失败时计数，不把缺失记录当作已授权凭证。 */
     if (bpf_map_update_elem(&cred_map, &key, &base, BPF_ANY))
         count_stat(SECMON_BASELINE_FAILED);
@@ -78,10 +89,10 @@ int BPF_PROG(on_exec_prepare, struct task_struct *task, struct linux_binprm *bpr
 static __always_inline u32 credential_flags(struct task_struct *task)
 {
     struct task_key key = task_key_for(task);
-    struct cred_baseline current = read_creds(task);
+    struct secmon_credentials current = read_creds(task);
     /* lookup 返回 Map 内值的指针而不是复制品； */
     /* 先判断非空再访问字段，才能通过 verifier 的指针检查。 */
-    struct cred_baseline *base = bpf_map_lookup_elem(&cred_map, &key);
+    struct secmon_credentials *base = bpf_map_lookup_elem(&cred_map, &key);
     /* 挂载之前就存在的线程没有历史记录，首次见到只能建立观测基线，不能推导此前是否发生过攻击。 */
     if (!base) {
         /* Processes predating attach get an observed, not trusted, baseline. */
@@ -89,6 +100,13 @@ static __always_inline u32 credential_flags(struct task_struct *task)
         return 0;
     }
     /* 只设置不一致标志；flags=0 也不是可信证明，恶意路径若正常调用 commit_creds 同样会刷新观测值。 */
-    return (base->uid != current.uid || base->euid != current.euid ||
-            base->caps != current.caps) ? SECMON_BASELINE_MISMATCH : 0;
+    return (base->uid != current.uid || base->euid != current.euid || base->caps != current.caps ||
+            base->details.suid != current.details.suid || base->details.fsuid != current.details.fsuid ||
+            base->details.gid != current.details.gid || base->details.egid != current.details.egid ||
+            base->details.sgid != current.details.sgid || base->details.fsgid != current.details.fsgid ||
+            base->details.user_namespace_inode != current.details.user_namespace_inode ||
+            base->details.caps_permitted != current.details.caps_permitted ||
+            base->details.caps_inheritable != current.details.caps_inheritable ||
+            base->details.caps_bounding != current.details.caps_bounding ||
+            base->details.caps_ambient != current.details.caps_ambient) ? SECMON_BASELINE_MISMATCH : 0;
 }

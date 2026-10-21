@@ -16,8 +16,16 @@ class TaskKey(ctypes.Structure):
     _fields_ = [('id', ctypes.c_uint64), ('start_ns', ctypes.c_uint64)]
 
 
+class CredentialDetails(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint32) for name in
+                ('suid', 'fsuid', 'gid', 'egid', 'sgid', 'fsgid', 'user_namespace_inode', 'reserved')] + \
+               [(name, ctypes.c_uint64) for name in
+                ('caps_permitted', 'caps_inheritable', 'caps_bounding', 'caps_ambient')]
+
+
 class Credentials(ctypes.Structure):
-    _fields_ = [('uid', ctypes.c_uint32), ('euid', ctypes.c_uint32), ('caps', ctypes.c_uint64)]
+    _fields_ = [('uid', ctypes.c_uint32), ('euid', ctypes.c_uint32), ('caps', ctypes.c_uint64),
+                ('details', CredentialDetails)]
 
 
 class CredentialMap:
@@ -73,12 +81,16 @@ class CredentialMap:
             current = following
         raise RuntimeError('credential Map iteration could not complete under concurrent changes')
 
-    def credentials(self, pid, key):
+    def state(self, pid, key):
         tid, start_ns = key
         raw = TaskKey((pid << 32) | tid, start_ns)
         value = Credentials()
         if self.lib.bpf_map_lookup_elem(self.fd, ctypes.byref(raw), ctypes.byref(value)):
             raise OSError(ctypes.get_errno(), 'read credential baseline')
+        return value
+
+    def credentials(self, pid, key):
+        value = self.state(pid, key)
         return value.uid, value.euid, value.caps
 
     def close(self):

@@ -10,6 +10,8 @@
 void require(bool value) { if (!value) throw std::runtime_error("event format assertion"); }
 int main()
 {
+    static_assert(sizeof(secmon_credential_details) == 64);
+    static_assert(sizeof(secmon_credentials) == 80);
     exec_event event{};
     event.version = SECMON_ABI_VERSION;
     event.size = sizeof(event);
@@ -31,6 +33,12 @@ int main()
     require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":true") != std::string::npos);
     event.flags = 0;
     require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":false") != std::string::npos);
+    event.kind = SECMON_EXEC_SUCCESS;
+    event.credentials.fsuid = 42;
+    event.credentials.caps_ambient = 123;
+    auto rich = format_event(&event, sizeof(event));
+    require(rich->find("\"fsuid\":42") != std::string::npos &&
+            rich->find("\"caps_ambient\":123") != std::string::npos);
     event.version = 999;
     require(!format_event(&event, sizeof(event)));
     // 内核缓冲地址不应被假定为符合 C++ 对齐要求，编码器使用 memcpy 建立本地副本。

@@ -5,7 +5,7 @@
 #include <secmon/policy_limits.h>
 #include <secmon/file_operations.h>
 /* 当前唯一事件布局标识，供宿主检错；不存在历史事件解码或兼容分支。 */
-#define SECMON_ABI_VERSION 5
+#define SECMON_ABI_VERSION 6
 #define SECMON_COMM_LEN 16
 #define SECMON_PATH_LEN 256
 #define SECMON_BASELINE_MISMATCH 1U
@@ -35,6 +35,19 @@ struct file_policy_value {
     /* CLOCK_BOOTTIME nanoseconds, including suspend. Zero means no lease. */
     unsigned long long writer_deadline_boot_ns;
 };
+/* Complete observed identity/capability fields; numeric IDs use kernel kuid/kgid
+ * coordinates. This state describes observations, never transition approval. */
+struct secmon_credential_details {
+    unsigned int suid, fsuid, gid, egid, sgid, fsgid;
+    unsigned int user_namespace_inode;
+    unsigned int reserved;
+    unsigned long long caps_permitted, caps_inheritable, caps_bounding, caps_ambient;
+};
+struct secmon_credentials {
+    unsigned int uid, euid;
+    unsigned long long caps;
+    struct secmon_credential_details details;
+};
 // 同一个结构承载多类事件，kind 决定哪些字段有效；所有事件先清零，宿主再按 kind 输出。
 struct exec_event {
     unsigned int version;
@@ -62,6 +75,7 @@ struct exec_event {
     unsigned int target_euid;
     // 位 0 仅表示执行检查时当前凭证偏离观测基线；exec_success 的 0 不表示又做了一轮异常检测。
     unsigned int flags;
+    struct secmon_credential_details credentials;
     unsigned short file_mode;
     char comm[SECMON_COMM_LEN];
     char filename[SECMON_PATH_LEN];
