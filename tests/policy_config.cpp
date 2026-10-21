@@ -18,6 +18,13 @@ int main() {
     auto policy = parse_policy(input);
     require(policy.revision == UINT64_MAX && policy.paths.size() == 2);
     require(policy.paths[0] == "/path with spaces" && policy.paths[1] == "/quote\"file");
+    std::istringstream canary("revision 1\ncanary \"/trap\"\ncanary-response 42 5000\n");
+    const auto trap = parse_policy(canary);
+    require(trap.paths.size() == 1 && trap.canaries == trap.paths && trap.canary_response->epoch == 42);
+    for (const auto *text : {"revision 1\ncanary \"/trap\"",
+        "revision 1\ncanary-response 0 100", "revision 1\ncanary-response 1 99",
+        "revision 1\ncanary-response 1 3600001", "revision 1\ncanary-response 1 100\ncanary-response 2 100",
+        "revision 1\ncanary \"/a\"\ncanary-response 1 100\nallow-writer \"/x\" 0 \"/a\" write"}) reject(text);
     std::istringstream empty("revision 1\n");
     require(parse_policy(empty).paths.empty());
     for (const auto *text : {"", "protect \"/a\"", "revision 0", "revision -1", "revision +1",

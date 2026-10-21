@@ -11,11 +11,11 @@ class BpfMonitor {
     std::unique_ptr<State> state_;
 public:
     static void check_environment();
-    BpfMonitor(const PolicyConfig &policy, bool self_protect, AuditSink &audit);
+    BpfMonitor(const PolicyConfig &policy, bool self_protect, AuditSink &audit, const std::vector<int> &reader_targets = {});
     ~BpfMonitor();
     BpfMonitor(const BpfMonitor &) = delete;
     BpfMonitor &operator=(const BpfMonitor &) = delete;
-    void install(const PolicyConfig &candidate);
+    void install(const PolicyConfig &candidate, const std::vector<int> &reader_targets = {});
     void poll_once(int timeout_ms);
     void report();
     void snapshot(management::Reply &reply) const;

@@ -181,3 +181,9 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 保险箱专题：`--only vault-sessions vault-capacity vault-restart vault-history vault-applications vault-time-namespace`，验证限时读写、关闭、暂停服务、ID 合同、336 项联合容量、历史上限、服务重启、真实程序与时钟坐标，详见 [会话合同](VAULT_SESSIONS.md)。
 
 单一服务会话持续验收：`sudo python3 -B tests/vault_soak.py --build-dir build --duration 1000 --artifact-dir /tmp/secmon-vault-verification`。duration 范围 5..1200 秒，应选择独立产物目录；会话 ID 按每轮 3 个增长，保留在 4096 历史上限内。原始流、每轮记录、守恒核验及证据边界见 [本轮验收](VALIDATION_VAULT_2026_10_21.md)。
+
+## 诱饵响应专题
+
+`run_privileged.py --only canary-response canary-capacity canary-backpressure canary-namespace canary-layers` 验证显式违规的内核有限期响应、解除、线程组身份、容量失败与日志独立性，详见 [范围与合同](CANARY_RESPONSE.md)。
+
+单实例联合持续验证：`sudo python3 -B tests/canary_soak.py --duration 900 --artifact-dir /tmp/自选空目录`，保留原始审计、诊断、逐轮记录、源码/二进制与产物摘要。包含 writer 例外优先级、fanotify/pidfd 审计、自动到期与显式解除；不会安装持久策略。

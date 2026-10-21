@@ -157,3 +157,7 @@ writer-lease-ms 1500
 ## 指定文件保险箱
 
 vault 与 vault-session 在相同候选中提供默认拒绝读取、独立读写期限与关闭合同，详见 [保险箱会话](VAULT_SESSIONS.md)。protect/vault 目标合计仍最多 256 条，另加最多 64 writer、16 会话程序路径；保护对象与授权对象的别名按更严格角色合并。
+
+## 显式诱饵响应
+
+`canary "PATH"` 与 `canary-response EPOCH DURATION_MS` 提供有限期的线程组修改响应；配置、解除、失败及覆盖边界见 [诱饵响应](CANARY_RESPONSE.md)。它与 protect/vault 共用目标预算，禁止 writer 别名例外，不以普通读取作为触发条件。

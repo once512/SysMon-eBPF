@@ -22,6 +22,8 @@ class ProtectedFiles {
     // Bounded tombstones prevent removed IDs from reopening within an instance.
     std::map<std::uint64_t, SessionRecord> sessions_;
     unsigned int stale_sessions_ = 0;
+    std::uint64_t last_response_epoch_ = 0, active_response_epoch_ = 0;
+    unsigned int response_duration_ms_ = 0;
 public:
     ProtectedFiles() = default;
     ProtectedFiles(const ProtectedFiles &) = delete;
@@ -31,6 +33,6 @@ public:
     // Failure before the swap leaves the active map and pins untouched.
     // 调用者借出外层 Map FD，本对象不负责关闭它；
     // 成功返回表示已发布整份候选，不表示所有在途系统调用已结束。
-    void install(int map_fd, const PolicyConfig &policy);
+    void install(int map_fd, const PolicyConfig &policy, const std::vector<int> &reader_targets = {});
     void snapshot(management::Reply &reply) const;
 };

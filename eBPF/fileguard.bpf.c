@@ -38,13 +38,25 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     key.major = dev >> 20;
     key.minor = dev & ((1U << 20) - 1);
     key.ino = BPF_CORE_READ(inode, i_ino);
+    struct response_observation response = {};
+    u32 denial_flags = 0;
+    /* Containment covers regular-file mutation, leaving pipes and reads usable. */
+    if (operation >= SECMON_OP_OPEN_WRITE && operation <= SECMON_OP_MMAP_WRITE &&
+        (BPF_CORE_READ(inode, i_mode) & 0170000) == 0100000 && active_response(policy, &response)) {
+        denial_flags = SECMON_RESPONSE_BLOCKED;
+        count_stat(SECMON_RESPONSE_DENIALS);
+        goto denied;
+    }
     /* 目标 inode 与调用程序身份必须查同一个 policy 快照，否则重载中可能混用旧目标规则与新主体授权。 */
     struct file_policy_value *entry = bpf_map_lookup_elem(policy, &key);
     /* 这里查的是目标集合：未选中的 inode 不施加本层限制，不是给未知调用程序授予写权限。 */
     if (!entry) return 0;
     // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
-    u32 denial_flags = 0;
     if (vault_read_operation(operation) && !(entry->flags & SECMON_FILE_VAULT)) return 0;
+    if (entry->flags & SECMON_FILE_CANARY) {
+        denial_flags = start_response(policy, &response);
+        goto denied;
+    }
     if ((entry->flags & SECMON_FILE_VAULT) &&
         (vault_read_operation(operation) || !(entry->flags & SECMON_FILE_IDENTITY))) {
         int session = authorized_vault_session(policy, entry, operation);
@@ -56,6 +68,7 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
         if (writer > 0) return 0;
         if (writer < 0) denial_flags |= SECMON_WRITER_LEASE_EXPIRED;
     }
+denied:
     count_stat(SECMON_POLICY_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     /* 审计记录申请失败仍返回 EACCES：日志拥塞不能把原本应拒绝的写入变成允许。 */
@@ -71,6 +84,8 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     e->kind = SECMON_FILE_DENIED;
     e->operation = operation;
     e->flags = denial_flags;
+    e->response_epoch = response.epoch;
+    e->response_deadline_boot_ns = response.deadline_boot_ns;
     e->file = key;
     e->timestamp_ns = bpf_ktime_get_ns();
     struct task_struct *task = bpf_get_current_task_btf();

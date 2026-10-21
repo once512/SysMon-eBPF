@@ -31,7 +31,8 @@ void report_stats(int fd)
             throw std::runtime_error("Cannot read BPF statistics");
         unsigned long long total = 0;
         for (const auto value : values) total += value;
-        const char *names[] = {"ringbuf_dropped=", "baseline_update_failed=", "policy_denied=", "self_denied="};
+        const char *names[] = {"ringbuf_dropped=", "baseline_update_failed=", "policy_denied=", "self_denied=", "response_started=", "response_failed=", "response_denied="};
+        static_assert(sizeof(names) / sizeof(names[0]) == SECMON_STAT_COUNT);
         std::cerr << names[key]
                   << total << '\n';
     }

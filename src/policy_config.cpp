@@ -28,12 +28,17 @@ PolicyConfig parse_policy(std::istream &input)
             std::istringstream fields(line);
             std::string key;
             if (!(fields >> key) || key.front() == '#') continue;
-            if (key == "protect" || key == "vault") {
+            if (key == "protect" || key == "vault" || key == "canary") {
                 auto value = path(fields);
                 if (!paths.insert(value).second || result.paths.size() == SECMON_MAX_PROTECTED_PATHS)
                     invalid("duplicate protect path or too many protected files");
                 if (key == "vault") result.vaults.push_back(value);
+                if (key == "canary") result.canaries.push_back(value);
                 result.paths.push_back(std::move(value));
+            } else if (key == "canary-response" && !result.canary_response) {
+                const auto epoch = number<std::uint64_t>(word(fields), 1, UINT64_MAX);
+                const auto duration = number<unsigned int>(word(fields), 100, 3600000);
+                result.canary_response = PolicyConfig::CanaryResponse{epoch, duration};
             } else if (key == "allow-writer") {
                 auto value = path(fields);
                 if (result.writers.size() == SECMON_MAX_WRITER_RULES) invalid("too many writer grants");
@@ -80,6 +85,10 @@ PolicyConfig parse_policy(std::istream &input)
     const std::set<std::string> vaults(result.vaults.begin(), result.vaults.end());
     for (const auto &writer : result.writers)
         if (vaults.count(writer.target)) invalid("vault targets require vault-session, not allow-writer");
+    const std::set<std::string> canaries(result.canaries.begin(), result.canaries.end());
+    if (!canaries.empty() && !result.canary_response) invalid("canary requires canary-response");
+    for (const auto &writer : result.writers)
+        if (canaries.count(writer.target)) invalid("canary targets cannot have writer exceptions");
     for (const auto &session : result.vault_sessions)
         if (!vaults.count(session.target)) invalid("vault session target must be an explicit vault path");
     if (result.writer_lease_ms && result.writers.empty())

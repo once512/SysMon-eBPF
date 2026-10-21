@@ -20,7 +20,7 @@ int main()
     require(!format_event(&event, sizeof(event)));
     event.start_ns = 123456789;
     event.process_inode = 987654321;
-    for (unsigned kind : {SECMON_EXEC_CHECK, SECMON_EXEC_SUCCESS, SECMON_FILE_DENIED, SECMON_SELF_DENIED_EVENT}) {
+    for (unsigned kind : {SECMON_EXEC_CHECK, SECMON_EXEC_SUCCESS, SECMON_FILE_DENIED, SECMON_SELF_DENIED_EVENT, SECMON_RESPONSE_DENIED_EVENT}) {
         event.kind = kind;
         const auto line = format_event(&event, sizeof(event));
         require(line && line->back() == '\n');
@@ -36,6 +36,10 @@ int main()
     event.flags = SECMON_VAULT_SESSION_EXPIRED;
     require(format_event(&event, sizeof(event))->find("\"vault_session_expired\":true") != std::string::npos);
     require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":false") != std::string::npos);
+    event.flags = SECMON_CANARY_HIT | SECMON_RESPONSE_STARTED;
+    event.response_epoch = 123;
+    require(format_event(&event, sizeof(event))->find("\"response_started\":true") != std::string::npos);
+    require(format_event(&event, sizeof(event))->find("\"response_epoch\":123") != std::string::npos);
     event.kind = SECMON_EXEC_SUCCESS;
     event.credentials.fsuid = 42;
     event.credentials.caps_ambient = 123;

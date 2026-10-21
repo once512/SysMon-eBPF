@@ -15,6 +15,7 @@
 #include <tuple>
 #include <limits>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include "secmon.h"
 
 #include "file_policy.h"
@@ -23,9 +24,9 @@
 #include "boot_clock.h"
 
 
-void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
+void ProtectedFiles::install(int map_fd, const PolicyConfig &config, const std::vector<int> &reader_targets)
 {
-    static_assert(sizeof(file_policy_value) == 352);
+    static_assert(sizeof(file_policy_value) == 368);
     static_assert(SECMON_MAX_WRITER_RULES <= 64, "Rule bitmap must fit uint64");
     const auto &paths = config.paths;
     if (config.writers.size() > SECMON_MAX_WRITER_RULES) throw std::runtime_error("Too many authorized writers");
@@ -34,10 +35,29 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     // 异常只销毁候选，当前对象仍持有活动策略的全部 inode。
     ProtectedFiles candidate;
     candidate.sessions_ = sessions_;
+    candidate.last_response_epoch_ = last_response_epoch_;
+    if (!config.canaries.empty() && !config.canary_response)
+        throw std::runtime_error("Canary requires a response policy");
+    if (config.canary_response) {
+        const auto &r = *config.canary_response;
+        if (!r.epoch || r.duration_ms < 100 || r.duration_ms > 3600000 ||
+            (r.epoch <= last_response_epoch_ &&
+             (r.epoch != active_response_epoch_ || r.duration_ms != response_duration_ms_)))
+            throw std::runtime_error("Response epoch is retired, decreased, or changed; use a higher epoch");
+        candidate.last_response_epoch_ = candidate.active_response_epoch_ = r.epoch;
+        candidate.response_duration_ms_ = r.duration_ms;
+    }
     for (auto &[id, record] : candidate.sessions_) { (void)id; record.active = false; }
     if (config.vault_sessions.size() > SECMON_MAX_VAULT_SESSIONS)
         throw std::runtime_error("Too many vault sessions");
     const std::set<std::string> vaults(config.vaults.begin(), config.vaults.end());
+    const std::set<std::string> canaries(config.canaries.begin(), config.canaries.end());
+    std::set<std::tuple<unsigned int, unsigned int, unsigned long long>> reader_keys;
+    if (!vaults.empty()) for (const int fd : reader_targets) {
+        struct stat value{};
+        if (fstat(fd, &value)) throw std::runtime_error("Cannot inspect fanotify reader target");
+        reader_keys.emplace(major(value.st_dev), minor(value.st_dev), value.st_ino);
+    }
     const auto boot = config.vault_sessions.empty() ? std::string() : secmon_clock::boot_id();
     // 先分配保存 FD 的空间，再逐个 open；接管 FD 时不再触发 vector 扩容，减少异常路径泄漏风险。
     candidate.descriptors_.reserve(paths.size() + config.writers.size() + config.vault_sessions.size());
@@ -63,6 +83,11 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         if (!bpf_map_lookup_elem(policy_map.get(), &key, &existing)) policy = existing;
         else if (errno != ENOENT) throw std::runtime_error("Cannot inspect candidate target");
         if (vaults.count(path)) policy.flags |= SECMON_FILE_VAULT;
+        if ((policy.flags & SECMON_FILE_VAULT) && reader_keys.count({key.major, key.minor, key.ino}))
+            throw std::runtime_error("Vault inode cannot be a fanotify target; listener requires read access");
+        if (canaries.count(path)) policy.flags |= SECMON_FILE_CANARY;
+        if ((policy.flags & SECMON_FILE_VAULT) && (policy.flags & SECMON_FILE_CANARY))
+            throw std::runtime_error("Vault and canary cannot name the same inode");
         if (bpf_map_update_elem(policy_map.get(), &key, &policy, BPF_ANY))
             throw std::runtime_error("Cannot install policy for " + path + ": " + std::strerror(errno));
         std::cerr << "Prepared policy inode " << key.major << ':' << key.minor << ':' << key.ino
@@ -75,8 +100,8 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
             throw std::runtime_error("Writer grant requires a protected target and valid operations");
         file_policy_value selected_value{};
         if (bpf_map_lookup_elem(policy_map.get(), &selected->second, &selected_value) ||
-            (selected_value.flags & SECMON_FILE_VAULT))
-            throw std::runtime_error("Writer grant cannot target a vault inode (including aliases)");
+            (selected_value.flags & (SECMON_FILE_VAULT | SECMON_FILE_CANARY)))
+            throw std::runtime_error("Writer grant cannot target a vault or canary inode (including aliases)");
         const auto rule = 1ULL << index;
         auto pinned = pin_policy_file(writer.path, true);
         candidate.descriptors_.push_back(std::move(pinned.fd));
@@ -175,6 +200,15 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         std::cerr << "Prepared vault session id=" << session.id << " deadline_boot_ns=" << deadline
                   << " access=" << session.access << " target=" << session.target << '\n';
     }
+    if (config.canary_response) {
+        const file_key key{SECMON_RESPONSE_KEY_MAJOR, 0, 0};
+        file_policy_value value{};
+        value.flags = SECMON_RESPONSE_CONFIG;
+        value.response_epoch = candidate.active_response_epoch_;
+        value.response_duration_ns = static_cast<std::uint64_t>(candidate.response_duration_ms_) * 1000000;
+        if (bpf_map_update_elem(policy_map.get(), &key, &value, BPF_NOEXIST))
+            throw std::runtime_error("Cannot prepare canary response configuration");
+    }
     const unsigned int slot = 0;
     // 外层 Map update 的 value 是内层 Map FD；内核保存对象引用，成功后可关闭宿主的这个管理 FD。
     // 注意三种不同结果：用户态更新外层传 FD，用户态查询外层得到 Map ID，BPF 查询外层得到 Map 指针。
@@ -185,10 +219,15 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     descriptors_.swap(candidate.descriptors_);
     sessions_.swap(candidate.sessions_);
     std::swap(stale_sessions_, candidate.stale_sessions_);
+    std::swap(last_response_epoch_, candidate.last_response_epoch_);
+    std::swap(active_response_epoch_, candidate.active_response_epoch_);
+    std::swap(response_duration_ms_, candidate.response_duration_ms_);
 }
 
 void ProtectedFiles::snapshot(management::Reply &reply) const
 {
+    reply.response_epoch = active_response_epoch_;
+    reply.response_duration_ms = response_duration_ms_;
     reply.vault_session_history = sessions_.size();
     reply.vault_stale_sessions = stale_sessions_;
     reply.vault_sessions = stale_sessions_;

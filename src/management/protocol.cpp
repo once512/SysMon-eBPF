@@ -47,6 +47,10 @@ void validate_reply(const Reply &r, Command expected)
         ((r.vault_sessions != r.vault_stale_sessions) && !r.vault_next_deadline_boot_ns) ||
         (r.vault_sessions == r.vault_stale_sessions && r.vault_next_deadline_boot_ns) ||
         (r.backend == Backend::fanotify && (r.vault_paths || r.vault_sessions || r.vault_session_history || r.vault_clock_valid)) ||
+        r.canary_paths > r.protected_paths ||
+        (r.canary_paths && !r.response_epoch) ||
+        (r.response_epoch ? (r.response_duration_ms < 100 || r.response_duration_ms > 3600000) : r.response_duration_ms != 0) ||
+        (r.backend == Backend::fanotify && (r.canary_paths || r.response_epoch || r.response_started || r.response_failed || r.response_denied)) ||
         r.fanotify_targets > SECMON_MAX_FANOTIFY_TARGETS ||
         (r.backend == Backend::bpf ? r.fanotify_targets != 0 : r.fanotify_targets == 0) ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
@@ -93,6 +97,10 @@ std::string reply_json(const Reply &r)
     if (r.backend != Backend::fanotify)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")
             << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths
+            << ",\"canary_paths\":" << r.canary_paths
+            << ",\"response_epoch\":" << r.response_epoch << ",\"response_duration_ms\":" << r.response_duration_ms
+            << ",\"response_started\":" << r.response_started << ",\"response_failed\":" << r.response_failed
+            << ",\"response_denied\":" << r.response_denied
             << ",\"vault_paths\":" << r.vault_paths << ",\"vault_sessions\":" << r.vault_sessions
             << ",\"vault_live_sessions\":" << r.vault_live_sessions
             << ",\"vault_stale_sessions\":" << r.vault_stale_sessions

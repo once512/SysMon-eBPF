@@ -21,7 +21,8 @@ class VaultGrant(ctypes.Structure):
 class FileValue(ctypes.Structure):
     _fields_ = [('flags', ctypes.c_uint32), ('euid', ctypes.c_uint32), ('rules', ctypes.c_uint64),
                 ('allowed', ctypes.c_uint64 * 8), ('deadline_boot_ns', ctypes.c_uint64),
-                ('vault_subjects', ctypes.c_uint64), ('vault_sessions', VaultGrant * 16)]
+                ('vault_subjects', ctypes.c_uint64), ('vault_sessions', VaultGrant * 16), ('response_epoch', ctypes.c_uint64),
+                ('response_duration_ns', ctypes.c_uint64)]
 
 
 def map_info(map_id):
@@ -59,9 +60,9 @@ class PolicyMapView:
             self.map_id = identifier.value
             self.inner = self.open_id(self.map_id)
             info = map_info(self.map_id)
-            assert info['type'] == 'hash' and info['max_entries'] == 336
+            assert info['type'] == 'hash' and info['max_entries'] == 337
             assert info['bytes_key'] == ctypes.sizeof(FileKey) == 16
-            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 352
+            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 368
         except BaseException:
             self.close()
             raise
@@ -75,7 +76,7 @@ class PolicyMapView:
     def entries(self, full=False, with_deadlines=False):
         # 本项目发布后不原地修改内层 Map，本 FD 固定的版本可完整遍历；不宣称通用 HASH 并发快照。
         result, previous = {}, None
-        for _ in range(337):
+        for _ in range(338):
             key = FileKey()
             if self.lib.bpf_map_get_next_key(self.inner, None if previous is None else ctypes.byref(previous), ctypes.byref(key)):
                 assert ctypes.get_errno() == errno.ENOENT

@@ -18,8 +18,11 @@ std::string canonical(const PolicyConfig &policy)
     std::ostringstream out;
     out << "revision " << policy.revision << '\n';
     for (const auto &path : policy.paths)
-        out << (std::find(policy.vaults.begin(), policy.vaults.end(), path) == policy.vaults.end() ? "protect " : "vault ")
+        out << (std::find(policy.vaults.begin(), policy.vaults.end(), path) == policy.vaults.end() ?
+                (std::find(policy.canaries.begin(), policy.canaries.end(), path) == policy.canaries.end() ? "protect " : "canary ") : "vault ")
             << std::quoted(path) << '\n';
+    if (policy.canary_response) out << "canary-response " << policy.canary_response->epoch
+        << ' ' << policy.canary_response->duration_ms << '\n';
     for (const auto &session : policy.vault_sessions)
         out << "vault-session " << session.id << ' ' << std::quoted(session.program) << ' ' << session.euid
             << ' ' << std::quoted(session.target) << ' ' << (session.access == 1 ? "read" : "read-write")

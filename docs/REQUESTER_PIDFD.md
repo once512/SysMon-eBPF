@@ -6,7 +6,7 @@
 sudo ./build/secmon --policy /absolute/policy.conf --audit-permissions --requester-pidfd
 ```
 
-管理 JSON 的 `requester_pidfd` 表示启用了该模式，不保证每次请求都能取得引用。flag 位 32 表示启用引用；当前管理协议为保险箱会话扩展后的 v6/392 字节布局，客户端和服务端使用同一构建。
+管理 JSON 的 `requester_pidfd` 表示启用了该模式，不保证每次请求都能取得引用。flag 位 32 表示启用引用；当前管理协议为保险箱会话扩展后的 v7/432 字节布局，客户端和服务端使用同一构建。
 
 ## 引用从哪里来
 

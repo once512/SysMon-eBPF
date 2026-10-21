@@ -50,7 +50,7 @@ permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启�
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 v6/392 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
+- `src/management/protocol.h/.cpp`：本机同架构的 v7/432 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析配置/校验递增 revision，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。

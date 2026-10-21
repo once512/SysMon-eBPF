@@ -28,6 +28,8 @@ class Reply(ctypes.Structure):
                 ('diagnostic_queued', ctypes.c_uint32), ('diagnostic_errno', ctypes.c_int32),
                 *[(name, ctypes.c_uint32) for name in ('vault_paths', 'vault_sessions', 'vault_live_sessions',
                     'vault_session_history', 'vault_clock_valid', 'vault_stale_sessions')],
+                ('canary_paths', ctypes.c_uint32), ('response_duration_ms', ctypes.c_uint32),
+                *[(name, ctypes.c_uint64) for name in ('response_epoch', 'response_started', 'response_failed', 'response_denied')],
                 ('vault_next_deadline_boot_ns', ctypes.c_uint64)]
 
 
@@ -37,13 +39,13 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root to emulate a root control peer')
-    assert ctypes.sizeof(Reply) == 392
+    assert ctypes.sizeof(Reply) == 432
     binary = Path(args.build_dir).resolve() / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-fault-') as temporary:
         path = Path(temporary) / 'fake.sock'
         cases = ['valid', 'magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                  'pid', 'instance_ns', 'event', 'mode', 'fallbacks', 'reserved', 'scan-reason', 'scan-errno',
-                 'writer-count', 'reserved-tail', 'vault-count', 'vault-history', 'vault-stale', 'vault-clock', 'vault-live', 'vault-deadline', 'audit-queue', 'audit-errno', 'audit-errno-range', 'diagnostic-queue', 'diagnostic-errno', 'diagnostic-errno-range', 'diagnostic-accounting', 'text-response', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
+                 'writer-count', 'canary-count', 'response-epoch', 'response-duration', 'response-fanotify', 'reserved-tail', 'vault-count', 'vault-history', 'vault-stale', 'vault-clock', 'vault-live', 'vault-deadline', 'audit-queue', 'audit-errno', 'audit-errno-range', 'diagnostic-queue', 'diagnostic-errno', 'diagnostic-errno-range', 'diagnostic-accounting', 'text-response', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
         held = os.open('/dev/null', os.O_RDONLY | os.O_CLOEXEC)
         try:
             for command, command_id in (('status', 3), ('reload', 2), ('stop', 1)):
@@ -59,7 +61,7 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 6, ctypes.sizeof(Reply)
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 7, ctypes.sizeof(Reply)
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
                                 reply.worker_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
@@ -80,6 +82,11 @@ def main():
                                 if case == 'vault-clock': reply.vault_clock_valid = 2
                                 if case == 'vault-live': reply.vault_live_sessions = 1
                                 if case == 'vault-deadline': reply.vault_next_deadline_boot_ns = 1
+                                if case == 'canary-count': reply.canary_paths = 1
+                                if case == 'response-epoch': reply.response_epoch = 1
+                                if case == 'response-duration': reply.response_duration_ms = 100
+                                if case == 'response-fanotify':
+                                    reply.backend = 2; reply.fanotify_targets = 1; reply.response_started = 1
                                 if case == 'writer-count': reply.writer_paths = 65
                                 if case == 'reserved-tail': reply.fanotify_targets = 65
                                 if case == 'scan-reason': reply.last_scan_error = 99

@@ -16,6 +16,7 @@
 
 总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)，当前待办见 [下一步](docs/NEXT_STEPS.md)。
 
+- 管理员可声明 [canary 诱饵修改响应](docs/CANARY_RESPONSE.md)：修改尝试被拒绝后，对触发线程组施加有期限的文件修改、fork/clone 和 exec 限制；读取不触发，尚非通用恶意分类或虚拟诱饵。
 - GNU++17 宿主使用 libbpf skeleton 加载、挂载和消费事件。
 - 在执行安全检查点输出 JSON Lines；这些事件表示执行检查，不表示执行最终成功。
 - 新增 `exec_success` 完成事件及 `old_tid` 字段，区分检查与成功，并关联非主线程 exec 前后的 TID；该事件的 `flags=0` 不代表执行后重新做过异常检查。

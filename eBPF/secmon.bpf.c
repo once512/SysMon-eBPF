@@ -40,6 +40,8 @@ static __always_inline u64 process_inode(struct task_struct *task)
     if (!bpf_core_field_exists(struct pid, ino)) return 0;
     return BPF_CORE_READ(task, signal, pids[PIDTYPE_TGID], ino);
 }
+static __always_inline void *active_file_policy(void);
+#include "response.bpf.c"
 #include "upchk.bpf.c"
 static __always_inline void emit_exec(struct task_struct *task,
                                      struct linux_binprm *bprm,
@@ -87,7 +89,7 @@ static __always_inline void emit_exec(struct task_struct *task,
     bpf_ringbuf_submit(e, 0);
 }
 /* LSM 挂载可影响授权结果；BPF_PROG 负责把底层上下文参数解包成这里可读的函数形参。 */
-/* ret 来自前序 BPF LSM 程序，非零拒绝必须原样保留；本项目此执行钩子只审计，不额外阻断。 */
+/* ret 来自前序 BPF LSM 程序，非零拒绝必须原样保留；本项目拒绝处于诱饵响应期限内的 exec，其余仅审计。 */
 SEC("lsm/bprm_check_security")
 int BPF_PROG(on_exec_check, struct linux_binprm *bprm, int ret)
 {
@@ -96,6 +98,8 @@ int BPF_PROG(on_exec_check, struct linux_binprm *bprm, int ret)
     if (ret)
         return ret;
     struct task_struct *task = bpf_get_current_task_btf();
+    int denied = guard_response_task(SECMON_OP_EXEC);
+    if (denied) return denied;
     emit_exec(task, bprm, SECMON_EXEC_CHECK, (u32)bpf_get_current_pid_tgid(),
               credential_flags(task));
     return 0;

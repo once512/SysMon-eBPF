@@ -31,3 +31,7 @@
 "vault"
 "vault-session"
 "read-write"
+
+"canary"
+"canary-response"
+"3600000"

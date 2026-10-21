@@ -5,13 +5,17 @@
 #include <secmon/policy_limits.h>
 #include <secmon/file_operations.h>
 /* 当前唯一事件布局标识，供宿主检错；不存在历史事件解码或兼容分支。 */
-#define SECMON_ABI_VERSION 6
+#define SECMON_ABI_VERSION 7
 #define SECMON_COMM_LEN 16
 #define SECMON_PATH_LEN 256
 #define SECMON_BASELINE_MISMATCH 1U
 #define SECMON_WRITER_LEASE_EXPIRED 2U
 #define SECMON_VAULT_SESSION_EXPIRED 4U
-enum secmon_event_kind { SECMON_EXEC_CHECK = 1, SECMON_EXEC_SUCCESS = 2, SECMON_FILE_DENIED = 3, SECMON_SELF_DENIED_EVENT = 4 };
+#define SECMON_CANARY_HIT 8U
+#define SECMON_RESPONSE_STARTED 16U
+#define SECMON_RESPONSE_BLOCKED 32U
+#define SECMON_RESPONSE_FAILED 64U
+enum secmon_event_kind { SECMON_EXEC_CHECK = 1, SECMON_EXEC_SUCCESS = 2, SECMON_FILE_DENIED = 3, SECMON_SELF_DENIED_EVENT = 4, SECMON_RESPONSE_DENIED_EVENT = 5 };
 // inode 号只在相应文件系统/设备身份内有意义，不能单独作为跨设备策略键。
 /* 同样的 ino 数字可以同时存在于不同文件系统； */
 /* 键还需设备身份，且用户态必须持有 inode 引用防止回收复用。 */
@@ -25,6 +29,11 @@ struct file_key {
 #define SECMON_FILE_WRITER 2U
 #define SECMON_FILE_IDENTITY 4U
 #define SECMON_FILE_VAULT 8U
+#define SECMON_FILE_CANARY 16U
+#define SECMON_RESPONSE_CONFIG 32U
+/* Kernel dev_t major has only 12 bits; this metadata key cannot name an inode. */
+#define SECMON_RESPONSE_KEY_MAJOR 0xffffffffU
+#define SECMON_RESPONSE_CAPACITY 4096U
 #define SECMON_VAULT_READ 1U
 #define SECMON_VAULT_WRITE 2U
 struct vault_session_grant {
@@ -46,6 +55,8 @@ struct file_policy_value {
     /* Subject bits refer to target session slots in this immutable snapshot. */
     unsigned long long vault_subjects;
     struct vault_session_grant vault_sessions[SECMON_MAX_VAULT_SESSIONS];
+    unsigned long long response_epoch;
+    unsigned long long response_duration_ns;
 };
 /* Complete observed identity/capability fields; numeric IDs use kernel kuid/kgid
  * coordinates. This state describes observations, never transition approval. */
@@ -76,6 +87,8 @@ struct exec_event {
     unsigned long long start_ns;
     // Boot-scoped pidfs inode of the process TGID; zero when unavailable.
     unsigned long long process_inode;
+    unsigned long long response_epoch;
+    unsigned long long response_deadline_boot_ns;
     unsigned long long caps;
     unsigned int pid;
     unsigned int tid;
@@ -92,5 +105,5 @@ struct exec_event {
     char comm[SECMON_COMM_LEN];
     char filename[SECMON_PATH_LEN];
 };
-enum secmon_stat { SECMON_DROPPED, SECMON_BASELINE_FAILED, SECMON_POLICY_DENIED, SECMON_SELF_DENIED, SECMON_STAT_COUNT };
+enum secmon_stat { SECMON_DROPPED, SECMON_BASELINE_FAILED, SECMON_POLICY_DENIED, SECMON_SELF_DENIED, SECMON_RESPONSE_STARTS, SECMON_RESPONSE_FAILURES, SECMON_RESPONSE_DENIALS, SECMON_STAT_COUNT };
 #endif

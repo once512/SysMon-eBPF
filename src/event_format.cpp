@@ -47,6 +47,15 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
                   << ",\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
         return out.str();
     }
+    if (e.kind == SECMON_RESPONSE_DENIED_EVENT) {
+        out << "{\"event\":\"process_response_denied\",\"timestamp_ns\":" << e.timestamp_ns
+            << ",\"pid\":" << e.pid << ",\"tid\":" << e.tid
+            << ",\"start_ns\":" << e.start_ns << ",\"process_inode\":" << e.process_inode
+            << ",\"operation\":" << e.operation << ",\"response_epoch\":" << e.response_epoch
+            << ",\"response_deadline_boot_ns\":" << e.response_deadline_boot_ns
+            << ",\"errno\":13,\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
+        return out.str();
+    }
     // 文件身份输出设备号/inode 而不是猜测完整路径；
     // 事件丢失影响审计完整性，但不会撤销已经作出的内核拒绝。
     if (e.kind == SECMON_FILE_DENIED) {
@@ -58,6 +67,12 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
                   << ",\"ino\":" << e.file.ino << ",\"operation\":" << e.operation
                   << ",\"writer_lease_expired\":" << ((e.flags & SECMON_WRITER_LEASE_EXPIRED) ? "true" : "false")
                   << ",\"vault_session_expired\":" << ((e.flags & SECMON_VAULT_SESSION_EXPIRED) ? "true" : "false")
+                  << ",\"canary_hit\":" << ((e.flags & SECMON_CANARY_HIT) ? "true" : "false")
+                  << ",\"response_started\":" << ((e.flags & SECMON_RESPONSE_STARTED) ? "true" : "false")
+                  << ",\"response_blocked\":" << ((e.flags & SECMON_RESPONSE_BLOCKED) ? "true" : "false")
+                  << ",\"response_failed\":" << ((e.flags & SECMON_RESPONSE_FAILED) ? "true" : "false")
+                  << ",\"response_epoch\":" << e.response_epoch
+                  << ",\"response_deadline_boot_ns\":" << e.response_deadline_boot_ns
                   << ",\"errno\":13,\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
         return out.str();
     }

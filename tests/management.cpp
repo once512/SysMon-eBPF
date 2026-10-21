@@ -57,6 +57,9 @@ int main()
     reject([](Reply &x) { x.vault_live_sessions = 1; });
     reject([](Reply &x) { x.vault_next_deadline_boot_ns = 1; });
     reject([](Reply &x) { x.writer_paths = 65; });
+    reject([](Reply &x) { x.canary_paths = 1; });
+    reject([](Reply &x) { x.response_epoch = 1; });
+    reject([](Reply &x) { x.response_duration_ms = 100; });
     reject([](Reply &x) { x.fanotify_targets = 65; });
     reject([](Reply &x) { x.fanotify_targets = 1; });
     reject([](Reply &x) { x.audit_queued = 1025; });

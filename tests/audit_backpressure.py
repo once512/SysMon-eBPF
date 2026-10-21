@@ -135,7 +135,9 @@ for index in range(100000000 if sys.argv[2] == 'continuous' else 8000):
                     started = time.monotonic()
                     call(binary, 'stop', control)
                     process.wait(timeout=5)
-                    assert time.monotonic() - started < 3 and process.returncode == 0
+                    elapsed = time.monotonic() - started
+                    assert elapsed < 3 and process.returncode == 0, (mode, elapsed, process.returncode,
+                        os.pread(errors.fileno(), os.fstat(errors.fileno()).st_size, 0).decode())
                     if mode == 'recover':
                         # 管道写端都已关闭，非阻塞读取不会等新数据；每条已输出记录仍是完整 JSONL。
                         while True:

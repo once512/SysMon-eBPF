@@ -103,7 +103,7 @@ def main():
         run_instance(mixed_boot)
         result = subprocess.run([str(build / 'secmon'), '--fanotify-only', '--policy', str(policy)],
                                 capture_output=True, text=True, timeout=5)
-        assert result.returncode and 'Vault policy requires the BPF module' in result.stderr
+        assert result.returncode and 'Vault/canary policy requires the BPF module' in result.stderr
     assert len(os.listdir('/proc/self/fd')) == baseline
     print('PASS absolute expiry survives restart; stale boots stay locked; existing mapping limitation proven; cleanup')
 

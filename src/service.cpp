@@ -38,8 +38,8 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
         throw std::runtime_error("Cannot install signal handlers");
     if (!options_.control_path.empty()) control_ = std::make_unique<ControlServer>(options_.control_path);
     const auto &active = runtime_.active();
-    if (options_.modules == Options::Modules::fanotify_only && !active.vaults.empty())
-        throw std::runtime_error("Vault policy requires the BPF module");
+    if (options_.modules == Options::Modules::fanotify_only && (!active.vaults.empty() || active.canary_response))
+        throw std::runtime_error("Vault/canary policy requires the BPF module");
     auto fan_options = options_.fanotify;
     const bool use_fan = options_.modules != Options::Modules::bpf_only && (active.fanotify || !fan_options.paths.empty());
     if (options_.modules == Options::Modules::fanotify_only && !use_fan)
@@ -49,28 +49,31 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
     if (options_.modules != Options::Modules::fanotify_only || options_.permission_audit)
         audit_ = std::make_unique<AuditSink>();
     // 所有启动失败都通过对象逆序析构回收；任一模块失败，整个服务启动失败。
-    if (options_.modules != Options::Modules::fanotify_only)
-        bpf_ = std::make_unique<BpfMonitor>(active, control_ != nullptr, *audit_);
     if (use_fan) {
         if (active.fanotify) apply_fanotify_policy(active, fan_options);
         fanotify_ = std::make_unique<FanotifyMonitor>(std::move(fan_options), options_.policy_path,
             options_.permission_audit ? audit_.get() : nullptr, runtime_.snapshot(management::Backend::fanotify).instance_ns, active.revision, options_.requester_pidfd);
     }
+    // Pin actual fanotify objects before BPF preparation so cross-backend
+    // read conflicts are checked against the exact retained inode references.
+    if (options_.modules != Options::Modules::fanotify_only)
+        bpf_ = std::make_unique<BpfMonitor>(active, control_ != nullptr, *audit_,
+                                          fanotify_ ? fanotify_->target_fds() : std::vector<int>{});
     std::cerr << "Policy active revision=" << active.revision << '\n';
     std::cerr << "Service active; bpf=" << bool(bpf_) << " fanotify=" << bool(fanotify_) << '\n';
 }
 MonitorService::~MonitorService() = default;
 void MonitorService::commit(const PolicyConfig &candidate)
 {
-    if (!bpf_ && !candidate.vaults.empty())
-        throw std::runtime_error("Vault policy requires the BPF module");
+    if (!bpf_ && (!candidate.vaults.empty() || candidate.canary_response))
+        throw std::runtime_error("Vault/canary policy requires the BPF module");
     std::optional<FanotifyMonitor::Prepared> next;
     if (fanotify_) next = fanotify_->prepare(candidate);
     else if (candidate.fanotify && options_.modules != Options::Modules::bpf_only)
         throw management::Error(management::Code::restart_required, "Enabling fanotify requires restart");
     // prepare 完成所有可能失败的 fanotify 检查。BPF install 内部先准备完整候选再原子替换 Map。
     // 若 BPF 失败，两个模块保持旧策略；一旦成功，余下提交仅做 noexcept 的值移动。
-    if (bpf_) bpf_->install(candidate);
+    if (bpf_) bpf_->install(candidate, next ? fanotify_->prepared_target_fds(*next) : std::vector<int>{});
     if (fanotify_) fanotify_->commit(std::move(*next), candidate.revision);
     // 这是用户态提交顺序保证，不声称不同内核钩子或在途系统调用的全局原子切换。
 }
@@ -88,6 +91,7 @@ management::Reply MonitorService::snapshot() const
         reply.protected_paths = runtime_.active().paths.size();
         reply.writer_paths = runtime_.active().writers.size();
         reply.vault_paths = runtime_.active().vaults.size();
+        reply.canary_paths = runtime_.active().canaries.size();
         bpf_->snapshot(reply);
         if (control_) reply.flags |= management::self_protected;
     }

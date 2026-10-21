@@ -35,7 +35,7 @@ add_custom_command(OUTPUT "${BPF_OBJ}"
         -Wall -Werror -I${CMAKE_CURRENT_BINARY_DIR}
         -I${CMAKE_CURRENT_SOURCE_DIR}/eBPF -I${CMAKE_CURRENT_SOURCE_DIR}/include ${LIBBPF_CFLAGS}
         -c ${CMAKE_CURRENT_SOURCE_DIR}/eBPF/secmon.bpf.c -o ${BPF_OBJ}
-    DEPENDS eBPF/secmon.bpf.c eBPF/writer_identity.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h include/secmon/policy_limits.h include/secmon/file_operations.h "${VMLINUX}"
+    DEPENDS eBPF/response.bpf.c eBPF/secmon.bpf.c eBPF/writer_identity.bpf.c eBPF/fileguard.bpf.c eBPF/selfguard.bpf.c eBPF/upchk.bpf.c eBPF/secmon.h include/secmon/policy_limits.h include/secmon/file_operations.h "${VMLINUX}"
     VERBATIM)
 # skeleton 从当前 ELF 生成并嵌入对象；BpfMonitor 调用生成的 open/load/attach/destroy 接口。
 add_custom_command(OUTPUT "${BPF_SKEL}"
@@ -88,6 +88,9 @@ target_compile_options(secmon-analyzer PRIVATE -Wall -Wextra -Werror)
 # CTest 运行无特权检查；真实加载 BPF、fanotify 权限事件和权限转换由 tests/run_privileged.py 另行组织。
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(secmon-response-scenario tests/response_scenario.cpp)
+    target_link_libraries(secmon-response-scenario PRIVATE Threads::Threads)
+    target_compile_options(secmon-response-scenario PRIVATE -Wall -Wextra -Werror)
     add_executable(secmon-writer-scenario tests/writer_scenario.cpp)
     target_compile_options(secmon-writer-scenario PRIVATE -Wall -Wextra -Werror)
     add_executable(secmon-audit-tests tests/audit_sink.cpp src/audit_sink.cpp)

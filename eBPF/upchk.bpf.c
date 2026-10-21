@@ -74,6 +74,10 @@ int BPF_PROG(on_exit, struct task_struct *task)
     /* 此处的 0 是跟踪程序正常结束，不是批准退出； */
     /* 键缺失时删除失败也无需据此阻止任务生命周期。 */
     bpf_map_delete_elem(&cred_map, &key);
+    if (BPF_CORE_READ(task, signal, live.counter) == 0) {
+        u64 identity = process_inode(task);
+        if (identity) bpf_map_delete_elem(&responses, &identity);
+    }
     return 0;
 }
 /* 在不可回退的 exec 准备点删除旧身份，早于 de_thread 改写任务身份；后续提交/完成建立新键。 */

@@ -31,6 +31,9 @@ public:
     FanotifyMonitor(FanotifyMonitor &&) = delete;
     FanotifyMonitor &operator=(FanotifyMonitor &&) = delete;
     Prepared prepare(const PolicyConfig &candidate);
+    const std::vector<int> &prepared_target_fds(const Prepared &candidate) const {
+        return candidate.replacement ? candidate.replacement->target_fds() : gate_->target_fds();
+    }
     void commit(Prepared candidate, std::uint64_t revision) noexcept;
     void poll_once(int timeout_ms) { gate_->poll_once(timeout_ms); }
     const std::vector<int> &target_fds() const { return gate_->target_fds(); }

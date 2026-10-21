@@ -43,6 +43,9 @@ struct PolicyConfig {
     std::vector<Writer> writers;
     // vault paths are also in paths, but deny reads as well as modification.
     std::vector<std::string> vaults;
+    std::vector<std::string> canaries;
+    struct CanaryResponse { std::uint64_t epoch; unsigned int duration_ms; };
+    std::optional<CanaryResponse> canary_response;
     struct VaultSession {
         std::uint64_t id;
         std::string program;

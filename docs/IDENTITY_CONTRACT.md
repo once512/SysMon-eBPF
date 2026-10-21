@@ -41,3 +41,5 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 `permission-namespace` 将监听服务放在子 PID namespace，分别运行 fanotify-only 和联合模式。外层请求得到 requester_pid=0，同 namespace 请求得到该 namespace 的局部 TGID；两者都成功访问。服务的 namespace inode 与宿主不同。测试保留自保护，通过同 namespace 管理客户端退出；外层客户端的 PID 坐标检查会拒绝响应，未放宽原管理认证检查。
 
 这些是受控进程和显式 namespace 映射的实验。没有覆盖真实宿主 PID 数字复用、非 leader exec 的全套审计关联、线程逃逸、完整容器或通用线上关联器。过去已有的非 leader exec/基线清理专题仍独立运行，不能据此宣称权限事件也获得了同等生命周期能力。
+
+2026-10-21 增量：显式 canary 违规响应直接在 BPF 当前任务上下文使用非零 pidfs TGID inode，不通过用户态数字 PID 发信号。它与此前离线意图观察规则分离；有限写限制、在途操作、既有子进程及失败边界见 [诱饵响应](CANARY_RESPONSE.md)。

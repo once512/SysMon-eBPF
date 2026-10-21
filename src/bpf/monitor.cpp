@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 #include <sys/syscall.h>
 #include <sys/epoll.h>
 #include <sys/utsname.h>
@@ -45,7 +46,7 @@ void BpfMonitor::check_environment()
     if (!btf || !bpf_lsm)
         throw std::runtime_error("BTF or active BPF LSM unavailable (or securityfs inaccessible)");
 }
-BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect, AuditSink &audit) : state_(std::make_unique<State>(audit))
+BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect, AuditSink &audit, const std::vector<int> &reader_targets) : state_(std::make_unique<State>(audit))
 {
     check_environment();
     auto &skel = state_->skel;
@@ -65,7 +66,7 @@ BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect, AuditSink 
                                 &enabled, BPF_NOEXIST))
             throw std::runtime_error("Cannot install task-local self-protection policy");
     }
-    state_->protected_files.install(bpf_map__fd(skel->maps.protected_files), active);
+    state_->protected_files.install(bpf_map__fd(skel->maps.protected_files), active, reader_targets);
     state_->ring.reset(ring_buffer__new(bpf_map__fd(skel->maps.events), consume, &state_->audit, nullptr));
     if (!state_->ring) throw std::runtime_error("Cannot create ring buffer consumer");
     if (secmon_bpf__attach(skel.get())) throw std::runtime_error("BPF attach failed");
@@ -74,9 +75,9 @@ BpfMonitor::BpfMonitor(const PolicyConfig &active, bool self_protect, AuditSink 
     std::cerr << "Audit active; exec_check events are attempts, not successful execs.\n";
 }
 BpfMonitor::~BpfMonitor() = default;
-void BpfMonitor::install(const PolicyConfig &candidate)
+void BpfMonitor::install(const PolicyConfig &candidate, const std::vector<int> &reader_targets)
 {
-    state_->protected_files.install(bpf_map__fd(state_->skel->maps.protected_files), candidate);
+    state_->protected_files.install(bpf_map__fd(state_->skel->maps.protected_files), candidate, reader_targets);
 }
 void BpfMonitor::poll_once(int timeout_ms)
 {
@@ -92,6 +93,19 @@ void BpfMonitor::poll_once(int timeout_ms)
 void BpfMonitor::snapshot(management::Reply &reply) const
 {
     state_->protected_files.snapshot(reply);
+    const int cpus = libbpf_num_possible_cpus();
+    if (cpus < 1) throw std::runtime_error("Cannot determine possible CPUs");
+    std::vector<unsigned long long> values(static_cast<std::size_t>(cpus));
+    const auto total = [&](unsigned int key) {
+        if (bpf_map_lookup_elem(bpf_map__fd(state_->skel->maps.stats), &key, values.data()))
+            throw std::runtime_error("Cannot read response statistics");
+        std::uint64_t sum = 0;
+        for (const auto value : values) sum += value;
+        return sum;
+    };
+    reply.response_started = total(SECMON_RESPONSE_STARTS);
+    reply.response_failed = total(SECMON_RESPONSE_FAILURES);
+    reply.response_denied = total(SECMON_RESPONSE_DENIALS);
 }
 void BpfMonitor::report()
 {
