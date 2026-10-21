@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 #include <map>
+#include <set>
+#include <tuple>
 #include <time.h>
 #include <limits>
 #include <fstream>
@@ -61,7 +63,7 @@ std::uint64_t lease_deadline(unsigned int milliseconds)
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
-    static_assert(sizeof(file_policy_value) == 88);
+    static_assert(sizeof(file_policy_value) == 352);
     static_assert(SECMON_MAX_WRITER_RULES <= 64, "Rule bitmap must fit uint64");
     const auto &paths = config.paths;
     if (config.writers.size() > SECMON_MAX_WRITER_RULES) throw std::runtime_error("Too many authorized writers");
@@ -69,8 +71,13 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     // candidate 是未发布的事务资源集合；
     // 异常只销毁候选，当前对象仍持有活动策略的全部 inode。
     ProtectedFiles candidate;
+    candidate.sessions_ = sessions_;
+    for (auto &[id, record] : candidate.sessions_) { (void)id; record.active = false; }
+    if (config.vault_sessions.size() > SECMON_MAX_VAULT_SESSIONS)
+        throw std::runtime_error("Too many vault sessions");
+    const std::set<std::string> vaults(config.vaults.begin(), config.vaults.end());
     // 先分配保存 FD 的空间，再逐个 open；接管 FD 时不再触发 vector 扩容，减少异常路径泄漏风险。
-    candidate.descriptors_.reserve(paths.size() + config.writers.size());
+    candidate.descriptors_.reserve(paths.size() + config.writers.size() + config.vault_sessions.size());
     // 这里创建的是内核 Map 对象，得到的是管理 FD；向 HASH 填充时尚未影响正在运行的钩子。
     OwnedFd policy_map(bpf_map_create(BPF_MAP_TYPE_HASH, "file_policy", sizeof(file_key),
                                      sizeof(file_policy_value), SECMON_POLICY_CAPACITY, nullptr));
@@ -87,6 +94,12 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         target_keys.emplace(path, key);
         file_policy_value policy{};
         policy.flags = SECMON_FILE_READONLY;
+        // Merge aliases conservatively: a vault inode cannot become read-only
+        // merely because another protect path names the same object.
+        file_policy_value existing{};
+        if (!bpf_map_lookup_elem(policy_map.get(), &key, &existing)) policy = existing;
+        else if (errno != ENOENT) throw std::runtime_error("Cannot inspect candidate target");
+        if (vaults.count(path)) policy.flags |= SECMON_FILE_VAULT;
         if (bpf_map_update_elem(policy_map.get(), &key, &policy, BPF_ANY))
             throw std::runtime_error("Cannot install policy for " + path + ": " + std::strerror(errno));
         std::cerr << "Prepared policy inode " << key.major << ':' << key.minor << ':' << key.ino
@@ -97,6 +110,10 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         const auto selected = target_keys.find(writer.target);
         if (selected == target_keys.end() || !writer.operations || (writer.operations & ~SECMON_FILE_OPERATION_MASK))
             throw std::runtime_error("Writer grant requires a protected target and valid operations");
+        file_policy_value selected_value{};
+        if (bpf_map_lookup_elem(policy_map.get(), &selected->second, &selected_value) ||
+            (selected_value.flags & SECMON_FILE_VAULT))
+            throw std::runtime_error("Writer grant cannot target a vault inode (including aliases)");
         const auto rule = 1ULL << index;
         auto pinned = pin_policy_file(writer.path, true);
         candidate.descriptors_.push_back(std::move(pinned.fd));
@@ -141,6 +158,53 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
                 throw std::runtime_error("Cannot prepare leased writer");
         }
     }
+    for (std::size_t index = 0; index < config.vault_sessions.size(); ++index) {
+        const auto &session = config.vault_sessions[index];
+        const auto selected = target_keys.find(session.target);
+        if (!vaults.count(session.target) || selected == target_keys.end() ||
+            (session.access != SECMON_VAULT_READ && session.access != (SECMON_VAULT_READ | SECMON_VAULT_WRITE)) ||
+            session.duration_ms < 100 || session.duration_ms > 3600000)
+            throw std::runtime_error("Invalid vault session");
+        auto pinned = pin_policy_file(session.program, true);
+        candidate.descriptors_.push_back(std::move(pinned.fd));
+        auto record = candidate.sessions_.find(session.id);
+        std::uint64_t deadline;
+        if (record != candidate.sessions_.end()) {
+            const auto old = sessions_.find(session.id);
+            const auto &saved = record->second;
+            const auto &spec = saved.specification;
+            const auto same_key = [](const file_key &a, const file_key &b) {
+                return a.major == b.major && a.minor == b.minor && a.ino == b.ino;
+            };
+            if (old == sessions_.end() || !old->second.active ||
+                std::tie(spec.program, spec.euid, spec.target, spec.access, spec.duration_ms) !=
+                std::tie(session.program, session.euid, session.target, session.access, session.duration_ms) ||
+                !same_key(saved.program, pinned.key) || !same_key(saved.target, selected->second))
+                throw std::runtime_error("Vault session ID is retired or changed; use a new ID");
+            deadline = saved.deadline; // unrelated reloads and reordering never renew.
+            record->second.active = true;
+        } else {
+            if (!session.id || candidate.sessions_.size() == SECMON_MAX_VAULT_SESSION_HISTORY)
+                throw std::runtime_error("Vault session history exhausted or invalid ID");
+            deadline = lease_deadline(session.duration_ms);
+            candidate.sessions_.emplace(session.id, SessionRecord{session, pinned.key, selected->second, deadline, true});
+        }
+        file_policy_value subject{};
+        if (bpf_map_lookup_elem(policy_map.get(), &pinned.key, &subject) && errno != ENOENT)
+            throw std::runtime_error("Cannot inspect vault subject");
+        subject.flags |= SECMON_FILE_IDENTITY;
+        subject.vault_subjects |= 1ULL << index;
+        if (bpf_map_update_elem(policy_map.get(), &pinned.key, &subject, BPF_ANY))
+            throw std::runtime_error("Cannot prepare vault subject");
+        file_policy_value target{};
+        if (bpf_map_lookup_elem(policy_map.get(), &selected->second, &target))
+            throw std::runtime_error("Cannot inspect vault target");
+        target.vault_sessions[index] = {deadline, session.euid, session.access};
+        if (bpf_map_update_elem(policy_map.get(), &selected->second, &target, BPF_EXIST))
+            throw std::runtime_error("Cannot prepare vault session");
+        std::cerr << "Prepared vault session id=" << session.id << " deadline_boot_ns=" << deadline
+                  << " access=" << session.access << " target=" << session.target << '\n';
+    }
     const unsigned int slot = 0;
     // 外层 Map update 的 value 是内层 Map FD；内核保存对象引用，成功后可关闭宿主的这个管理 FD。
     // 注意三种不同结果：用户态更新外层传 FD，用户态查询外层得到 Map ID，BPF 查询外层得到 Map 指针。
@@ -149,4 +213,23 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         throw std::runtime_error("Cannot activate candidate policy map");
     // 提交后交换固定文件集合；candidate 析构释放旧集合，活动对象持有新集合，失败则不会走到此处。
     descriptors_.swap(candidate.descriptors_);
+    sessions_.swap(candidate.sessions_);
+}
+
+void ProtectedFiles::snapshot(management::Reply &reply) const
+{
+    reply.vault_session_history = sessions_.size();
+    std::uint64_t now = 0;
+    // /proc access may have changed after installation. Unknown clock state
+    // must not be rendered as a trustworthy live-session count.
+    try { now = lease_deadline(0); reply.vault_clock_valid = 1; }
+    catch (const std::exception &) { reply.vault_clock_valid = 0; }
+    for (const auto &[id, record] : sessions_) {
+        (void)id;
+        if (!record.active) continue;
+        ++reply.vault_sessions;
+        if (reply.vault_clock_valid && now < record.deadline) ++reply.vault_live_sessions;
+        if (!reply.vault_next_deadline_boot_ns || record.deadline < reply.vault_next_deadline_boot_ns)
+            reply.vault_next_deadline_boot_ns = record.deadline;
+    }
 }

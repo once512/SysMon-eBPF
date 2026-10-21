@@ -38,6 +38,8 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
         throw std::runtime_error("Cannot install signal handlers");
     if (!options_.control_path.empty()) control_ = std::make_unique<ControlServer>(options_.control_path);
     const auto &active = runtime_.active();
+    if (options_.modules == Options::Modules::fanotify_only && !active.vaults.empty())
+        throw std::runtime_error("Vault policy requires the BPF module");
     auto fan_options = options_.fanotify;
     const bool use_fan = options_.modules != Options::Modules::bpf_only && (active.fanotify || !fan_options.paths.empty());
     if (options_.modules == Options::Modules::fanotify_only && !use_fan)
@@ -60,6 +62,8 @@ MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
 MonitorService::~MonitorService() = default;
 void MonitorService::commit(const PolicyConfig &candidate)
 {
+    if (!bpf_ && !candidate.vaults.empty())
+        throw std::runtime_error("Vault policy requires the BPF module");
     std::optional<FanotifyMonitor::Prepared> next;
     if (fanotify_) next = fanotify_->prepare(candidate);
     else if (candidate.fanotify && options_.modules != Options::Modules::bpf_only)
@@ -83,6 +87,8 @@ management::Reply MonitorService::snapshot() const
     if (bpf_) {
         reply.protected_paths = runtime_.active().paths.size();
         reply.writer_paths = runtime_.active().writers.size();
+        reply.vault_paths = runtime_.active().vaults.size();
+        bpf_->snapshot(reply);
         if (control_) reply.flags |= management::self_protected;
     }
     if (options_.permission_audit) reply.flags |= management::permission_audit;

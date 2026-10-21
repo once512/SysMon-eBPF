@@ -33,6 +33,9 @@ int main()
     require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":true") != std::string::npos);
     event.flags = 0;
     require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":false") != std::string::npos);
+    event.flags = SECMON_VAULT_SESSION_EXPIRED;
+    require(format_event(&event, sizeof(event))->find("\"vault_session_expired\":true") != std::string::npos);
+    require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":false") != std::string::npos);
     event.kind = SECMON_EXEC_SUCCESS;
     event.credentials.fsuid = 42;
     event.credentials.caps_ambient = 123;

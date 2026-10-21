@@ -33,7 +33,7 @@ allow-writer "/opt/secmon-demo/writer" 65534 "/srv/secmon-demo/data" open-write,
 
 宿主以 `O_PATH` 打开路径，使用 `fstat` 得到设备主次号和 inode，并保存 FD。路径只负责首次选择，FD 固定对象以避免 inode 回收复用；不读取程序内容，不获取 SHA-256。已有配置来源 SHA-256 仍只代表配置原始字节。
 
-`src/writer_identity.h/.cpp` 负责固定和检查；`src/file_policy.cpp` 将两类对象合入同一个 HASH Map。value 为 88 字节，包含只读、writer、身份保护标志、writer EUID、主体规则位集合与按操作索引的目标授权集合，以及可选的启动时钟租期截止时间。最多 320 个不同 inode，宿主按路径分别持有最多 320 个 FD；保护路径和 writer 路径重合时合并标志。
+`src/writer_identity.h/.cpp` 负责固定和检查；`src/file_policy.cpp` 将两类对象合入同一个 HASH Map。value 当前为 352 字节（含保险箱会话槽），包含只读、writer、身份保护标志、writer EUID、主体规则位集合与按操作索引的目标授权集合，以及可选的启动时钟租期截止时间。与保险箱共用最多 336 个不同 inode，宿主按路径分别持有最多 336 个 FD；保护路径和 writer 路径重合时合并标志。
 
 | value 字段/标志 | 含义 |
 | --- | --- |
@@ -110,6 +110,6 @@ sudo python3 tests/run_privileged.py --build-dir build --only writer-identity wr
 
 `writer-capacity` 验证 256+64 个不同 inode 的实际容量与完整回滚，及同一对象同时具备多种标志时的优先级。`writer-layers` 使用同一配置验证 BPF 与 fanotify 的独立允许/拒绝和退出顺序，明确 open 门不撤销已有写 FD。可选 `--writer-soak-duration 30` 会保持 root/65534 两个授权程序进程和一个未授权进程存活，持续轮换 UID/撤销，并校验每次成功后的新操作、错误候选、摘要与 FD 回收。
 
-`tests/file_policy_map.py` 还只读检查本实例的外层引用和内层键值。同时核对 88 字节 value 的规则位与目标操作矩阵（包括第 63 位），外部检查 FD 故意固定旧 Map，证明完整切换后旧快照仍可读取；关闭检查 FD 后轮询确认旧 Map ID 消失。自保护会拒绝外部读取宿主 fdinfo，因此该专题采用启动前后外层 Map ID 差集并要求唯一；如果同时启动别的实例造成歧义，会失败而不任意选择同名 Map。这个测试不写全局或其他实例的 Map。
+`tests/file_policy_map.py` 还只读检查本实例的外层引用和内层键值。同时核对当前 352 字节 value 的规则位与目标操作矩阵（包括第 63 位），外部检查 FD 故意固定旧 Map，证明完整切换后旧快照仍可读取；关闭检查 FD 后轮询确认旧 Map ID 消失。自保护会拒绝外部读取宿主 fdinfo，因此该专题采用启动前后外层 Map ID 差集并要求唯一；如果同时启动别的实例造成歧义，会失败而不任意选择同名 Map。这个测试不写全局或其他实例的 Map。
 
 独立规则模型与同进程持续负载可通过 [测试矩阵](TESTING.md) 运行。

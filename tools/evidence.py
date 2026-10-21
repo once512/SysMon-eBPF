@@ -169,6 +169,10 @@ def observation(record, line_number, subscriptions=None):
         if record.get('errno') != 13 or type(record.get('errno')) is not int:
             raise ValueError('invalid file denial errno')
         operation = integer(record, 'operation', 32, minimum=1)
+        # Vault read denials are valid audit facts, but this tool's rule is
+        # exclusively about denied mutations. Never count a read as a mutation.
+        if operation in (11, 12, 13):
+            return None
         if operation not in OPERATIONS:
             raise ValueError('unknown file operation')
         integer(record, 'pid', 32, minimum=1)

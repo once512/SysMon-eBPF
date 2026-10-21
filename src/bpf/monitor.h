@@ -3,6 +3,7 @@
 #pragma once
 #include "policy_config.h"
 #include "audit_sink.h"
+#include "management/protocol.h"
 #include <memory>
 
 class BpfMonitor {
@@ -17,5 +18,6 @@ public:
     void install(const PolicyConfig &candidate);
     void poll_once(int timeout_ms);
     void report();
+    void snapshot(management::Reply &reply) const;
     void shutdown();
 };

@@ -14,9 +14,14 @@ class FileKey(ctypes.Structure):
     _fields_ = [('major', ctypes.c_uint32), ('minor', ctypes.c_uint32), ('ino', ctypes.c_uint64)]
 
 
+class VaultGrant(ctypes.Structure):
+    _fields_ = [('deadline_boot_ns', ctypes.c_uint64), ('euid', ctypes.c_uint32), ('access', ctypes.c_uint32)]
+
+
 class FileValue(ctypes.Structure):
     _fields_ = [('flags', ctypes.c_uint32), ('euid', ctypes.c_uint32), ('rules', ctypes.c_uint64),
-                ('allowed', ctypes.c_uint64 * 8), ('deadline_boot_ns', ctypes.c_uint64)]
+                ('allowed', ctypes.c_uint64 * 8), ('deadline_boot_ns', ctypes.c_uint64),
+                ('vault_subjects', ctypes.c_uint64), ('vault_sessions', VaultGrant * 16)]
 
 
 def map_info(map_id):
@@ -54,9 +59,9 @@ class PolicyMapView:
             self.map_id = identifier.value
             self.inner = self.open_id(self.map_id)
             info = map_info(self.map_id)
-            assert info['type'] == 'hash' and info['max_entries'] == 320
+            assert info['type'] == 'hash' and info['max_entries'] == 336
             assert info['bytes_key'] == ctypes.sizeof(FileKey) == 16
-            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 88
+            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 352
         except BaseException:
             self.close()
             raise
@@ -70,7 +75,7 @@ class PolicyMapView:
     def entries(self, full=False, with_deadlines=False):
         # 本项目发布后不原地修改内层 Map，本 FD 固定的版本可完整遍历；不宣称通用 HASH 并发快照。
         result, previous = {}, None
-        for _ in range(321):
+        for _ in range(337):
             key = FileKey()
             if self.lib.bpf_map_get_next_key(self.inner, None if previous is None else ctypes.byref(previous), ctypes.byref(key)):
                 assert ctypes.get_errno() == errno.ENOENT
@@ -83,6 +88,13 @@ class PolicyMapView:
                 result[(key.major, key.minor, key.ino)] = (*result[(key.major, key.minor, key.ino)], value.deadline_boot_ns)
             previous = key
         raise AssertionError('policy iteration exceeded bounded capacity')
+
+    def vault_entry(self, path):
+        key = FileKey(*key_for(path))
+        value = FileValue()
+        if self.lib.bpf_map_lookup_elem(self.inner, ctypes.byref(key), ctypes.byref(value)):
+            raise OSError(ctypes.get_errno(), 'read vault entry')
+        return value
 
     def wait_gone(self, map_id):
         deadline = time.monotonic() + 3

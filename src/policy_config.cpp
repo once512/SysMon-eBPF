@@ -5,6 +5,7 @@
 #include "policy/fields.h"
 #include "policy/fanotify_fields.h"
 #include "policy/writer_fields.h"
+#include <secmon/file_operations.h>
 #include <set>
 #include <sstream>
 
@@ -15,6 +16,7 @@ PolicyConfig parse_policy(std::istream &input)
     FanotifyFields fanotify;
     std::set<std::string> paths;
     std::set<std::pair<std::string, std::string>> writers;
+    std::set<std::uint64_t> session_ids;
     std::size_t bytes = 0, line_number = 0;
     std::string line;
     while (std::getline(input, line)) {
@@ -26,10 +28,11 @@ PolicyConfig parse_policy(std::istream &input)
             std::istringstream fields(line);
             std::string key;
             if (!(fields >> key) || key.front() == '#') continue;
-            if (key == "protect") {
+            if (key == "protect" || key == "vault") {
                 auto value = path(fields);
                 if (!paths.insert(value).second || result.paths.size() == SECMON_MAX_PROTECTED_PATHS)
                     invalid("duplicate protect path or too many protected files");
+                if (key == "vault") result.vaults.push_back(value);
                 result.paths.push_back(std::move(value));
             } else if (key == "allow-writer") {
                 auto value = path(fields);
@@ -41,6 +44,19 @@ PolicyConfig parse_policy(std::istream &input)
                 // 规则按程序路径/目标路径去重；相同 inode 的别名冲突仍交给固定对象阶段判断。
                 if (!writers.emplace(value, target).second) invalid("duplicate writer/target grant");
                 result.writers.push_back({std::move(value), uid, std::move(target), operations});
+            } else if (key == "vault-session") {
+                if (result.vault_sessions.size() == SECMON_MAX_VAULT_SESSIONS)
+                    invalid("too many vault sessions");
+                const auto id = number<std::uint64_t>(word(fields), 1, UINT64_MAX);
+                if (!session_ids.insert(id).second) invalid("duplicate vault session ID");
+                auto program = path(fields);
+                const auto uid = number<std::uint32_t>(word(fields), 0, UINT32_MAX - 1);
+                auto target = path(fields);
+                const auto mode = word(fields);
+                if (mode != "read" && mode != "read-write") invalid("invalid vault session access");
+                const auto duration = number<unsigned int>(word(fields), 100, 3600000);
+                result.vault_sessions.push_back({id, std::move(program), uid, std::move(target),
+                                                mode == "read" ? 1U : 3U, duration});
             } else if (key == "writer-lease-ms" && !result.writer_lease_ms) {
                 result.writer_lease_ms = number<unsigned int>(word(fields), 100, 3600000);
             } else if (key.compare(0, 9, "fanotify-") == 0) fanotify.parse(key, fields);
@@ -57,6 +73,11 @@ PolicyConfig parse_policy(std::istream &input)
     if (input.bad() || !result.revision) invalid("Invalid policy: missing positive revision or input failure");
     for (const auto &writer : result.writers)
         if (!paths.count(writer.target)) invalid("writer target must be an explicit protect path: " + writer.target);
+    const std::set<std::string> vaults(result.vaults.begin(), result.vaults.end());
+    for (const auto &writer : result.writers)
+        if (vaults.count(writer.target)) invalid("vault targets require vault-session, not allow-writer");
+    for (const auto &session : result.vault_sessions)
+        if (!vaults.count(session.target)) invalid("vault session target must be an explicit vault path");
     if (result.writer_lease_ms && result.writers.empty())
         invalid("writer-lease-ms requires at least one allow-writer grant");
     result.fanotify = fanotify.finish();

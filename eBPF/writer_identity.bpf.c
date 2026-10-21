@@ -29,3 +29,39 @@ static __always_inline int authorized_writer(void *policy, const struct file_pol
         return -1;
     return 1;
 }
+
+/* Vault sessions use separate per-target slots, each with its own UID/deadline.
+ * Slot numbering is private to one immutable policy snapshot. */
+static __always_inline int vault_read_operation(u32 operation)
+{
+    return operation == SECMON_OP_OPEN_READ || operation == SECMON_OP_READ ||
+           operation == SECMON_OP_MMAP_READ;
+}
+static __always_inline int authorized_vault_session(void *policy, const struct file_policy_value *target, u32 operation)
+{
+    u32 access = vault_read_operation(operation) ? SECMON_VAULT_READ :
+        (operation == SECMON_OP_OPEN_WRITE || operation == SECMON_OP_WRITE ||
+         operation == SECMON_OP_TRUNCATE || operation == SECMON_OP_MMAP_WRITE) ? SECMON_VAULT_WRITE : 0;
+    /* Sessions do not authorize deleting, linking, renaming or changing metadata. */
+    if (!access) return 0;
+    struct task_struct *task = bpf_get_current_task_btf();
+    struct inode *inode = BPF_CORE_READ(task, mm, exe_file, f_inode);
+    if (!inode) return 0;
+    u32 dev = BPF_CORE_READ(inode, i_sb, s_dev);
+    struct file_key key = { .major = dev >> 20, .minor = dev & ((1U << 20) - 1),
+                            .ino = BPF_CORE_READ(inode, i_ino) };
+    const struct file_policy_value *subject = bpf_map_lookup_elem(policy, &key);
+    if (!subject || !subject->vault_subjects) return 0;
+    u32 uid = BPF_CORE_READ(task, cred, euid.val);
+    u64 now = bpf_ktime_get_boot_ns();
+    int expired = 0;
+#pragma unroll
+    for (u32 index = 0; index < SECMON_MAX_VAULT_SESSIONS; ++index) {
+        if (!(subject->vault_subjects & (1ULL << index))) continue;
+        const struct vault_session_grant *grant = &target->vault_sessions[index];
+        if (!(grant->access & access) || grant->euid != uid) continue;
+        if (!grant->deadline_boot_ns || now >= grant->deadline_boot_ns) { expired = -1; continue; }
+        return 1;
+    }
+    return expired;
+}

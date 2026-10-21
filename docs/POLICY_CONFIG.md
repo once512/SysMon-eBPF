@@ -39,7 +39,7 @@ protect "/another/file"
 ## BPF 候选 Map 如何完整切换
 
 1. `policy_config.cpp` 读取并完整解析候选配置，当前版本不变。
-2. `file_policy.cpp` 创建新的 320 项 HASH Map，为所有目标持有 `O_PATH` FD，并填充新 Map。任一步失败由候选对象析构回收资源，旧 Map 不变。
+2. `file_policy.cpp` 创建新的 336 项 HASH Map，为所有目标持有 `O_PATH` FD，并填充新 Map。任一步失败由候选对象析构回收资源，旧 Map 不变。
 3. 所有准备完成后，用一次 `bpf_map_update_elem` 将 `protected_files` ARRAY_OF_MAPS 的 slot 0 替换为新 Map。
 4. 外层 Map 持有新 Map 的内核引用，宿主交换固定文件 FD 集合，释放旧集合，再更新运行版本并确认请求。
 
@@ -64,7 +64,7 @@ sequenceDiagram
 
 每次文件保护钩子获取一个完整 Map；rename 的源和目标共用同一个 Map 引用。在途钩子可能继续使用旧 Map，由内核维护引用生命周期。因此不把切换解释为所有在途系统调用的同步屏障：一个系统调用经过多个 LSM 钩子时可能跨越版本。审计事件 ABI 仍为 v4，没有新增 policy revision 字段。
 
-首次启动仍然逐个 attach LSM 程序，不承诺所有钩子原子启用。退出与崩溃仍解除未固定的 BPF 链接。临时准备期间最多额外持有 320 个文件 FD 和一份候选 Map；重复成功与失败重载不应累计持有资源。
+首次启动仍然逐个 attach LSM 程序，不承诺所有钩子原子启用。退出与崩溃仍解除未固定的 BPF 链接。临时准备期间最多额外持有 336 个文件 FD 和一份候选 Map；重复成功与失败重载不应累计持有资源。
 
 ## 阅读与验证
 
@@ -123,7 +123,7 @@ fanotify 的更新不关闭 group、不重建 mark、不重启分析进程。已
 
 ## 程序对象修改授权
 
-使用 `allow-writer "/absolute/program" EUID "/protected/target" open-write,write`，最多 64 条规则（相同程序对不同目标分别计数），目标必须与某条 protect 的路径文本一致，与最多 256 条 `protect` 共用一份 320 项候选 Map。身份、撤销、代码保护及实验边界详见 [程序对象授权](WRITER_IDENTITY.md)。fanotify 仍只应用自己的字段，不按 writer 绕过裁决。
+使用 `allow-writer "/absolute/program" EUID "/protected/target" open-write,write`，最多 64 条规则（相同程序对不同目标分别计数），目标必须与某条 protect 的路径文本一致，与最多 256 条 `protect` 共用一份 336 项候选 Map。身份、撤销、代码保护及实验边界详见 [程序对象授权](WRITER_IDENTITY.md)。fanotify 仍只应用自己的字段，不按 writer 绕过裁决。
 
 联合服务的对象所有权与提交时序详见 [单服务结构](UNIFIED_SERVICE.md)。
 
@@ -153,3 +153,7 @@ writer-lease-ms 1500
 
 
 租期时钟补充：宿主读取 time namespace 的启动时钟偏移并转换到 BPF 全局时钟，使用 GNU++17 宽整数检查符号及溢出。当前 time 与 time_for_children 必须一致，偏移无法确定时拒绝候选，不保留可能错误的期限。已验证 +3600/-60 秒偏移，不修改宿主时钟。该修正限于 BPF 租期，不代表带非零单调时钟偏移的 fanotify/BPF 联合证据时间可直接比较。机制依据：[time_namespaces(7)](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)。
+
+## 指定文件保险箱
+
+vault 与 vault-session 在相同候选中提供默认拒绝读取、独立读写期限与关闭合同，详见 [保险箱会话](VAULT_SESSIONS.md)。protect/vault 目标合计仍最多 256 条，另加最多 64 writer、16 会话程序路径；保护对象与授权对象的别名按更严格角色合并。

@@ -22,6 +22,8 @@ TESTS = (
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
     ('writer-lease', 'writer_lease.py'),
+    ('vault-sessions', 'vault_sessions.py'),
+    ('vault-capacity', 'vault_capacity.py'),
     ('lease-time-namespace', 'lease_time_namespace.py'),
     ('writer-scope', 'writer_scope.py'),
     ('writer-matrix', 'writer_matrix.py'),

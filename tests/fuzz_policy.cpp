@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <optional>
+#include <algorithm>
 #include <sstream>
 #include <string>
 
@@ -16,7 +17,13 @@ std::string canonical(const PolicyConfig &policy)
 {
     std::ostringstream out;
     out << "revision " << policy.revision << '\n';
-    for (const auto &path : policy.paths) out << "protect " << std::quoted(path) << '\n';
+    for (const auto &path : policy.paths)
+        out << (std::find(policy.vaults.begin(), policy.vaults.end(), path) == policy.vaults.end() ? "protect " : "vault ")
+            << std::quoted(path) << '\n';
+    for (const auto &session : policy.vault_sessions)
+        out << "vault-session " << session.id << ' ' << std::quoted(session.program) << ' ' << session.euid
+            << ' ' << std::quoted(session.target) << ' ' << (session.access == 1 ? "read" : "read-write")
+            << ' ' << session.duration_ms << '\n';
     if (policy.writer_lease_ms) out << "writer-lease-ms " << policy.writer_lease_ms << '\n';
     // 数字 mask 不属于配置语法；测试编码器把每个有效位明确还原为操作名。
     const char *names[] = {"open-write", "write", "truncate", "unlink", "rename", "link", "setattr", "mmap-write"};

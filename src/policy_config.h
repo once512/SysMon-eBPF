@@ -41,6 +41,17 @@ struct PolicyConfig {
         std::uint32_t operations;
     };
     std::vector<Writer> writers;
+    // vault paths are also in paths, but deny reads as well as modification.
+    std::vector<std::string> vaults;
+    struct VaultSession {
+        std::uint64_t id;
+        std::string program;
+        std::uint32_t euid;
+        std::string target;
+        std::uint32_t access;
+        unsigned int duration_ms;
+    };
+    std::vector<VaultSession> vault_sessions;
     // Optional policy-wide maintenance lease. Zero means no deadline.
     // A successful new BPF policy activation starts a new lease, never a failed reload.
     unsigned int writer_lease_ms = 0;

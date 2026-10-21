@@ -57,6 +57,7 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
                   << ",\"dev_major\":" << e.file.major << ",\"dev_minor\":" << e.file.minor
                   << ",\"ino\":" << e.file.ino << ",\"operation\":" << e.operation
                   << ",\"writer_lease_expired\":" << ((e.flags & SECMON_WRITER_LEASE_EXPIRED) ? "true" : "false")
+                  << ",\"vault_session_expired\":" << ((e.flags & SECMON_VAULT_SESSION_EXPIRED) ? "true" : "false")
                   << ",\"errno\":13,\"comm\":" << json_string(e.comm, sizeof(e.comm)) << "}\n";
         return out.str();
     }

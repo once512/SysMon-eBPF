@@ -10,6 +10,7 @@
 #define SECMON_PATH_LEN 256
 #define SECMON_BASELINE_MISMATCH 1U
 #define SECMON_WRITER_LEASE_EXPIRED 2U
+#define SECMON_VAULT_SESSION_EXPIRED 4U
 enum secmon_event_kind { SECMON_EXEC_CHECK = 1, SECMON_EXEC_SUCCESS = 2, SECMON_FILE_DENIED = 3, SECMON_SELF_DENIED_EVENT = 4 };
 // inode 号只在相应文件系统/设备身份内有意义，不能单独作为跨设备策略键。
 /* 同样的 ino 数字可以同时存在于不同文件系统； */
@@ -23,6 +24,14 @@ struct file_key {
 #define SECMON_FILE_READONLY 1U
 #define SECMON_FILE_WRITER 2U
 #define SECMON_FILE_IDENTITY 4U
+#define SECMON_FILE_VAULT 8U
+#define SECMON_VAULT_READ 1U
+#define SECMON_VAULT_WRITE 2U
+struct vault_session_grant {
+    unsigned long long deadline_boot_ns;
+    unsigned int euid;
+    unsigned int access;
+};
 /* writer_euid 只有 WRITER 位存在时才有效； */
 /* 默认零值不是“所有 root 程序自动可信”。 */
 struct file_policy_value {
@@ -34,6 +43,9 @@ struct file_policy_value {
     unsigned long long allowed_writers[SECMON_FILE_OPERATION_COUNT];
     /* CLOCK_BOOTTIME nanoseconds, including suspend. Zero means no lease. */
     unsigned long long writer_deadline_boot_ns;
+    /* Subject bits refer to target session slots in this immutable snapshot. */
+    unsigned long long vault_subjects;
+    struct vault_session_grant vault_sessions[SECMON_MAX_VAULT_SESSIONS];
 };
 /* Complete observed identity/capability fields; numeric IDs use kernel kuid/kgid
  * coordinates. This state describes observations, never transition approval. */

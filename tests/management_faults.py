@@ -25,7 +25,10 @@ class Reply(ctypes.Structure):
                 ('audit_written', ctypes.c_uint64), ('audit_dropped', ctypes.c_uint64), ('audit_invalid', ctypes.c_uint64),
                 ('audit_queued', ctypes.c_uint32), ('audit_errno', ctypes.c_int32),
                 ('diagnostic_written', ctypes.c_uint64), ('diagnostic_dropped', ctypes.c_uint64), ('diagnostic_invalid', ctypes.c_uint64),
-                ('diagnostic_queued', ctypes.c_uint32), ('diagnostic_errno', ctypes.c_int32)]
+                ('diagnostic_queued', ctypes.c_uint32), ('diagnostic_errno', ctypes.c_int32),
+                *[(name, ctypes.c_uint32) for name in ('vault_paths', 'vault_sessions', 'vault_live_sessions',
+                    'vault_session_history', 'vault_clock_valid', 'vault_reserved')],
+                ('vault_next_deadline_boot_ns', ctypes.c_uint64)]
 
 
 def main():
@@ -34,7 +37,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root to emulate a root control peer')
-    assert ctypes.sizeof(Reply) == 360
+    assert ctypes.sizeof(Reply) == 392
     binary = Path(args.build_dir).resolve() / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-fault-') as temporary:
         path = Path(temporary) / 'fake.sock'
@@ -56,7 +59,7 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 4, ctypes.sizeof(Reply)
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 5, ctypes.sizeof(Reply)
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
                                 reply.worker_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',

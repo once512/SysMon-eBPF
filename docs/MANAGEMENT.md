@@ -50,7 +50,7 @@ permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启�
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 v4/360 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
+- `src/management/protocol.h/.cpp`：本机同架构的 v5/392 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析配置/校验递增 revision，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。
@@ -97,7 +97,7 @@ sudo python3 tests/run_privileged.py --build-dir build --only policy-consistency
 
 ## 授权条数
 
-BPF 状态的 writer_paths 是已提交的 allow-writer 规则中的程序路径条数，范围 0..64；相同程序对不同目标的规则分别计数，包括同 inode 别名；protected_paths 仍仅为显式 protect 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不按 writer 绕过裁决；仅 fanotify 的诊断模式不提供此字段。
+BPF 状态的 writer_paths 是已提交的 allow-writer 规则中的程序路径条数，范围 0..64；相同程序对不同目标的规则分别计数，包括同 inode 别名；protected_paths 为显式 protect/vault 路径条数。两者都不是不同 inode 数，也不证明对象内容或运行程序可信。fanotify 不按 writer 绕过裁决；仅 fanotify 的诊断模式不提供此字段。
 
 ## 同包交付与布局检查
 
@@ -108,3 +108,7 @@ BPF 状态的 writer_paths 是已提交的 allow-writer 规则中的程序路径
 ## 传输与调用边界
 
 服务端生命周期位于 `src/control.h/.cpp`，客户端请求位于 `src/control_client.h/.cpp`；地址、对端身份及严格无 FD 接收规则共用 `src/management/channel.h/.cpp`。消息布局和字段校验继续由 protocol 模块负责。职责与资源所有权分析见 [架构整理](ARCHITECTURE_REVIEW.md)。
+
+## 保险箱状态
+
+v5 增加 vault_paths、vault_sessions、vault_live_sessions、vault_session_history、vault_clock_valid、vault_next_deadline_boot_ns，含义及查询时钟边界见 [保险箱会话](VAULT_SESSIONS.md)。所有同包客户端与测试须同步更新，不解码历史响应。

@@ -89,6 +89,10 @@ void BpfMonitor::poll_once(int timeout_ms)
     const int result = ring_buffer__consume_n(state_->ring.get(), 128);
     if (result < 0) throw std::runtime_error("Ring buffer consume failed");
 }
+void BpfMonitor::snapshot(management::Reply &reply) const
+{
+    state_->protected_files.snapshot(reply);
+}
 void BpfMonitor::report()
 {
     report_stats(bpf_map__fd(state_->skel->maps.stats));

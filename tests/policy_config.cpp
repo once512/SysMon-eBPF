@@ -104,5 +104,25 @@ int main() {
     require(parse_policy(largest_uid).writers[0].euid == 4294967294U);
     std::istringstream separated(data + "protect \"/other\"\nallow-writer \"/exe\" 0 \"/data\" write\nallow-writer \"/exe\" 0 \"/other\" unlink");
     require(parse_policy(separated).writers.size() == 2);
+    const std::string vault = "revision 1\nvault \"/data\"\n";
+    std::istringstream vault_input(vault + "vault-session 7 \"/exe\" 65534 \"/data\" read-write 1200\n");
+    const auto box = parse_policy(vault_input);
+    require(box.paths.size() == 1 && box.vaults == box.paths && box.vault_sessions.size() == 1);
+    require(box.vault_sessions[0].id == 7 && box.vault_sessions[0].access == 3 && box.vault_sessions[0].duration_ms == 1200);
+    for (const auto *tail : {"0 \"/exe\" 0 \"/data\" read 100", "1 /exe 0 \"/data\" read 100",
+        "1 \"/exe\" 4294967295 \"/data\" read 100", "1 \"/exe\" 0 \"/other\" read 100",
+        "1 \"/exe\" 0 \"/data\" write 100", "1 \"/exe\" 0 \"/data\" read 99",
+        "1 \"/exe\" 0 \"/data\" read 3600001", "1 \"/exe\" 0 \"/data\" read 100 extra"})
+        reject(vault + "vault-session " + tail);
+    reject(vault + "protect \"/data\"\n");
+    reject(vault + "allow-writer \"/exe\" 0 \"/data\" all");
+    reject(data + "vault-session 1 \"/exe\" 0 \"/data\" read 100");
+    std::string sessions = vault;
+    for (int i = 1; i <= 16; ++i)
+        sessions += "vault-session " + std::to_string(i) + " \"/exe\" 0 \"/data\" read 100\n";
+    std::istringstream session_input(sessions);
+    require(parse_policy(session_input).vault_sessions.size() == 16);
+    reject(sessions + "vault-session 17 \"/exe\" 0 \"/data\" read 100");
+    reject(sessions + "vault-session 1 \"/exe\" 0 \"/data\" read 100");
     std::cout << "PASS single policy format, revisions, scoped grants and strict boundaries\n";
 }

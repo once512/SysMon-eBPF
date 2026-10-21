@@ -49,6 +49,13 @@ int main()
     reject([](Reply &x) { x.pid = 0; });
     reject([](Reply &x) { x.instance_ns = 0; });
     reject([](Reply &x) { x.reserved = 1; });
+    reject([](Reply &x) { x.vault_reserved = 1; });
+    reject([](Reply &x) { x.vault_clock_valid = 2; });
+    reject([](Reply &x) { x.vault_paths = 1; });
+    reject([](Reply &x) { x.vault_sessions = 17; });
+    reject([](Reply &x) { x.vault_session_history = 4097; });
+    reject([](Reply &x) { x.vault_live_sessions = 1; });
+    reject([](Reply &x) { x.vault_next_deadline_boot_ns = 1; });
     reject([](Reply &x) { x.writer_paths = 65; });
     reject([](Reply &x) { x.fanotify_targets = 65; });
     reject([](Reply &x) { x.fanotify_targets = 1; });

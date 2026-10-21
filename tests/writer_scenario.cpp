@@ -43,6 +43,19 @@ int main(int argc, char **argv)
                 if (fd < 0) result = errno;
                 else { char byte; result = read(fd, &byte, 1) == 1 ? 0 : errno; close(fd); }
             }
+            if (line[0] == 'h') {
+                char byte;
+                const auto count = pread(held, &byte, 1, 0);
+                result = count == 1 ? 0 : count < 0 ? errno : EIO;
+            }
+            if (line[0] == 'a' || line[0] == 'b') {
+                void *mapped = mmap(nullptr, 4096, line[0] == 'a' ? PROT_READ : PROT_NONE, MAP_PRIVATE, held, 0);
+                result = mapped == MAP_FAILED ? errno : 0;
+                if (mapped != MAP_FAILED) {
+                    if (line[0] == 'b') result = mprotect(mapped, 4096, PROT_READ) ? errno : 0;
+                    munmap(mapped, 4096);
+                }
+            }
             if (line[0] == 'u') result = unlink(argv[2]) ? errno : 0;
             if (line[0] == 'n' || line[0] == 'l') {
                 char destination[4096];
@@ -64,6 +77,15 @@ int main(int argc, char **argv)
         }
         close(held);
         return 0;
+    }
+    if (!std::strcmp(argv[1], "read")) {
+        const int fd = open(argv[2], O_RDONLY | O_CLOEXEC);
+        if (fd < 0) return errno;
+        char byte;
+        const auto count = read(fd, &byte, 1);
+        const int result = count == 1 ? 0 : count < 0 ? errno : EIO;
+        close(fd);
+        return result;
     }
     if (!std::strcmp(argv[1], "write")) return write_file(argv[2]);
     if (!std::strcmp(argv[1], "open-write")) {

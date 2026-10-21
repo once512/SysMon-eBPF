@@ -44,7 +44,13 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     if (!entry) return 0;
     // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
     u32 denial_flags = 0;
-    if (!(entry->flags & SECMON_FILE_IDENTITY)) {
+    if (vault_read_operation(operation) && !(entry->flags & SECMON_FILE_VAULT)) return 0;
+    if ((entry->flags & SECMON_FILE_VAULT) &&
+        (vault_read_operation(operation) || !(entry->flags & SECMON_FILE_IDENTITY))) {
+        int session = authorized_vault_session(policy, entry, operation);
+        if (session > 0) return 0;
+        if (session < 0) denial_flags |= SECMON_VAULT_SESSION_EXPIRED;
+    } else if (!(entry->flags & SECMON_FILE_IDENTITY)) {
         if (!(entry->flags & SECMON_FILE_READONLY)) return 0;
         int writer = authorized_writer(policy, entry, operation);
         if (writer > 0) return 0;
@@ -90,15 +96,21 @@ SEC("lsm/file_open")
 int BPF_PROG(guard_open, struct file *file, int ret)
 {
     if (ret) return ret;
-    return (BPF_CORE_READ(file, f_mode) & 2) ?
-        guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_OPEN_WRITE) : 0;
+    void *policy = active_file_policy();
+    u32 mode = BPF_CORE_READ(file, f_mode);
+    struct inode *inode = BPF_CORE_READ(file, f_inode);
+    int denied = (mode & 1) ? guard_inode_policy(inode, SECMON_OP_OPEN_READ, policy) : 0;
+    return denied ? denied : (mode & 2) ? guard_inode_policy(inode, SECMON_OP_OPEN_WRITE, policy) : 0;
 }
 /* 已有写入 FD 也需在普通写权限检查点拦截；只拦 file_open 无法限制保护启用前打开的 FD。 */
 SEC("lsm/file_permission")
 int BPF_PROG(guard_permission, struct file *file, int mask, int ret)
 {
     if (ret) return ret;
-    return (mask & 2) ? guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_WRITE) : 0;
+    void *policy = active_file_policy();
+    struct inode *inode = BPF_CORE_READ(file, f_inode);
+    int denied = (mask & 4) ? guard_inode_policy(inode, SECMON_OP_READ, policy) : 0;
+    return denied ? denied : (mask & 2) ? guard_inode_policy(inode, SECMON_OP_WRITE, policy) : 0;
 }
 /* 路径截断与文件 FD 截断的内核入口不同，分别挂载；实际拒绝可能先发生在更早的权限钩子。 */
 SEC("lsm/path_truncate")
@@ -146,7 +158,23 @@ int BPF_PROG(guard_setattr, struct mnt_idmap *idmap, struct dentry *dentry,
              struct iattr *attr, int ret)
 {
     if (ret) return ret;
-    return guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_SETATTR);
+    struct inode *inode = BPF_CORE_READ(dentry, d_inode);
+    void *policy = active_file_policy();
+    // A normal truncate reaches setattr too. Only a vault's size-only
+    // attributes use its write session; legacy writer operation scopes stay
+    // unchanged and chmod/chown/explicit timestamps remain forbidden.
+    u32 valid = BPF_CORE_READ(attr, ia_valid);
+    const u32 size_attributes = (1U << 3) | (1U << 5) | (1U << 6) |
+        (1U << 11) | (1U << 12) | (1U << 13) | (1U << 14) | (1U << 15);
+    if (inode && policy && (valid & (1U << 3)) && !(valid & ~size_attributes)) {
+        u32 dev = BPF_CORE_READ(inode, i_sb, s_dev);
+        struct file_key key = { .major = dev >> 20, .minor = dev & ((1U << 20) - 1),
+                                .ino = BPF_CORE_READ(inode, i_ino) };
+        struct file_policy_value *entry = bpf_map_lookup_elem(policy, &key);
+        if (entry && (entry->flags & SECMON_FILE_VAULT))
+            return guard_inode_policy(inode, SECMON_OP_TRUNCATE, policy);
+    }
+    return guard_inode_policy(inode, SECMON_OP_SETATTR, policy);
 }
 /* 新增共享可写映射可以绕开 write 系统调用；这里检查映射建立，下面检查后续 mprotect 增加写权限。 */
 /* 私有映射写入自己的页而不写回原文件；策略不撤销启用之前已经存在的共享可写映射。 */
@@ -156,8 +184,13 @@ int BPF_PROG(guard_mmap, struct file *file, unsigned long reqprot,
 {
     if (ret) return ret;
     /* MAP_SHARED=1, MAP_SHARED_VALIDATE=3; MAP_PRIVATE=2. */
-    return (file && (prot & 2) && (flags & 1)) ?
-        guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_MMAP_WRITE) : 0;
+    if (!file) return 0;
+    void *policy = active_file_policy();
+    struct inode *inode = BPF_CORE_READ(file, f_inode);
+    // Private writable and executable mappings also expose file contents.
+    int denied = prot ? guard_inode_policy(inode, SECMON_OP_MMAP_READ, policy) : 0;
+    return denied ? denied : ((prot & 2) && (flags & 1)) ?
+        guard_inode_policy(inode, SECMON_OP_MMAP_WRITE, policy) : 0;
 }
 SEC("lsm/file_mprotect")
 int BPF_PROG(guard_mprotect, struct vm_area_struct *vma, unsigned long reqprot,
@@ -168,6 +201,10 @@ int BPF_PROG(guard_mprotect, struct vm_area_struct *vma, unsigned long reqprot,
     /* 对文件共享 VMA 增加写权限时，再按原文件 inode 判断。 */
     struct file *file = BPF_CORE_READ(vma, vm_file);
     /* VM_SHARED=0x8, PROT_WRITE=0x2. */
-    return (file && (prot & 2) && (BPF_CORE_READ(vma, vm_flags) & 8)) ?
-        guard_inode(BPF_CORE_READ(file, f_inode), SECMON_OP_MMAP_WRITE) : 0;
+    if (!file) return 0;
+    void *policy = active_file_policy();
+    struct inode *inode = BPF_CORE_READ(file, f_inode);
+    int denied = prot ? guard_inode_policy(inode, SECMON_OP_MMAP_READ, policy) : 0;
+    return denied ? denied : ((prot & 2) && (BPF_CORE_READ(vma, vm_flags) & 8)) ?
+        guard_inode_policy(inode, SECMON_OP_MMAP_WRITE, policy) : 0;
 }

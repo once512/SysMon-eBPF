@@ -27,6 +27,9 @@ def main():
     # Every log delivery order must find these two distinct denied observations.
     for rows in itertools.permutations([permission(), denial(), denial(timestamp_ns=800)]):
         check(rows, 2)
+    for operation in (11, 12, 13):
+        _, summary = check([permission(), denial(operation=operation)], 0)
+        assert summary['ignored'] == 1 and summary['invalid'] == 0
     check([permission(), permission(), denial()], 1)
     check([denial(), permission(), permission()], 1)
     # Receive time is insufficient: the permission response must strictly precede denial.

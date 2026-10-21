@@ -177,3 +177,5 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 `writer-lease` 验证内核按启动时钟收回维护写例外：已有 FD、新打开、mmap/mprotect、程序/目标范围、失败与同版本不续期、显式续期、删除授权和服务被 SIGSTOP 时仍到期。测试只暂停未启用自保护的临时实例，结束前恢复服务。
 
 `userns-credentials` 验证本地 root 的全局 UID/GID 仍为 65534，且不继承宿主 UID 0 的程序写授权。`lease-time-namespace` 从外层独立时钟核对 +3600/-60 秒偏移服务的租期，使用 BPF-only 临时实例，不代表 fanotify 跨 time namespace 时间关联已验收。
+
+保险箱专题：`--only vault-sessions vault-capacity`，验证限时读写、关闭、暂停服务、ID 合同与 336 项联合容量，详见 [会话合同](VAULT_SESSIONS.md)。
