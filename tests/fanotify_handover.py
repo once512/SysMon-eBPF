@@ -249,7 +249,7 @@ def backlog(build,event,mode):
                 assert len(payload)==ctypes.sizeof(Reply)
                 reply=Reply.from_buffer_copy(payload)
                 expected_code=6 if mode=='deny-refused' else 4 if mode=='prepare-rollback' else 0
-                assert reply.magic==0x53434D43 and reply.abi==5 and reply.command==2
+                assert reply.magic==0x53434D43 and reply.abi==6 and reply.command==2
                 assert reply.code==expected_code and reply.revision==(2 if expected_code==0 else 1)
             results=[finish_request(p)['errno'] for p in processes]
             assert results==([errno.EPERM]*8 if mode=='deny-refused' else [0]*8),results

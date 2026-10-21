@@ -28,7 +28,7 @@
 - 审计 JSONL 经有界队列由独立 I/O 线程写 stdout；背压/输出错误可查询，不直接拖住 fanotify 裁决。每 10 秒及退出时向 stderr 输出内核丢失、基线失败和审计出口计数，详见 [审计出口](docs/AUDIT_OUTPUT.md)。
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
 - 配置可加入 `writer-lease-ms` 限制维护写例外的期限，内核按启动时钟收回；成功新策略会重新计时，语义与既有映射限制见 [策略配置](docs/POLICY_CONFIG.md)。
-- 指定文件可使用 [vault 与限时读写会话](docs/VAULT_SESSIONS.md)，默认锁定读取，关闭或到期后重新限制普通已有 FD；尚无加密和最终用户认证。
+- 指定文件可使用 [vault 与限时读写会话](docs/VAULT_SESSIONS.md)，默认锁定读取，关闭或到期后重新限制普通已有 FD，绝对期限跨服务重启保留；尚无加密和最终用户认证。
 - `secmon-policyctl --socket SOCKET` 只读核对主服务的活动策略和可选预期 revision。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
 - `--policy FILE` 加载带递增 revision 的文件策略，`--reload SOCKET` 在线完整替换；同一主进程同时应用 BPF 和 fanotify 字段，支持空闲时联合更新，详见 [策略配置导读](docs/POLICY_CONFIG.md)。

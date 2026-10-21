@@ -50,6 +50,8 @@ struct PolicyConfig {
         std::string target;
         std::uint32_t access;
         unsigned int duration_ms;
+        std::string boot_id;
+        std::uint64_t issued_boot_ns;
     };
     std::vector<VaultSession> vault_sessions;
     // Optional policy-wide maintenance lease. Zero means no deadline.

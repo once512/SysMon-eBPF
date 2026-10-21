@@ -37,13 +37,15 @@ void validate_reply(const Reply &r, Command expected)
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
         !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
         (r.flags & ~63U) || ((r.flags & requester_pidfd) && !(r.flags & permission_audit)) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) ||
-        r.vault_reserved || r.vault_clock_valid > 1 ||
+        r.vault_stale_sessions > r.vault_sessions || r.vault_clock_valid > 1 ||
         r.vault_paths > r.protected_paths || r.vault_sessions > SECMON_MAX_VAULT_SESSIONS ||
         r.vault_session_history > SECMON_MAX_VAULT_SESSION_HISTORY ||
-        r.vault_session_history < r.vault_sessions || r.vault_live_sessions > r.vault_sessions ||
+        r.vault_session_history < r.vault_sessions - r.vault_stale_sessions ||
+        r.vault_live_sessions > r.vault_sessions - r.vault_stale_sessions ||
         (!r.vault_clock_valid && r.vault_live_sessions) ||
-        (r.vault_sessions && (!r.vault_paths || !r.vault_next_deadline_boot_ns)) ||
-        (!r.vault_sessions && r.vault_next_deadline_boot_ns) ||
+        (r.vault_sessions && !r.vault_paths) ||
+        ((r.vault_sessions != r.vault_stale_sessions) && !r.vault_next_deadline_boot_ns) ||
+        (r.vault_sessions == r.vault_stale_sessions && r.vault_next_deadline_boot_ns) ||
         (r.backend == Backend::fanotify && (r.vault_paths || r.vault_sessions || r.vault_session_history || r.vault_clock_valid)) ||
         r.fanotify_targets > SECMON_MAX_FANOTIFY_TARGETS ||
         (r.backend == Backend::bpf ? r.fanotify_targets != 0 : r.fanotify_targets == 0) ||
@@ -93,6 +95,7 @@ std::string reply_json(const Reply &r)
             << ",\"protected_paths\":" << r.protected_paths << ",\"writer_paths\":" << r.writer_paths
             << ",\"vault_paths\":" << r.vault_paths << ",\"vault_sessions\":" << r.vault_sessions
             << ",\"vault_live_sessions\":" << r.vault_live_sessions
+            << ",\"vault_stale_sessions\":" << r.vault_stale_sessions
             << ",\"vault_session_history\":" << r.vault_session_history
             << ",\"vault_clock_valid\":" << (r.vault_clock_valid ? "true" : "false")
             << ",\"vault_next_deadline_boot_ns\":" << r.vault_next_deadline_boot_ns;

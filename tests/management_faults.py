@@ -27,7 +27,7 @@ class Reply(ctypes.Structure):
                 ('diagnostic_written', ctypes.c_uint64), ('diagnostic_dropped', ctypes.c_uint64), ('diagnostic_invalid', ctypes.c_uint64),
                 ('diagnostic_queued', ctypes.c_uint32), ('diagnostic_errno', ctypes.c_int32),
                 *[(name, ctypes.c_uint32) for name in ('vault_paths', 'vault_sessions', 'vault_live_sessions',
-                    'vault_session_history', 'vault_clock_valid', 'vault_reserved')],
+                    'vault_session_history', 'vault_clock_valid', 'vault_stale_sessions')],
                 ('vault_next_deadline_boot_ns', ctypes.c_uint64)]
 
 
@@ -43,7 +43,7 @@ def main():
         path = Path(temporary) / 'fake.sock'
         cases = ['valid', 'magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                  'pid', 'instance_ns', 'event', 'mode', 'fallbacks', 'reserved', 'scan-reason', 'scan-errno',
-                 'writer-count', 'reserved-tail', 'audit-queue', 'audit-errno', 'audit-errno-range', 'diagnostic-queue', 'diagnostic-errno', 'diagnostic-errno-range', 'diagnostic-accounting', 'text-response', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
+                 'writer-count', 'reserved-tail', 'vault-count', 'vault-history', 'vault-stale', 'vault-clock', 'vault-live', 'vault-deadline', 'audit-queue', 'audit-errno', 'audit-errno-range', 'diagnostic-queue', 'diagnostic-errno', 'diagnostic-errno-range', 'diagnostic-accounting', 'text-response', 'error-accounting', 'short', 'long', 'fds', 'extra-fds']
         held = os.open('/dev/null', os.O_RDONLY | os.O_CLOEXEC)
         try:
             for command, command_id in (('status', 3), ('reload', 2), ('stop', 1)):
@@ -59,7 +59,7 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 5, ctypes.sizeof(Reply)
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 6, ctypes.sizeof(Reply)
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
                                 reply.worker_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
@@ -74,6 +74,12 @@ def main():
                                 if case == 'diagnostic-errno': reply.diagnostic_errno = -1
                                 if case == 'diagnostic-errno-range': reply.diagnostic_errno = 4096
                                 if case == 'diagnostic-accounting': reply.diagnostic_invalid = 1
+                                if case == 'vault-count': reply.vault_sessions = 17
+                                if case == 'vault-history': reply.vault_session_history = 4097
+                                if case == 'vault-stale': reply.vault_stale_sessions = 1
+                                if case == 'vault-clock': reply.vault_clock_valid = 2
+                                if case == 'vault-live': reply.vault_live_sessions = 1
+                                if case == 'vault-deadline': reply.vault_next_deadline_boot_ns = 1
                                 if case == 'writer-count': reply.writer_paths = 65
                                 if case == 'reserved-tail': reply.fanotify_targets = 65
                                 if case == 'scan-reason': reply.last_scan_error = 99

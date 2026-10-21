@@ -49,7 +49,7 @@ int main()
     reject([](Reply &x) { x.pid = 0; });
     reject([](Reply &x) { x.instance_ns = 0; });
     reject([](Reply &x) { x.reserved = 1; });
-    reject([](Reply &x) { x.vault_reserved = 1; });
+    reject([](Reply &x) { x.vault_stale_sessions = 1; });
     reject([](Reply &x) { x.vault_clock_valid = 2; });
     reject([](Reply &x) { x.vault_paths = 1; });
     reject([](Reply &x) { x.vault_sessions = 17; });

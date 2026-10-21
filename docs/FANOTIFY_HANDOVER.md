@@ -42,7 +42,7 @@ FD 回收测试核对服务描述符数量恢复、旧别名不再被订阅以�
 
 所有权限门使用同一服务拥有的非零递增请求序列。候选准备不消耗请求号，失败重载不重置序列，成功切换也不复用 request_id。实例身份保持不变；这不会把未读取的内核请求变成有编号的记录。
 
-status 中 allowed/denied、原因计数、错误计数和 peak_pending 保留此前累计值，fanotify_targets 表示当前目标数。结束汇总新增 target_updates，仅计成功的目标 group 替换；规则单独更新和失败候选不增加它。管理线格式仍为 v4/360 字节。
+status 中 allowed/denied、原因计数、错误计数和 peak_pending 保留此前累计值，fanotify_targets 表示当前目标数。结束汇总新增 target_updates，仅计成功的目标 group 替换；规则单独更新和失败候选不增加它。管理线格式仍为 v6/392 字节。
 
 启用 --audit-permissions 后，成功切换额外输出 fanotify_target_handover：
 

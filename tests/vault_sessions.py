@@ -41,12 +41,16 @@ def experiment(build, paused=False):
         management = root / 'management'
         management.mkdir(mode=0o700)
         policy, control = root / 'policy', management / 'control'
+        issuance = {}
+        boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         def publish(revision, sessions=(), missing=False, extra=''):
             text = f'revision {revision}\nvault "{target}"\nvault "{second}"\n' + extra
             if missing:
                 text += f'protect "{root / "missing"}"\n'
-            for ident, path, mode, duration, uid in sessions:
-                text += f'vault-session {ident} "{program}" {uid} "{path}" {mode} {duration}\n'
+            for session in sessions:
+                ident, path, mode, duration, uid = session
+                issued = issuance.setdefault(session, time.clock_gettime_ns(time.CLOCK_BOOTTIME))
+                text += f'vault-session {ident} "{program}" {uid} "{path}" {mode} {duration} {boot} {issued}\n'
             staging = root / 'stage'
             staging.write_text(text)
             staging.chmod(0o600)
@@ -154,6 +158,22 @@ def experiment(build, paused=False):
             publish(7, [write], extra=f'protect "{alias}"\nallow-writer "{program}" 0 "{alias}" all\n')
             call(build / 'secmon', 'reload', control, 'prepare_failed')
             expect(actor, 'rh', errno.EACCES)
+            # Overlapping sessions on one executable/target must keep UID,
+            # access and deadline in the same slot, never merge their powers.
+            overlap = [(4, target, 'read', 4000, 0), (5, target, 'read-write', 1500, 0),
+                       (6, target, 'read-write', 4000, 65534)]
+            publish(7, overlap)
+            call(build / 'secmon', 'reload', control)
+            expect(actor, 'rhw', 0)
+            expect(wrong_uid, 'rhw', 0)
+            wait_expired(deadlines()[1])
+            expect(actor, 'rh', 0)
+            expect(actor, 'wo', errno.EACCES)
+            expect(wrong_uid, 'rhw', 0)
+            publish(8)
+            call(build / 'secmon', 'reload', control)
+            expect(actor, 'rhw', errno.EACCES)
+            expect(wrong_uid, 'rhw', errno.EACCES)
             cleanup()
             monitor.stop()
         denials = [e for e in monitor.events() if e['event'] == 'file_denied']

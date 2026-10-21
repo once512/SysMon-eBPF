@@ -142,3 +142,5 @@ sudo python3 tests/self_protection.py --build-dir build
 接口旁也补充了返回值的边界：`poll_once(false)` 不等于后端离线，`receive_packet(ready)` 不等于协议合法，`scan(allow)` 不等于恶意内容识别完成，`snapshot` 不会主动探测分析器。生成的 vmlinux.h、skeleton 和第三方代码仍按生成/供应方来源阅读，学习入口优先选择手写源码。
 
 主进程的审计入口每轮限量消费，输出经 AuditSink 有界排队；线程不修改运行策略。stdout 背压、错误与停止行为见 [审计出口](AUDIT_OUTPUT.md)。
+
+保险箱会话沿用 `file_policy` 的候选及 root 重载；`boot_clock` 统一全局启动时钟坐标，`secmon-vault-session` 生成包含启动标识及绝对签发时间的配置行。语义和验证见 [保险箱会话](VAULT_SESSIONS.md)。

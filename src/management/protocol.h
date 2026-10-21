@@ -9,7 +9,7 @@
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 5;
+constexpr std::uint16_t version = 6;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 // 这些 code 描述管理操作结果，不能拿来代替 fanotify 的 Result 或内核钩子返回的负 errno。
 enum class Code : std::uint32_t {
@@ -82,7 +82,7 @@ struct Reply {
     std::uint32_t vault_live_sessions = 0; // Clock sample; never an authorization token.
     std::uint32_t vault_session_history = 0;
     std::uint32_t vault_clock_valid = 0;
-    std::uint32_t vault_reserved = 0;
+    std::uint32_t vault_stale_sessions = 0;
     std::uint64_t vault_next_deadline_boot_ns = 0; // Earliest configured deadline, even if expired.
 };
 // 只约束当前完整结构的布局；调整字段时同步修改本包两端与测试，不保留历史前缀。

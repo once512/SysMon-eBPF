@@ -32,6 +32,7 @@ int main(int argc, char **argv)
         }
         std::puts("ready");
         std::fflush(stdout);
+        void *persistent = MAP_FAILED;
         char line[16];
         while (std::fgets(line, sizeof(line), stdin)) {
             if (line[0] == 'q') break;
@@ -42,6 +43,24 @@ int main(int argc, char **argv)
                 const int fd = open(argv[2], O_RDONLY | O_CLOEXEC);
                 if (fd < 0) result = errno;
                 else { char byte; result = read(fd, &byte, 1) == 1 ? 0 : errno; close(fd); }
+            }
+            if (line[0] == 'c') {
+                if (persistent != MAP_FAILED) munmap(persistent, 4096);
+                persistent = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, held, 0);
+                result = persistent == MAP_FAILED ? errno : 0;
+            }
+            if (line[0] == 'g' && persistent != MAP_FAILED) {
+                const volatile char byte = *static_cast<volatile char *>(persistent);
+                (void)byte;
+                result = 0;
+            }
+            if (line[0] == 'd' && persistent != MAP_FAILED) {
+                *static_cast<volatile char *>(persistent) = 'M';
+                result = 0;
+            }
+            if (line[0] == 'z' && persistent != MAP_FAILED) {
+                result = munmap(persistent, 4096) ? errno : 0;
+                persistent = MAP_FAILED;
             }
             if (line[0] == 'h') {
                 char byte;
@@ -75,6 +94,7 @@ int main(int argc, char **argv)
             std::printf("%d\n", result);
             if (std::fflush(stdout)) { close(held); return 3; }
         }
+        if (persistent != MAP_FAILED) munmap(persistent, 4096);
         close(held);
         return 0;
     }

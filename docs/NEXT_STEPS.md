@@ -1,6 +1,6 @@
 # 当前能力与下一步
 
-更新于 2026-10-21。最新代际、限时维护授权及凭证进展见 [本轮记录](VALIDATION_2026_10_21.md)。最新受限在线目标切换见 [本轮验收](VALIDATION_HANDOVER_2026_10_20.md)，固定多目标订阅见 [多目标验收](VALIDATION_MULTITARGET_2026_10_20.md)，离线覆盖评估见 [评估验收](VALIDATION_EVALUATION_2026_10_20.md)，离线归组与观察规则见 [行为阶段验证](VALIDATION_BEHAVIOR_2026_10_19.md)，逐请求权限审计结果见 [权限验证](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)，诊断隔离进展见 [诊断验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)，目标授权及此前验证见 [授权与审计记录](VALIDATION_SCOPED_2026_10_18.md)，总体方向及历史决策保留在 [DESIGN](../DESIGN.md)。
+更新于 2026-10-21。新增 [保险箱会话](VAULT_SESSIONS.md)，[验收记录](VALIDATION_VAULT_2026_10_21.md)，包含默认读拒绝、独立读写期限及关闭。最新代际、限时维护授权及凭证进展见 [本轮记录](VALIDATION_2026_10_21.md)。最新受限在线目标切换见 [本轮验收](VALIDATION_HANDOVER_2026_10_20.md)，固定多目标订阅见 [多目标验收](VALIDATION_MULTITARGET_2026_10_20.md)，离线覆盖评估见 [评估验收](VALIDATION_EVALUATION_2026_10_20.md)，离线归组与观察规则见 [行为阶段验证](VALIDATION_BEHAVIOR_2026_10_19.md)，逐请求权限审计结果见 [权限验证](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)，诊断隔离进展见 [诊断验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)，目标授权及此前验证见 [授权与审计记录](VALIDATION_SCOPED_2026_10_18.md)，总体方向及历史决策保留在 [DESIGN](../DESIGN.md)。
 
 目前已有一个主服务、BPF/fanotify 两个资源对象、独立降权分析器和短时管理工具；配置和活动 revision 统一。文件修改例外已能按执行 inode、EUID、目标和文件检查点声明，审计 stdout 使用有界队列，停止时先关闭权限组再输出统计。
 
@@ -90,4 +90,4 @@ BPF 和 fanotify 借用服务拥有的唯一 stdout 队列；开启权限审计�
 
 ## 保险箱会话首轮（2026-10-21）
 
-已增加 [vault 和独立限时读写会话](VAULT_SESSIONS.md)，复用原有 Map、对象固定及管理重载，补齐默认读拒绝、关闭、同实例不意外续期及状态查询。下一步收紧重启后的期限语义，并验证部署应用的 FD/映射和保存方式；仍未提供用户认证、加密、完整映射撤销或持久防护。反勒索在线恶意判定、响应与虚拟诱饵仍未实现。
+已增加 [vault 和独立限时读写会话](VAULT_SESSIONS.md)，复用原有 Map、对象固定及管理重载，补齐默认读拒绝、关闭、同实例不意外续期及状态查询。期限现已绑定系统启动及绝对签发时间，服务重启不续期；继续验证部署应用的 FD/映射和保存方式；仍未提供用户认证、加密、完整映射撤销或持久防护。反勒索在线恶意判定、响应与虚拟诱饵仍未实现。

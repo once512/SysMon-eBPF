@@ -21,6 +21,7 @@ class ProtectedFiles {
     };
     // Bounded tombstones prevent removed IDs from reopening within an instance.
     std::map<std::uint64_t, SessionRecord> sessions_;
+    unsigned int stale_sessions_ = 0;
 public:
     ProtectedFiles() = default;
     ProtectedFiles(const ProtectedFiles &) = delete;

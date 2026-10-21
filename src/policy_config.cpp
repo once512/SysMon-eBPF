@@ -5,7 +5,7 @@
 #include "policy/fields.h"
 #include "policy/fanotify_fields.h"
 #include "policy/writer_fields.h"
-#include <secmon/file_operations.h>
+#include "boot_clock.h"
 #include <set>
 #include <sstream>
 
@@ -55,8 +55,12 @@ PolicyConfig parse_policy(std::istream &input)
                 const auto mode = word(fields);
                 if (mode != "read" && mode != "read-write") invalid("invalid vault session access");
                 const auto duration = number<unsigned int>(word(fields), 100, 3600000);
+                auto boot = word(fields);
+                if (!secmon_clock::valid_boot_id(boot)) invalid("invalid vault boot ID");
+                const auto issued = number<std::uint64_t>(word(fields), 1,
+                    UINT64_MAX - static_cast<std::uint64_t>(duration) * 1000000);
                 result.vault_sessions.push_back({id, std::move(program), uid, std::move(target),
-                                                mode == "read" ? 1U : 3U, duration});
+                                                mode == "read" ? 1U : 3U, duration, std::move(boot), issued});
             } else if (key == "writer-lease-ms" && !result.writer_lease_ms) {
                 result.writer_lease_ms = number<unsigned int>(word(fields), 100, 3600000);
             } else if (key.compare(0, 9, "fanotify-") == 0) fanotify.parse(key, fields);

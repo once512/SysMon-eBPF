@@ -105,7 +105,7 @@ int main() {
     std::istringstream separated(data + "protect \"/other\"\nallow-writer \"/exe\" 0 \"/data\" write\nallow-writer \"/exe\" 0 \"/other\" unlink");
     require(parse_policy(separated).writers.size() == 2);
     const std::string vault = "revision 1\nvault \"/data\"\n";
-    std::istringstream vault_input(vault + "vault-session 7 \"/exe\" 65534 \"/data\" read-write 1200\n");
+    std::istringstream vault_input(vault + "vault-session 7 \"/exe\" 65534 \"/data\" read-write 1200 00000000-0000-0000-0000-000000000001 100\n");
     const auto box = parse_policy(vault_input);
     require(box.paths.size() == 1 && box.vaults == box.paths && box.vault_sessions.size() == 1);
     require(box.vault_sessions[0].id == 7 && box.vault_sessions[0].access == 3 && box.vault_sessions[0].duration_ms == 1200);
@@ -117,9 +117,13 @@ int main() {
     reject(vault + "protect \"/data\"\n");
     reject(vault + "allow-writer \"/exe\" 0 \"/data\" all");
     reject(data + "vault-session 1 \"/exe\" 0 \"/data\" read 100");
+    for (const auto *boot : {"00000000-0000-0000-0000-000000000000", "bad", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"})
+        reject(vault + "vault-session 1 \"/exe\" 0 \"/data\" read 100 " + boot + " 100");
+    for (const auto *issued : {"0", "-1", "+1", "18446744073709551615"})
+        reject(vault + "vault-session 1 \"/exe\" 0 \"/data\" read 100 00000000-0000-0000-0000-000000000001 " + issued);
     std::string sessions = vault;
     for (int i = 1; i <= 16; ++i)
-        sessions += "vault-session " + std::to_string(i) + " \"/exe\" 0 \"/data\" read 100\n";
+        sessions += "vault-session " + std::to_string(i) + " \"/exe\" 0 \"/data\" read 100 00000000-0000-0000-0000-000000000001 100\n";
     std::istringstream session_input(sessions);
     require(parse_policy(session_input).vault_sessions.size() == 16);
     reject(sessions + "vault-session 17 \"/exe\" 0 \"/data\" read 100");

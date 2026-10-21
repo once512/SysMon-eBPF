@@ -13,53 +13,15 @@
 #include <map>
 #include <set>
 #include <tuple>
-#include <time.h>
 #include <limits>
-#include <fstream>
-#include <sstream>
 #include <sys/stat.h>
 #include "secmon.h"
 
 #include "file_policy.h"
 #include "owned_fd.h"
 #include "writer_identity.h"
+#include "boot_clock.h"
 
-namespace {
-std::uint64_t lease_deadline(unsigned int milliseconds)
-{
-    // /proc/PID/timens_offsets describes the namespace for children. Only use
-    // its offset when that is also the current clock namespace.
-    struct stat current{}, children{};
-    if (stat("/proc/self/ns/time", &current) || stat("/proc/self/ns/time_for_children", &children) ||
-        current.st_dev != children.st_dev || current.st_ino != children.st_ino)
-        throw std::runtime_error("Cannot resolve current boot-clock namespace for writer lease");
-    std::ifstream offsets("/proc/self/timens_offsets");
-    std::string line;
-    long long offset_seconds = 0, offset_nanoseconds = 0;
-    bool found = false;
-    while (std::getline(offsets, line)) {
-        std::istringstream fields(line);
-        std::string clock;
-        fields >> clock;
-        if (clock != "boottime") continue;
-        if (found || !(fields >> offset_seconds >> offset_nanoseconds) ||
-            offset_nanoseconds < 0 || offset_nanoseconds >= 1000000000LL)
-            throw std::runtime_error("Invalid boot-clock namespace offset");
-        found = true;
-    }
-    if (!found || offsets.bad()) throw std::runtime_error("Cannot read boot-clock namespace offset");
-    timespec now{};
-    if (clock_gettime(CLOCK_BOOTTIME, &now)) throw std::runtime_error("Cannot read boot-time lease clock");
-    // GNU++17 wide arithmetic handles both signed offsets and overflow before
-    // conversion. BPF's boot-time helper uses the unshifted kernel clock.
-    const __int128 global = static_cast<__int128>(now.tv_sec) * 1000000000 + now.tv_nsec -
-                            (static_cast<__int128>(offset_seconds) * 1000000000 + offset_nanoseconds);
-    const __int128 deadline = global + static_cast<__int128>(milliseconds) * 1000000;
-    if (global < 0 || deadline > std::numeric_limits<std::uint64_t>::max())
-        throw std::runtime_error("Writer lease deadline outside global clock range");
-    return static_cast<std::uint64_t>(deadline);
-}
-}
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
 {
@@ -76,6 +38,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     if (config.vault_sessions.size() > SECMON_MAX_VAULT_SESSIONS)
         throw std::runtime_error("Too many vault sessions");
     const std::set<std::string> vaults(config.vaults.begin(), config.vaults.end());
+    const auto boot = config.vault_sessions.empty() ? std::string() : secmon_clock::boot_id();
     // 先分配保存 FD 的空间，再逐个 open；接管 FD 时不再触发 vector 扩容，减少异常路径泄漏风险。
     candidate.descriptors_.reserve(paths.size() + config.writers.size() + config.vault_sessions.size());
     // 这里创建的是内核 Map 对象，得到的是管理 FD；向 HASH 填充时尚未影响正在运行的钩子。
@@ -146,7 +109,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     if (config.writer_lease_ms) {
         if (writer_keys.empty() || config.writer_lease_ms < 100 || config.writer_lease_ms > 3600000)
             throw std::runtime_error("Invalid writer lease");
-        const auto deadline = lease_deadline(config.writer_lease_ms);
+        const auto deadline = secmon_clock::deadline_after(config.writer_lease_ms);
         // Only the unpublished candidate changes. Lease timing begins just
         // before map population/activation, conservatively before confirmation.
         for (const auto &key : writer_keys) {
@@ -160,10 +123,17 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     }
     for (std::size_t index = 0; index < config.vault_sessions.size(); ++index) {
         const auto &session = config.vault_sessions[index];
+        // A configuration may survive reboot. A different boot's grant must
+        // remain inert, without pinning a possibly absent old executable.
+        if (session.boot_id != boot) { ++candidate.stale_sessions_; continue; }
         const auto selected = target_keys.find(session.target);
         if (!vaults.count(session.target) || selected == target_keys.end() ||
             (session.access != SECMON_VAULT_READ && session.access != (SECMON_VAULT_READ | SECMON_VAULT_WRITE)) ||
-            session.duration_ms < 100 || session.duration_ms > 3600000)
+            session.duration_ms < 100 || session.duration_ms > 3600000 ||
+            !secmon_clock::valid_boot_id(session.boot_id) || !session.issued_boot_ns ||
+            session.issued_boot_ns > std::numeric_limits<std::uint64_t>::max() -
+                static_cast<std::uint64_t>(session.duration_ms) * 1000000 ||
+            session.issued_boot_ns > secmon_clock::global_boot_ns())
             throw std::runtime_error("Invalid vault session");
         auto pinned = pin_policy_file(session.program, true);
         candidate.descriptors_.push_back(std::move(pinned.fd));
@@ -177,8 +147,8 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
                 return a.major == b.major && a.minor == b.minor && a.ino == b.ino;
             };
             if (old == sessions_.end() || !old->second.active ||
-                std::tie(spec.program, spec.euid, spec.target, spec.access, spec.duration_ms) !=
-                std::tie(session.program, session.euid, session.target, session.access, session.duration_ms) ||
+                std::tie(spec.program, spec.euid, spec.target, spec.access, spec.duration_ms, spec.boot_id, spec.issued_boot_ns) !=
+                std::tie(session.program, session.euid, session.target, session.access, session.duration_ms, session.boot_id, session.issued_boot_ns) ||
                 !same_key(saved.program, pinned.key) || !same_key(saved.target, selected->second))
                 throw std::runtime_error("Vault session ID is retired or changed; use a new ID");
             deadline = saved.deadline; // unrelated reloads and reordering never renew.
@@ -186,7 +156,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
         } else {
             if (!session.id || candidate.sessions_.size() == SECMON_MAX_VAULT_SESSION_HISTORY)
                 throw std::runtime_error("Vault session history exhausted or invalid ID");
-            deadline = lease_deadline(session.duration_ms);
+            deadline = session.issued_boot_ns + static_cast<std::uint64_t>(session.duration_ms) * 1000000;
             candidate.sessions_.emplace(session.id, SessionRecord{session, pinned.key, selected->second, deadline, true});
         }
         file_policy_value subject{};
@@ -214,15 +184,20 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config)
     // 提交后交换固定文件集合；candidate 析构释放旧集合，活动对象持有新集合，失败则不会走到此处。
     descriptors_.swap(candidate.descriptors_);
     sessions_.swap(candidate.sessions_);
+    std::swap(stale_sessions_, candidate.stale_sessions_);
 }
 
 void ProtectedFiles::snapshot(management::Reply &reply) const
 {
     reply.vault_session_history = sessions_.size();
+    reply.vault_stale_sessions = stale_sessions_;
+    reply.vault_sessions = stale_sessions_;
+    reply.vault_live_sessions = 0;
+    reply.vault_next_deadline_boot_ns = 0;
     std::uint64_t now = 0;
     // /proc access may have changed after installation. Unknown clock state
     // must not be rendered as a trustworthy live-session count.
-    try { now = lease_deadline(0); reply.vault_clock_valid = 1; }
+    try { now = secmon_clock::deadline_after(0); reply.vault_clock_valid = 1; }
     catch (const std::exception &) { reply.vault_clock_valid = 0; }
     for (const auto &[id, record] : sessions_) {
         (void)id;

@@ -45,7 +45,7 @@ add_custom_command(OUTPUT "${BPF_SKEL}"
     DEPENDS "${BPF_OBJ}" cmake/Bpftool.cmake VERBATIM)
 # 纯用户态公共库：配置读取/摘要、运行版本和 root 管理协议；没有 BPF/fanotify 挂载动作。
 add_library(secmon-policy STATIC src/policy_config.cpp src/policy/source.cpp src/policy/fanotify_fields.cpp src/policy/writer_fields.cpp src/policy_runtime.cpp src/control.cpp src/control_client.cpp
-    src/management/protocol.cpp src/management/channel.cpp src/content_digest.cpp)
+    src/management/protocol.cpp src/management/channel.cpp src/content_digest.cpp src/boot_clock.cpp)
 target_include_directories(secmon-policy PUBLIC src include)
 target_compile_options(secmon-policy PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon-policy PUBLIC OpenSSL::Crypto)
@@ -75,6 +75,10 @@ target_sources(secmon PRIVATE src/fanotify/monitor.cpp src/fanotify/gate.cpp
 add_executable(secmon-policyctl src/management/main.cpp)
 target_link_libraries(secmon-policyctl PRIVATE secmon-policy)
 target_compile_options(secmon-policyctl PRIVATE -Wall -Wextra -Werror)
+
+add_executable(secmon-vault-session src/vault_session_main.cpp)
+target_link_libraries(secmon-vault-session PRIVATE secmon-policy)
+target_compile_options(secmon-vault-session PRIVATE -Wall -Wextra -Werror)
 
 add_executable(secmon-analyzer src/analysis/worker_main.cpp src/analysis/scanner.cpp
     src/analysis/transport.cpp)
@@ -113,10 +117,13 @@ if(BUILD_TESTING)
     add_executable(secmon-control-loop-tests tests/control_nonblocking.cpp)
     target_link_libraries(secmon-control-loop-tests PRIVATE secmon-policy)
     target_compile_options(secmon-control-loop-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME vault-session-help COMMAND secmon-vault-session --help)
     add_test(NAME policyctl-help COMMAND secmon-policyctl --help)
     add_test(NAME policyctl-cli COMMAND ${CMAKE_COMMAND} -DPOLICYCTL=$<TARGET_FILE:secmon-policyctl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/policyctl_cli.cmake)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME vault-session-declaration COMMAND ${Python3_EXECUTABLE} -B
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/vault_declaration.py --binary $<TARGET_FILE:secmon-vault-session>)
     add_test(NAME subscription-generations COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/subscription_generations.py)
     add_test(NAME offline-evidence-grouping COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_evidence.py)
     add_test(NAME offline-behavior-rule COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_behavior.py)

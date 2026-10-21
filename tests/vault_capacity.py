@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 
 from file_policy_map import PolicyMapView, key_for, policy_outer_ids
 from management_harness import call
@@ -33,13 +34,15 @@ def main():
             shutil.copyfile(build / 'secmon-writer-scenario', path)
             path.chmod(0o755)
         policy, control = root / 'policy', root / 'control'
+        issued = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+        boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         def publish(revision, enabled=True, missing=False):
             text = f'revision {revision}\n'
             if enabled:
                 text += ''.join(f'protect "{p}"\n' for p in files[:-1]) + f'vault "{files[-1]}"\n'
                 text += ''.join(f'allow-writer "{p}" 0 "{files[0]}" all\n' for p in writers)
                 text += ''.join(f'vault-session {i+1} "{p if not missing or i != 15 else root / "missing"}" '
-                                f'{0 if i == 15 else 65534} "{files[-1]}" read 10000\n'
+                                f'{0 if i == 15 else 65534} "{files[-1]}" read 10000 {boot} {issued}\n'
                                 for i, p in enumerate(clients))
             stage = root / 'stage'
             stage.write_text(text)
