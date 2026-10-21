@@ -152,11 +152,16 @@ def experiment(build, event, pidfd, rounds, artifact):
         handovers=[row for row in records if row['event']=='fanotify_target_handover']
         assert len(handovers)==updates
         next_id=1
+        generation=1
         for row in records:
             if row['event']=='fanotify_decision':
+                assert row['subscription_generation']==generation
                 assert row['request_id']==next_id
                 next_id+=1
             elif row['event']=='fanotify_target_handover':
+                assert row['from_generation']==generation and row['to_generation']==generation+1
+                generation+=1
+                assert row['pid_namespace_inode']==os.stat('/proc/self/ns/pid').st_ino
                 assert row['next_request_id']==next_id
                 assert row['listener_pid']==initial_pid and row['instance_ns']==service.initial['instance_ns']
                 assert row['from_revision']<row['to_revision']<=revision

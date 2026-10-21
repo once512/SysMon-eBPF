@@ -117,6 +117,7 @@ if(BUILD_TESTING)
     add_test(NAME policyctl-cli COMMAND ${CMAKE_COMMAND} -DPOLICYCTL=$<TARGET_FILE:secmon-policyctl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/policyctl_cli.cmake)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME subscription-generations COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/subscription_generations.py)
     add_test(NAME offline-evidence-grouping COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_evidence.py)
     add_test(NAME offline-behavior-rule COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/offline_behavior.py)
     add_test(NAME offline-capture-replay COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/capture_replay.py)

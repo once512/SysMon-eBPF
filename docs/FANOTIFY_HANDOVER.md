@@ -49,6 +49,8 @@ status 中 allowed/denied、原因计数、错误计数和 peak_pending 保留�
 | 字段 | 含义 |
 |---|---|
 | listener_pid / instance_ns | 同一服务实例 |
+| from_generation / to_generation | 连续订阅代际，初始为 1，仅目标 group 成功替换递增 |
+| pid_namespace_inode | 监听器的 PID namespace 坐标 |
 | from_revision / to_revision | 切换前后 revision |
 | old_targets / new_targets | 旧、新目标数 |
 | retained_targets | 共同路径文本复用旧引用的数量，不等于共同 inode 总数 |
@@ -57,9 +59,9 @@ status 中 allowed/denied、原因计数、错误计数和 peak_pending 保留�
 | kernel_unread | 固定 released_under_prior_allow，说明旧未读取请求按先前允许语义释放 |
 | individual_audit_complete | 固定 false，不认证该过渡的逐请求记录完整性 |
 
-该事件使用同一有界 AuditSink，失败/背压计入 audit_dropped，不能阻塞提交或让已经完成的切换重试。当前离线归组工具将它作为非规则事件忽略，仍可从原始流检查；它不是访问证据或攻击判定。
+该事件使用同一有界 AuditSink，失败/背压计入 audit_dropped，不能阻塞提交或让已经完成的切换重试。离线归组工具使用该记录构造订阅代际边界；它本身不充当访问证据或攻击判定。
 
-离线规则仍按进程键和设备/inode 归组，object_lifetime_verified=false；它尚未把目标切换转为订阅代际边界。目标移除后不再由 fanotify 固定旧对象，因此跨移除/重加的观察不能认证同一文件生命周期，后续应独立补齐这个边界。
+离线规则按进程键、设备/inode 和订阅代际归组，object_lifetime_verified=false。每次 group 成功替换会使所有目标进入新代际，包含保留的 inode；不跨代配对。详见 [离线边界](OFFLINE_EVIDENCE.md)。
 
 ## 验证入口
 

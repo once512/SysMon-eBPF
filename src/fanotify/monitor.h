@@ -12,6 +12,7 @@ class FanotifyMonitor {
     AuditSink *audit_;
     std::uint64_t instance_ns_;
     std::uint64_t revision_;
+    std::uint64_t subscription_generation_ = 1;
     bool requester_pidfd_;
     FanotifyOptions options_;
     std::unique_ptr<PermissionGate> gate_;

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include "audit_sink.h"
 #include <unistd.h>
+#include <limits>
 static_assert(std::is_nothrow_move_assignable_v<FanotifyOptions>);
 static_assert(std::is_nothrow_move_constructible_v<FanotifyOptions>);
 static_assert(std::is_nothrow_move_constructible_v<FanotifyMonitor::Prepared>);
@@ -63,6 +64,8 @@ FanotifyMonitor::Prepared FanotifyMonitor::prepare(const PolicyConfig &candidate
         if (options_.decision.external || !options_.decision.allow || options_.decision.delay.count())
             throw management::Error(management::Code::restart_required,
                 "Target handover requires the old gate to use immediate static allow");
+        if (subscription_generation_ == std::numeric_limits<std::uint64_t>::max())
+            throw std::runtime_error("Subscription generation exhausted");
         std::vector<std::pair<std::string, int>> retained;
         retained.reserve(options_.paths.size());
         for (std::size_t i = 0; i < options_.paths.size(); ++i)
@@ -71,7 +74,7 @@ FanotifyMonitor::Prepared FanotifyMonitor::prepare(const PolicyConfig &candidate
             prepared.retained_targets += std::find(options_.paths.begin(), options_.paths.end(), path) != options_.paths.end();
         prepared.replacement = std::make_unique<PermissionGate>(prepared.options.paths, prepared.options.decision,
             prepared.options.event, prepared.options.analyzer, policy_path_, audit_, instance_ns_, candidate.revision,
-            requester_pidfd_, &request_sequence_, retained);
+            requester_pidfd_, &request_sequence_, retained, subscription_generation_ + 1);
     }
     return prepared;
 }
@@ -81,6 +84,7 @@ void FanotifyMonitor::commit(Prepared candidate, std::uint64_t revision) noexcep
         const auto old_count = gate_->target_count();
         accumulate(history_, gate_->stats());
         ++history_.target_updates;
+        const auto previous_generation = subscription_generation_++;
         // All failure-prone preparation, including BPF installation, is done.
         // The old queue is empty; its unread kernel requests retain prior allow
         // semantics. The new group was marked before this old group is closed.
@@ -90,7 +94,11 @@ void FanotifyMonitor::commit(Prepared candidate, std::uint64_t revision) noexcep
                 const auto timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
                     PendingDecisions::Clock::now().time_since_epoch()).count();
                 audit_->enqueue("{\"event\":\"fanotify_target_handover\",\"listener_pid\":" + std::to_string(getpid()) +
-                    ",\"instance_ns\":" + std::to_string(instance_ns_) + ",\"from_revision\":" + std::to_string(revision_) +
+                    ",\"instance_ns\":" + std::to_string(instance_ns_) +
+                    ",\"pid_namespace_inode\":" + std::to_string(gate_->pid_namespace_inode()) +
+                    ",\"from_generation\":" + std::to_string(previous_generation) +
+                    ",\"to_generation\":" + std::to_string(subscription_generation_) +
+                    ",\"from_revision\":" + std::to_string(revision_) +
                     ",\"to_revision\":" + std::to_string(revision) + ",\"old_targets\":" + std::to_string(old_count) +
                     ",\"new_targets\":" + std::to_string(gate_->target_count()) +
                     ",\"retained_targets\":" + std::to_string(candidate.retained_targets) +

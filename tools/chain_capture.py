@@ -6,11 +6,12 @@ from bisect import bisect_left
 from collections import Counter, defaultdict, deque
 import hashlib
 import io
+from itertools import islice
 import json
 from pathlib import Path
 import sys
 
-from evidence import observation
+from evidence import SubscriptionIndex, observation
 from evaluate_capture import MAX_BYTES, MAX_RECORDS, decode, evaluate_capture, labels_from
 from replay_capture import MAX_MANIFEST
 
@@ -40,6 +41,10 @@ def summarize(records, labels=None, pair_window_ms=1000, chain_window_ms=10000, 
     ):
         if type(value) is not int or not low <= value <= high:
             raise ValueError(f'{name} must be an integer in {low}..{high}')
+    records = list(islice(records, MAX_RECORDS + 1))
+    if len(records) > MAX_RECORDS:
+        raise ValueError('chain input exceeds 50000 records')
+    subscriptions = SubscriptionIndex(records)
     objects = {}
     unattributed = ignored = count = 0
     listener = None
@@ -49,7 +54,7 @@ def summarize(records, labels=None, pair_window_ms=1000, chain_window_ms=10000, 
             raise ValueError('chain input exceeds 50000 records')
         if not isinstance(record, dict):
             raise ValueError('JSON object required')
-        item = observation(record, line)
+        item = observation(record, line, subscriptions)
         if item is None:
             ignored += 1
             continue
@@ -74,7 +79,8 @@ def summarize(records, labels=None, pair_window_ms=1000, chain_window_ms=10000, 
             group['allows'].append(fact['responded_ns'])
             group['revisions'][fact['revision']] += 1
     processes = defaultdict(lambda: dict(objects=[], denials=[], paired=[]))
-    for (process, *target), group in sorted(objects.items()):
+    for key, group in sorted(objects.items()):
+        process, *target, generation = key
         target = tuple(target)
         allows = sorted(group['allows'])
         paired = []
@@ -86,15 +92,15 @@ def summarize(records, labels=None, pair_window_ms=1000, chain_window_ms=10000, 
                    access_allows=len(allows), mutation_denials=len(group['denials']),
                    paired_denials=len(paired), denial_operations=dict(sorted(group['operations'].items())),
                    access_revisions={str(k): v for k, v in sorted(group['revisions'].items())})
-        state = processes[process]
+        state = processes[(process, generation)]
         state['objects'].append(row)
         state['denials'].extend((t, target) for t in group['denials'])
         state['paired'].extend((t, target) for t in paired)
     output = []
-    for process, state in sorted(processes.items()):
+    for (process, generation), state in sorted(processes.items()):
         denied_peak = peak(state['denials'], chain_window_ms * 1_000_000)
         paired_peak = peak(state['paired'], chain_window_ms * 1_000_000)
-        output.append(dict(process_inode=process, role=(labels or {}).get(process, 'unlabelled'),
+        output.append(dict(process_inode=process, subscription_generation=generation, role=(labels or {}).get(process, 'unlabelled'),
                            objects=state['objects'], mutation_denials=len(state['denials']),
                            paired_denials=len(state['paired']),
                            distinct_denied_objects=sum(r['mutation_denials'] > 0 for r in state['objects']),
@@ -103,7 +109,7 @@ def summarize(records, labels=None, pair_window_ms=1000, chain_window_ms=10000, 
                            multi_object_denials_observed=denied_peak['distinct_objects'] >= min_objects,
                            multi_object_access_then_denial_observed=paired_peak['distinct_objects'] >= min_objects,
                            classification='undetermined', response='none'))
-    return dict(processes=output, records=count, ignored=ignored, unattributed=unattributed,
+    return dict(processes=output, subscription_handovers=len(subscriptions.boundaries), records=count, ignored=ignored, unattributed=unattributed,
                 pair_window_ms=pair_window_ms, chain_window_ms=chain_window_ms, min_objects=min_objects,
                 analysis_scope='complete provided input, not complete process history',
                 observations_complete_for_process=False, read_completion_verified=False,

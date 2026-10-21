@@ -14,7 +14,7 @@ int main()
     const auto responded = PendingDecisions::Clock::time_point(3500us);
     const auto text = format_permission_decision(identity, request, {true, DecisionReason::policy}, responded);
     require(text == "{\"event\":\"fanotify_decision\",\"listener_pid\":321,\"instance_ns\":123,\"request_id\":1,"
-                    "\"requester_pid\":456,\"requester_pid_kind\":\"tgid\",\"pid_namespace_inode\":4026531836,\"revision\":77,\"major\":8,\"minor\":1,\"inode\":999,"
+                    "\"requester_pid\":456,\"requester_pid_kind\":\"tgid\",\"pid_namespace_inode\":4026531836,\"subscription_generation\":1,\"revision\":77,\"major\":8,\"minor\":1,\"inode\":999,"
                     "\"permission_event\":\"open\",\"decision\":\"allow\",\"reason\":\"policy\","
                     "\"scan_error\":\"none\",\"scan_errno\":0,\"received_ns\":1000000,\"responded_ns\":3500000,\"latency_us\":2500}\n",
             "stable permission reply identity, timestamps and reason fields");
@@ -32,6 +32,12 @@ int main()
     try { format_permission_decision(missing_namespace, request, {true, DecisionReason::policy}, responded); }
     catch (const std::invalid_argument &) { rejected_namespace = true; }
     require(rejected_namespace, "namespace identity cannot be silently omitted");
+    auto zero_generation = identity;
+    zero_generation.subscription_generation = 0;
+    bool rejected_generation = false;
+    try { format_permission_decision(zero_generation, request, {true, DecisionReason::policy}, responded); }
+    catch (const std::invalid_argument &) { rejected_generation = true; }
+    require(rejected_generation, "subscription generation cannot be omitted");
     identity.event = PermissionEvent::access;
     auto line = format_permission_decision(identity, request,
         {false, DecisionReason::analyzer_error, analysis::ScanError::read_failed, EIO}, responded);
@@ -61,7 +67,7 @@ int main()
         require(encoded.find("\"requester_process_inode\":0") != std::string::npos, "missing identity cannot become a cookie");
     }
     request.process = {ProcessReferenceState::present, std::numeric_limits<std::uint64_t>::max(), 0};
-    request.id = request.revision = identity.pid_namespace_inode = identity.instance_ns = identity.inode = std::numeric_limits<std::uint64_t>::max();
+    request.id = request.revision = identity.subscription_generation = identity.pid_namespace_inode = identity.instance_ns = identity.inode = std::numeric_limits<std::uint64_t>::max();
     identity.major = identity.minor = std::numeric_limits<std::uint32_t>::max();
     identity.event = PermissionEvent::exec;
     request.requester_pid = -1; // 内核原始值不会被 /proc 查询或无证据的 UID 字段替换。

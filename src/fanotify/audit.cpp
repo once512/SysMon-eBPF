@@ -20,7 +20,7 @@ std::string format_permission_decision(const PermissionAuditIdentity &identity, 
                                        Verdict verdict, PendingDecisions::Clock::time_point responded)
 {
     using namespace std::chrono;
-    if (!identity.pid_namespace_inode || !request.id || !identity.instance_ns || identity.listener_pid <= 0 || responded < request.received ||
+    if (!identity.subscription_generation || !identity.pid_namespace_inode || !request.id || !identity.instance_ns || identity.listener_pid <= 0 || responded < request.received ||
         request.received.time_since_epoch() < PendingDecisions::Clock::duration::zero() ||
         !analysis::valid_scan_error(verdict.scan_error, verdict.scan_errno) ||
         (verdict.scan_error != analysis::ScanError::none && verdict.reason != DecisionReason::analyzer_error))
@@ -38,6 +38,7 @@ std::string format_permission_decision(const PermissionAuditIdentity &identity, 
         << ",\"instance_ns\":" << identity.instance_ns << ",\"request_id\":" << request.id
         << ",\"requester_pid\":" << request.requester_pid
         << ",\"requester_pid_kind\":\"tgid\",\"pid_namespace_inode\":" << identity.pid_namespace_inode
+        << ",\"subscription_generation\":" << identity.subscription_generation
         << ",\"revision\":" << request.revision
         << ",\"major\":" << identity.major << ",\"minor\":" << identity.minor << ",\"inode\":" << identity.inode
         << ",\"permission_event\":\"" << event << "\",\"decision\":\"" << (verdict.allow ? "allow" : "deny")

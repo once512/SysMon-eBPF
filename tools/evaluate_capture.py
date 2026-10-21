@@ -12,7 +12,7 @@ import random
 import re
 import sys
 
-from evidence import Grouper, observation, finite_float, reject_constant, unique_object
+from evidence import Grouper, SubscriptionIndex, observation, finite_float, reject_constant, unique_object
 from replay_capture import MAX_MANIFEST, verify_capture
 
 MAX_BYTES = 32 * 1024 * 1024
@@ -49,11 +49,12 @@ def labels_from(manifest):
 
 def oracle(rows, window_ms, labels):
     """Full-history timestamp reference, independent of delivery order and bounded queues."""
+    subscriptions = SubscriptionIndex(row[1] for row in rows)
     allows = defaultdict(list)
     denials = []
     counts = defaultdict(Counter)
     for line, record, _ in rows:
-        item = observation(record, line)
+        item = observation(record, line, subscriptions)
         if item is None:
             continue
         key, fact = item
@@ -81,8 +82,11 @@ def delivery(rows, mode, seed):
     if mode == 'reverse':
         return rows[::-1]
     if mode == 'chronological':
+        subscriptions = SubscriptionIndex(row[1] for row in rows)
         def timestamp(row):
-            item = observation(row[1], row[0])
+            if row[1].get('event') == 'fanotify_target_handover':
+                return (row[1]['timestamp_ns'], row[0])
+            item = observation(row[1], row[0], subscriptions)
             if item is None:
                 return (0, row[0])
             fact = item[1]
@@ -106,6 +110,7 @@ def compare(rows, source, labels, window_ms, history, max_groups, modes, seed):
         reference = oracle(delivered, window_ms, labels)
         grouper = Grouper(source['machine_id'], source['boot_id'], source['capture_id'],
                           max_groups=max_groups, samples=1, rule_window_ms=window_ms, rule_history=history)
+        grouper.subscriptions = SubscriptionIndex(row[1] for row in delivered)
         observed = Counter()
 
         def collect(row):

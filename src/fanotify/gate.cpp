@@ -91,17 +91,20 @@ PermissionGate::PermissionGate(const std::vector<std::string> &paths, DecisionCo
                                const AnalyzerConfig &analyzer, const std::string &policy_path,
                                AuditSink *audit, std::uint64_t instance_ns, std::uint64_t revision, bool requester_pidfd,
                                std::uint64_t *request_sequence,
-                               const std::vector<std::pair<std::string, int>> &retained)
+                               const std::vector<std::pair<std::string, int>> &retained,
+                               std::uint64_t subscription_generation)
     : analyzer_(config.external ? std::make_unique<AnalysisClient>(analyzer) : nullptr), targets_(pin_targets(paths, policy_path, retained)), group_(create_group(requester_pidfd)), mask_(permission_mask(event)), requester_pidfd_(requester_pidfd),
       audit_(audit), revision_(revision),
       pending_(config, [this](int fd, const PermissionRequest &request, Verdict verdict) { respond(fd, request, verdict); }, request_sequence)
 {
+    if (!subscription_generation) throw std::invalid_argument("Subscription generation exhausted");
     if (audit_) {
         struct stat pid_namespace{};
         // Cache the group creator's PID namespace once, never look up requesters by numeric PID.
         if (stat("/proc/self/ns/pid", &pid_namespace)) fail("stat permission audit PID namespace");
         audit_identity_ = {instance_ns, getpid(), 0, 0, 0, event, pid_namespace.st_ino};
     }
+    audit_identity_.subscription_generation = subscription_generation;
     // 配置若就是被标记对象，重载读取它会等待本监听器给自己裁决；
     // 必须在添加 mark 前排除。
     // Follow the pinned FD rather than resolving the user's path a second time.

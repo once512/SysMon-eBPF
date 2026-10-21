@@ -38,7 +38,8 @@ public:
                    const AnalyzerConfig &analyzer = {}, const std::string &policy_path = {},
                    AuditSink *audit = nullptr, std::uint64_t instance_ns = 0, std::uint64_t revision = 0,
                    bool requester_pidfd = false, std::uint64_t *request_sequence = nullptr,
-                   const std::vector<std::pair<std::string, int>> &retained = {});
+                   const std::vector<std::pair<std::string, int>> &retained = {},
+                   std::uint64_t subscription_generation = 1);
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     // pending 的回复 lambda 捕获当前 this；
@@ -60,6 +61,7 @@ public:
     void shutdown();
     const std::vector<int> &target_fds() const { return target_fds_; }
     std::size_t target_count() const { return targets_.size(); }
+    std::uint64_t pid_namespace_inode() const { return audit_identity_.pid_namespace_inode; }
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
     // 这是监督器最近观测到的通信状态；
     // 查询不会主动 ping，进程刚刚死亡而尚未处理断连时可能仍显示在线。

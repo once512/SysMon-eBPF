@@ -83,3 +83,5 @@ sudo python3 -B tests/run_privileged.py --build-dir build \
 本轮固定产物、30 项特权专题与三组逐条对账负载的实际结果见 [验证记录](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)。
 
 可选 `--requester-pidfd` 增加内核进程引用及经 pidfs 验证的 requester_process_inode，与 BPF process_inode 做受约束的进程级关联；字段、资源和失败合同见 [请求方 pidfd](REQUESTER_PIDFD.md)。默认不开启，不增加这些权限记录字段。
+
+权限记录新增非零 subscription_generation，固定在所属 group，初始为 1，仅目标集合成功切换递增。仅裁决重载不会改变代际；边界校验与乱序离线分析见 [订阅代际](OFFLINE_EVIDENCE.md)。

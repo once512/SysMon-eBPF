@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: MIT
 """Bounded offline grouping of audit facts by declared boot, pidfs process, and file object."""
 import argparse
+from bisect import bisect_left, bisect_right
 from collections import OrderedDict, deque
 import json
 import math
 import re
 import sys
+import tempfile
 import uuid
 from behavior import AccessThenDenial
 
@@ -43,7 +45,88 @@ def finite_float(value):
     return result
 
 
-def observation(record, line_number):
+MAX_INPUT_BYTES = 128 * 1024 * 1024
+MAX_INPUT_RECORDS = 1_000_000
+MAX_HANDOVERS = 4096
+
+
+class SubscriptionIndex:
+    """Conservative whole-group epochs, validated before any evidence is emitted.
+
+    The index does not certify file lifetimes. Even retained targets cross an
+    epoch boundary. BPF timestamps equal to a boundary are deliberately unpaired.
+    """
+    def __init__(self, records=()):
+        self.boundaries = []
+        self.listener = None
+        for record in records:
+            if not isinstance(record, dict) or record.get('event') != 'fanotify_target_handover':
+                continue
+            if len(self.boundaries) == MAX_HANDOVERS:
+                raise ValueError('at most 4096 subscription handovers are supported')
+            identity = (integer(record, 'pid_namespace_inode', minimum=1),
+                        integer(record, 'listener_pid', 32, minimum=1, signed=True),
+                        integer(record, 'instance_ns', minimum=1))
+            if self.listener is not None and identity != self.listener:
+                raise ValueError('mixed subscription listener instances')
+            self.listener = identity
+            previous = integer(record, 'from_generation', minimum=1)
+            following = integer(record, 'to_generation', minimum=2)
+            old_revision = integer(record, 'from_revision', minimum=1)
+            new_revision = integer(record, 'to_revision', minimum=1)
+            timestamp = integer(record, 'timestamp_ns', minimum=1)
+            request = integer(record, 'next_request_id', minimum=1)
+            old_targets = integer(record, 'old_targets', 32, minimum=1)
+            new_targets = integer(record, 'new_targets', 32, minimum=1)
+            retained = integer(record, 'retained_targets', 32)
+            if (following != previous + 1 or following >= 2**64 or new_revision <= old_revision or
+                max(old_targets, new_targets) > 64 or retained > min(old_targets, new_targets) or
+                record.get('kernel_unread') != 'released_under_prior_allow' or
+                record.get('individual_audit_complete') is not False):
+                raise ValueError('invalid subscription handover contract')
+            self.boundaries.append((previous, following, timestamp, request, old_revision, new_revision))
+        self.boundaries.sort()
+        for i, boundary in enumerate(self.boundaries):
+            if boundary[0] != i + 1:
+                raise ValueError('missing or duplicate subscription generation boundary')
+            if i:
+                older = self.boundaries[i - 1]
+                if boundary[2] <= older[2] or boundary[3] < older[3] or boundary[4] < older[5]:
+                    raise ValueError('non-monotonic subscription boundary')
+        self.times = [row[2] for row in self.boundaries]
+        self.requests = [row[3] for row in self.boundaries]
+
+    def generation(self, record):
+        if record['event'] == 'fanotify_decision':
+            generation = integer(record, 'subscription_generation', minimum=1, default=1)
+            if self.listener is not None and tuple(record[name] for name in
+                ('pid_namespace_inode', 'listener_pid', 'instance_ns')) != self.listener:
+                raise ValueError('permission outside subscription listener instance')
+            expected = bisect_right(self.requests, record['request_id']) + 1
+            if generation != expected:
+                raise ValueError('missing subscription boundary or mismatched request generation')
+            lower = self.times[generation - 2] if generation > 1 else 0
+            upper = self.times[generation - 1] if generation <= len(self.times) else 2**64
+            lower_revision = self.boundaries[generation - 2][5] if generation > 1 else 1
+            upper_revision = self.boundaries[generation - 1][4] if generation <= len(self.times) else 2**64 - 1
+            if not lower_revision <= record['revision'] <= upper_revision:
+                raise ValueError('permission revision contradicts subscription boundary')
+            if record['received_ns'] < lower or record['responded_ns'] >= upper:
+                raise ValueError('permission crosses or contradicts subscription boundary')
+            return generation
+        timestamp = record['timestamp_ns']
+        position = bisect_left(self.times, timestamp)
+        if position < len(self.times) and self.times[position] == timestamp:
+            return 0
+        return position + 1
+
+
+def decoded_record(raw):
+    return json.loads(raw.decode('utf-8'), object_pairs_hook=unique_object,
+                      parse_constant=reject_constant, parse_float=finite_float)
+
+
+def observation(record, line_number, subscriptions=None):
     """Return (object key, compact fact), None for unsupported events, or an unattributed fact."""
     kind = record.get('event')
     if kind not in ('fanotify_decision', 'file_denied'):
@@ -79,6 +162,7 @@ def observation(record, line_number):
                     listener_pid=record['listener_pid'], instance_ns=record['instance_ns'],
                     pid_namespace_inode=record['pid_namespace_inode'], request_id=record['request_id'])
         fact.update(revision=record['revision'], reason=record['reason'], requester_pid=record['requester_pid'])
+        fact['subscription_generation'] = (subscriptions or SubscriptionIndex()).generation(record)
         if not process:
             return None, dict(fact, unattributed_reason='inspection_failed' if error else 'reference_' + state)
     else:
@@ -95,9 +179,10 @@ def observation(record, line_number):
         process = integer(record, 'process_inode', default=0)
         fact = dict(line=line_number, event=kind, timestamp_field='timestamp_ns', timestamp_ns=timestamp,
                     operation=OPERATIONS[operation], pid=record['pid'], tid=record['tid'], start_ns=record['start_ns'])
+        fact['subscription_generation'] = (subscriptions or SubscriptionIndex()).generation(record)
         if not process:
             return None, dict(fact, unattributed_reason='process_inode_unavailable')
-    return (process, *target), fact
+    return (process, *target, fact['subscription_generation']), fact
 
 
 class Grouper:
@@ -117,6 +202,7 @@ class Grouper:
         if not 0 <= rule_window_ms <= 3_600_000 or not 1 <= rule_history <= 128:
             raise ValueError('rule-window-ms must be 0..3600000; rule-history must be 1..128')
         self.source = dict(machine_id=machine_id, boot_id=str(boot), capture_id=capture_id, assurance='operator-declared')
+        self.subscriptions = SubscriptionIndex()
         self.listener_instance = None
         self.mixed_listener_instances = False
         self.max_groups, self.samples = max_groups, samples
@@ -127,10 +213,10 @@ class Grouper:
         self.counts = dict(records=0, grouped=0, unattributed=0, ignored=0, invalid=0, segments=0, capacity_evictions=0)
 
     def segment(self, key, group, reason):
-        process, major, minor, inode = key
+        process, major, minor, inode, generation = key
         self.counts['segments'] += 1
         result = dict(event='process_object_evidence', source=self.source, process_inode=process,
-                    target=dict(major=major, minor=minor, inode=inode), segment_id=self.counts['segments'],
+                    target=dict(major=major, minor=minor, inode=inode), subscription_generation=generation, segment_id=self.counts['segments'],
                     segment_end=reason, first_line=group['first'], last_line=group['last'],
                     permission_allow=group['allow'], permission_deny=group['deny'], mutation_denied=group['mutation'],
                     denial_operations=group['operations'],
@@ -151,7 +237,9 @@ class Grouper:
                                 parse_constant=reject_constant, parse_float=finite_float)
             if not isinstance(record, dict):
                 raise ValueError('JSON object required')
-            result = observation(record, line_number)
+            if record.get('event') == 'fanotify_target_handover' and not self.subscriptions.boundaries:
+                raise ValueError('handover requires a prevalidated complete capture')
+            result = observation(record, line_number, self.subscriptions)
             if result is not None and record.get('event') == 'fanotify_decision':
                 listener = (record['pid_namespace_inode'], record['listener_pid'], record['instance_ns'])
                 if self.listener_instance is None:
@@ -210,20 +298,49 @@ class Grouper:
                    rule_window_ms=self.rule_window_ms, rule_history=self.rule_history,
                    rule_matches=self.rule_matches, rule_history_evictions=self.rule_history_evictions,
                    deduplication='none', classification='undetermined', unattributed_reasons=self.unattributed_reasons,
+                   subscription_handovers=len(self.subscriptions.boundaries),
+                   subscription_partition='whole-group timestamp epochs; equal-boundary denials unpaired',
                    listener_instance=self.listener_instance, mixed_listener_instances=self.mixed_listener_instances)
 
 
 def consume(stream, grouper):
-    while True:
-        raw = stream.readline(MAX_LINE + 1)
-        if not raw:
-            break
-        oversized = len(raw) > MAX_LINE
-        if oversized and not raw.endswith(b'\n'):
-            while raw and not raw.endswith(b'\n'):
-                raw = stream.readline(MAX_LINE + 1)
-        yield from grouper.accept(raw, oversized)
-    yield from grouper.finish()
+    # An offline batch needs its complete boundary index before it can safely
+    # interpret reordered records. Spool to bounded disk, not an unbounded list.
+    with tempfile.TemporaryFile(mode='w+b') as spool:
+        total = records = 0
+        handovers = []
+        while True:
+            raw = stream.readline(MAX_LINE + 1)
+            if not raw:
+                break
+            total += len(raw)
+            records += 1
+            oversized = len(raw) > MAX_LINE
+            if oversized and not raw.endswith(b'\n'):
+                tail = raw
+                while tail and not tail.endswith(b'\n'):
+                    tail = stream.readline(MAX_LINE + 1)
+                    total += len(tail)
+                    if total > MAX_INPUT_BYTES:
+                        raise ValueError('offline input exceeds 128 MiB')
+            if total > MAX_INPUT_BYTES or records > MAX_INPUT_RECORDS:
+                raise ValueError('offline input exceeds 128 MiB or 1000000 records')
+            stored = b'\x00\n' if oversized else raw + (b'' if raw.endswith(b'\n') else b'\n')
+            spool.write(stored)
+            if not oversized:
+                try:
+                    record = decoded_record(raw)
+                except (ValueError, UnicodeError, RecursionError, TypeError):
+                    continue  # Account for the invalid record in the second pass.
+                if isinstance(record, dict) and record.get('event') == 'fanotify_target_handover':
+                    if len(handovers) == MAX_HANDOVERS:
+                        raise ValueError('at most 4096 subscription handovers are supported')
+                    handovers.append(record)
+        grouper.subscriptions = SubscriptionIndex(handovers)
+        spool.seek(0)
+        for raw in spool:
+            yield from grouper.accept(raw)
+        yield from grouper.finish()
 
 
 def main(argv=None):
@@ -243,8 +360,12 @@ def main(argv=None):
                           args.rule_window_ms, args.rule_history)
     except ValueError as error:
         parser.error(str(error))
-    for result in consume(sys.stdin.buffer, grouper):
-        print(json.dumps(result, separators=(',', ':'), ensure_ascii=True))
+    try:
+        for result in consume(sys.stdin.buffer, grouper):
+            print(json.dumps(result, separators=(',', ':'), ensure_ascii=True))
+    except (OSError, ValueError) as error:
+        print('evidence analysis failed: ' + str(error), file=sys.stderr)
+        return 1
     return int(grouper.counts['invalid'] != 0)
 
 

@@ -28,6 +28,7 @@ TESTS = (
     ('fanotify-policy', 'fanotify_policy.py'),
     ('fanotify-multiple', 'fanotify_multiple.py'),
     ('fanotify-handover', 'fanotify_handover.py'),
+    ('subscription-lifecycle', 'subscription_live.py'),
     ('management-live', 'management_live.py'),
     ('management-faults', 'management_faults.py'),
     ('control-loop', 'control_loop.py'),

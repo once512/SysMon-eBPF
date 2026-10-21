@@ -12,6 +12,7 @@ struct PermissionAuditIdentity {
     PermissionEvent event = PermissionEvent::open;
     // Namespace captured when creating the group; metadata.pid is a TGID in this coordinate.
     std::uint64_t pid_namespace_inode = 0;
+    std::uint64_t subscription_generation = 1;
 };
 std::string format_permission_decision(const PermissionAuditIdentity &identity, const PermissionRequest &request,
                                        Verdict verdict, PendingDecisions::Clock::time_point responded);
