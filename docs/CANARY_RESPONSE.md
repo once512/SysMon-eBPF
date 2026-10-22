@@ -29,6 +29,7 @@ canary-response 2 30000
 ## 内核执行范围
 
 - 同次钩子先发布该线程组的响应状态，再以 EACCES 拒绝触发操作；动作不等待用户态消费审计，ring buffer 满也不会放行该操作。
+- 扩展属性、ACL 和已分类修改 ioctl 同样触发；活动响应期间普通文件的全部 ioctl 拒绝，未触发时未知 ioctl 仅保守拒绝选中对象、不判为攻击。具体授权和已测 I/O 见[补充范围](FILE_METADATA.md)。
 - 普通文件的已有写 FD、新可写打开、普通写权限检查、截断、删除、重命名、硬链接、setattr、新共享可写映射及共享映射增加写权限纳入限制。未列入保护集合的普通文件也受限制；已有 writer/vault 授权不能绕过响应。
 - 已存在的其他线程共享状态；其余进程和触发之前已有的子进程不继承状态。fork/clone（包括创建新线程）和 exec 在后续检查点拒绝。已通过检查的在途操作不能被追溯撤销。
 - 保留普通读取、私有映射及管道/socket I/O；不向进程发送 SIGSTOP、SIGKILL，也不把用户态 PID 数字用于响应。
@@ -40,7 +41,7 @@ canary-response 2 30000
 
 响应为独立的有界 HASH，最多 4096 个线程组条目，不使用 LRU 淘汰；活动或已过期但仍存活的进程会占用条目，退出才回收。表满或身份缺失时，诱饵修改仍拒绝，但不得声称其他文件已经受到响应限制：`response_failed` 增加，审计带失败标志。此失败策略目前为显式降级，尚无系统级紧急响应或自动容量回收。
 
-BPF 事件 ABI 为 7；主程序与 skeleton 同包升级。`file_denied` 新增：
+BPF 事件 ABI 为 8；主程序与 skeleton 同包升级。`file_denied` 新增：
 
 - `canary_hit`、`response_started`、`response_blocked`、`response_failed`；
 - `response_epoch`、`response_deadline_boot_ns`。
@@ -49,7 +50,7 @@ BPF 事件 ABI 为 7；主程序与 skeleton 同包升级。`file_denied` 新增
 
 管理布局为同包 v7/432 字节。BPF 状态增加 `canary_paths`、`response_epoch`、`response_duration_ms`，以及累计 `response_started`、`response_failed`、`response_denied`。这些是累计内核计数采样，不是当前受限进程数；采样跨 CPU 不是原子快照。配置关闭后累计值保留。stderr 定期输出同名计数。
 
-策略内层为 337 项、368 字节 value：保留原有最多 336 个目标/主体 inode，额外一项使用不可能的设备主号作为响应配置。目标和响应配置通过同一个不可变 Map 引用切换，失败候选保留旧策略和解除编号。
+策略内层为 337 项、408 字节 value：保留原有最多 336 个目标/主体 inode，额外一项使用不可能的设备主号作为响应配置。目标和响应配置通过同一个不可变 Map 引用切换，失败候选保留旧策略和解除编号。
 
 ## 已知边界
 

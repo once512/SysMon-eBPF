@@ -53,7 +53,7 @@ ID 为正 uint64，MODE 为 read 或 read-write，DURATION_MS 为 100..3600000�
 
 ## 组合、容量与状态
 
-protect/vault 合计最多 256 条目标路径，另有最多 64 条 allow-writer、16 条 vault-session。候选 Map 最多 336 个不同 inode、value 为 352 字节。相同 inode 的 protect/vault 别名合并为更严格的 vault；allow-writer 不能直接或经别名指向 vault。
+protect/vault 合计最多 256 条目标路径，另有最多 64 条 allow-writer、16 条 vault-session。候选 Map 为337项（含一项响应配置），最多336个不同 inode、value为408字节。相同 inode 的 protect/vault 别名合并为更严格的 vault；allow-writer 不能直接或经别名指向 vault。
 
 当前实例最多保留 4096 个历史会话 ID，不静默淘汰墓碑；达到上限后拒绝新 ID，仍允许关闭会话。候选失败保留原 Map、期限、历史和对象引用。
 
@@ -75,7 +75,7 @@ live 是采样值，不是授权令牌。clock_valid=false 时零 live 数表示
 
 file_denied 新增 vault_session_expired，只有主体、目标、UID、权限匹配但会话过期时才设置。读操作编号 11=open-read、12=read、13=mmap-read，原 1..8 修改编号不变。离线修改行为工具明确忽略读拒绝，避免误计为勒索修改。
 
-目录递归、全部异步 I/O、扩展属性/ACL、文件系统专用操作、底层设备和 overlay/NFS/FUSE 覆盖仍待验证或实现。加密、密钥、备份恢复及虚拟诱饵是独立未完成项。
+扩展属性/ACL及部分ioctl现已补齐，读写会话不授予这些修改权限，见[具体范围](FILE_METADATA.md)。目录递归、全部异步I/O、其他文件系统专用操作、底层设备和overlay/NFS/FUSE覆盖仍待验证或实现。加密、密钥、备份恢复及虚拟诱饵是独立未完成项。
 
 ## 验证入口
 

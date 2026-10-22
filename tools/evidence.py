@@ -14,7 +14,8 @@ from behavior import AccessThenDenial
 
 MAX_LINE = 4096
 OPERATIONS = {1: 'open-write', 2: 'write', 3: 'truncate', 4: 'unlink',
-              5: 'rename', 6: 'link', 7: 'setattr', 8: 'mmap-write'}
+              5: 'rename', 6: 'link', 7: 'setattr', 8: 'mmap-write', 16: 'setxattr', 17: 'removexattr',
+              18: 'setacl', 19: 'removeacl', 20: 'ioctl-write'}
 
 
 def integer(record, name, bits=64, minimum=0, signed=False, default=None):
@@ -171,7 +172,7 @@ def observation(record, line_number, subscriptions=None):
         operation = integer(record, 'operation', 32, minimum=1)
         # Vault read denials are valid audit facts, but this tool's rule is
         # exclusively about denied mutations. Never count a read as a mutation.
-        if operation in (11, 12, 13):
+        if operation in (11, 12, 13, 21):
             return None
         if operation not in OPERATIONS:
             raise ValueError('unknown file operation')

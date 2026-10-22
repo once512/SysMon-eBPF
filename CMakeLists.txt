@@ -88,6 +88,12 @@ target_compile_options(secmon-analyzer PRIVATE -Wall -Wextra -Werror)
 # CTest 运行无特权检查；真实加载 BPF、fanotify 权限事件和权限转换由 tests/run_privileged.py 另行组织。
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(secmon-metadata-compat tests/metadata_compat.cpp)
+    target_compile_options(secmon-metadata-compat PRIVATE -m32 -fno-pie -fno-stack-protector
+        -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
+    target_link_options(secmon-metadata-compat PRIVATE -m32 -nostdlib -static -no-pie -Wl,--build-id=none)
+    add_executable(secmon-metadata-scenario tests/metadata_scenario.cpp)
+    target_compile_options(secmon-metadata-scenario PRIVATE -Wall -Wextra -Werror)
     add_executable(secmon-response-scenario tests/response_scenario.cpp)
     target_link_libraries(secmon-response-scenario PRIVATE Threads::Threads)
     target_compile_options(secmon-response-scenario PRIVATE -Wall -Wextra -Werror)

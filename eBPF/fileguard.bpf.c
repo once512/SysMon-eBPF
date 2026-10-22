@@ -29,7 +29,7 @@ static __always_inline void *active_file_policy(void)
 
 #include "writer_identity.bpf.c"
 
-static __always_inline int guard_inode_policy(struct inode *inode, u32 operation, void *policy)
+static __always_inline int guard_inode_policy_detail(struct inode *inode, u32 operation, void *policy, u32 ioctl_command)
 {
     if (!inode || !policy) return 0;
     struct file_key key = {};
@@ -41,7 +41,8 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     struct response_observation response = {};
     u32 denial_flags = 0;
     /* Containment covers regular-file mutation, leaving pipes and reads usable. */
-    if (operation >= SECMON_OP_OPEN_WRITE && operation <= SECMON_OP_MMAP_WRITE &&
+    if ((secmon_writer_operation_index(operation) < SECMON_FILE_OPERATION_COUNT ||
+         operation == SECMON_OP_IOCTL_CONTROL) &&
         (BPF_CORE_READ(inode, i_mode) & 0170000) == 0100000 && active_response(policy, &response)) {
         denial_flags = SECMON_RESPONSE_BLOCKED;
         count_stat(SECMON_RESPONSE_DENIALS);
@@ -51,6 +52,16 @@ static __always_inline int guard_inode_policy(struct inode *inode, u32 operation
     struct file_policy_value *entry = bpf_map_lookup_elem(policy, &key);
     /* 这里查的是目标集合：未选中的 inode 不施加本层限制，不是给未知调用程序授予写权限。 */
     if (!entry) return 0;
+    /* Unknown filesystem commands are denied on selected objects, but are
+     * not evidence of mutation and must never start a canary response.
+     * The read-only queries and regular-file tty probe below are exercised
+     * by live tests. */
+    if (operation == SECMON_OP_IOCTL_CONTROL) {
+        if (ioctl_command == 0x80086601U || ioctl_command == 0x80046601U ||
+            ioctl_command == 0x801c581fU || ioctl_command == 0x5401U)
+            return 0; /* GETFLAGS / FSGETXATTR / TCGETS */
+        goto denied;
+    }
     // 授权程序文件自身永不获得写例外；否则获授权进程可替换授权代码而保留同一 inode。
     if (vault_read_operation(operation) && !(entry->flags & SECMON_FILE_VAULT)) return 0;
     if (entry->flags & SECMON_FILE_CANARY) {
@@ -83,6 +94,7 @@ denied:
     e->size = sizeof(*e);
     e->kind = SECMON_FILE_DENIED;
     e->operation = operation;
+    e->ioctl_command = ioctl_command;
     e->flags = denial_flags;
     e->response_epoch = response.epoch;
     e->response_deadline_boot_ns = response.deadline_boot_ns;
@@ -102,6 +114,10 @@ denied:
 }
 /* 通用入口每次只取一份活动表； */
 /* rename 需要检查两个操作数，因此另行显式传递同一个快照。 */
+static __always_inline int guard_inode_policy(struct inode *inode, u32 operation, void *policy)
+{
+    return guard_inode_policy_detail(inode, operation, policy, 0);
+}
 static __always_inline int guard_inode(struct inode *inode, u32 operation)
 {
     return guard_inode_policy(inode, operation, active_file_policy());
@@ -222,4 +238,57 @@ int BPF_PROG(guard_mprotect, struct vm_area_struct *vma, unsigned long reqprot,
     int denied = prot ? guard_inode_policy(inode, SECMON_OP_MMAP_READ, policy) : 0;
     return denied ? denied : ((prot & 2) && (BPF_CORE_READ(vma, vm_flags) & 8)) ?
         guard_inode_policy(inode, SECMON_OP_MMAP_WRITE, policy) : 0;
+}
+
+/* ACL operations have distinct LSM hooks: system.posix_acl_access is not
+ * reliably observed by inode_setxattr on this kernel. Preserve prior ret. */
+SEC("lsm/inode_setxattr")
+int BPF_PROG(guard_setxattr, struct mnt_idmap *idmap, struct dentry *dentry,
+             const char *name, const void *value, unsigned long size, int flags, int ret)
+{
+    return ret ? ret : guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_SETXATTR);
+}
+SEC("lsm/inode_removexattr")
+int BPF_PROG(guard_removexattr, struct mnt_idmap *idmap, struct dentry *dentry,
+             const char *name, int ret)
+{
+    return ret ? ret : guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_REMOVEXATTR);
+}
+SEC("lsm/inode_set_acl")
+int BPF_PROG(guard_setacl, struct mnt_idmap *idmap, struct dentry *dentry,
+             const char *name, struct posix_acl *acl, int ret)
+{
+    return ret ? ret : guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_SETACL);
+}
+SEC("lsm/inode_remove_acl")
+int BPF_PROG(guard_removeacl, struct mnt_idmap *idmap, struct dentry *dentry,
+             const char *name, int ret)
+{
+    return ret ? ret : guard_inode(BPF_CORE_READ(dentry, d_inode), SECMON_OP_REMOVEACL);
+}
+static __always_inline int guard_ioctl_command(struct file *file, u32 cmd)
+{
+    /* Linux UAPI: FS_IOC_SETFLAGS/SETVERSION (native and 32-bit long),
+     * FS_IOC_FSSETXATTR, FICLONE, FICLONERANGE. Dedupe's destination FD
+     * vector is deliberately not confused with its read-only source FD. */
+    u32 operation = SECMON_OP_IOCTL_CONTROL;
+    switch (cmd) {
+    case 0x40086602U: case 0x40046602U:
+    case 0x40087602U: case 0x40047602U:
+    case 0x401c5820U: case 0x40049409U: case 0x4020940dU:
+        operation = SECMON_OP_IOCTL_WRITE;
+        break;
+    }
+    return guard_inode_policy_detail(BPF_CORE_READ(file, f_inode), operation,
+                                     active_file_policy(), cmd);
+}
+SEC("lsm/file_ioctl")
+int BPF_PROG(guard_ioctl, struct file *file, unsigned int cmd, unsigned long arg, int ret)
+{
+    return ret ? ret : guard_ioctl_command(file, cmd);
+}
+SEC("lsm/file_ioctl_compat")
+int BPF_PROG(guard_ioctl_compat, struct file *file, unsigned int cmd, unsigned long arg, int ret)
+{
+    return ret ? ret : guard_ioctl_command(file, cmd);
 }

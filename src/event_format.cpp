@@ -65,6 +65,7 @@ std::optional<std::string> format_event(const void *data, std::size_t size)
                   << ",\"uid\":" << e.caller_uid << ",\"euid\":" << e.caller_euid
                   << ",\"dev_major\":" << e.file.major << ",\"dev_minor\":" << e.file.minor
                   << ",\"ino\":" << e.file.ino << ",\"operation\":" << e.operation
+                  << ",\"ioctl_command\":" << e.ioctl_command
                   << ",\"writer_lease_expired\":" << ((e.flags & SECMON_WRITER_LEASE_EXPIRED) ? "true" : "false")
                   << ",\"vault_session_expired\":" << ((e.flags & SECMON_VAULT_SESSION_EXPIRED) ? "true" : "false")
                   << ",\"canary_hit\":" << ((e.flags & SECMON_CANARY_HIT) ? "true" : "false")

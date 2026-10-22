@@ -43,6 +43,12 @@ def main():
     assert groups[0]['permission_allow']==groups[0]['mutation_denied']==1
     assert groups[0]['denial_operations']=={'write':1}
     assert summary['grouped']==2 and summary['deduplication']=='none'
+    for operation, name in ((16, 'setxattr'), (17, 'removexattr'), (18, 'setacl'),
+                            (19, 'removeacl'), (20, 'ioctl-write')):
+        groups, summary = run([denial(operation=operation)])
+        assert groups[0]['denial_operations'] == {name: 1} and not summary['invalid']
+    groups, summary = run([denial(operation=21), denial(operation=11)])
+    assert not groups and summary['ignored'] == 2 and not summary['invalid']
     # Identical numeric PIDs cannot merge different process lifetimes or different file objects.
     groups,_=run([permission(),denial(cookie=78),denial(inode=100)])
     assert len(groups)==3 and not any(row['allow_and_mutation_denial_observed'] for row in groups)

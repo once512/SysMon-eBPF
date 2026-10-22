@@ -35,3 +35,9 @@
 "canary"
 "canary-response"
 "3600000"
+
+"setxattr"
+"removexattr"
+"setacl"
+"removeacl"
+"ioctl-write"

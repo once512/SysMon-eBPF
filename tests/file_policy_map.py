@@ -20,7 +20,7 @@ class VaultGrant(ctypes.Structure):
 
 class FileValue(ctypes.Structure):
     _fields_ = [('flags', ctypes.c_uint32), ('euid', ctypes.c_uint32), ('rules', ctypes.c_uint64),
-                ('allowed', ctypes.c_uint64 * 8), ('deadline_boot_ns', ctypes.c_uint64),
+                ('allowed', ctypes.c_uint64 * 13), ('deadline_boot_ns', ctypes.c_uint64),
                 ('vault_subjects', ctypes.c_uint64), ('vault_sessions', VaultGrant * 16), ('response_epoch', ctypes.c_uint64),
                 ('response_duration_ns', ctypes.c_uint64)]
 
@@ -62,7 +62,7 @@ class PolicyMapView:
             info = map_info(self.map_id)
             assert info['type'] == 'hash' and info['max_entries'] == 337
             assert info['bytes_key'] == ctypes.sizeof(FileKey) == 16
-            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 368
+            assert info['bytes_value'] == ctypes.sizeof(FileValue) == 408
         except BaseException:
             self.close()
             raise

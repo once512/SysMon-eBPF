@@ -72,11 +72,15 @@ int main() {
     std::istringstream analyzer(base + "fanotify-analyzer \"/worker\"\nfanotify-marker \"BLOCK\"\nfanotify-scan-limit-bytes 99\nfanotify-error-decision allow");
     auto analyzed = parse_policy(analyzer);
     require(analyzed.fanotify && analyzed.fanotify->scan_limit == 99 && analyzed.fanotify->analyzer_error_allow);
-    const char *operation_names[] = {"open-write", "write", "truncate", "unlink", "rename", "link", "setattr", "mmap-write"};
+    const char *operation_names[] = {"open-write", "write", "truncate", "unlink", "rename", "link", "setattr", "mmap-write", "setxattr", "removexattr", "setacl", "removeacl", "ioctl-write"};
     for (unsigned i = 0; i < SECMON_FILE_OPERATION_COUNT; ++i)
         require(parse_writer_operations(operation_names[i]) == (1U << i));
     require(parse_writer_operations("all") == SECMON_FILE_OPERATION_MASK);
-    require(parse_writer_operations("mmap-write,setattr,link,rename,unlink,truncate,write,open-write") == SECMON_FILE_OPERATION_MASK);
+    for (unsigned operation : {0U, 9U, 10U, 11U, 12U, 13U, 14U, 15U, 21U, 0xffffffffU})
+        require(secmon_writer_operation_index(operation) == SECMON_FILE_OPERATION_COUNT);
+    for (unsigned operation = 16; operation <= 20; ++operation)
+        require(secmon_writer_operation_index(operation) == operation - 8);
+    require(parse_writer_operations("mmap-write,setattr,link,rename,unlink,truncate,write,open-write") == 255U);
     const std::string lease_base = "revision 1\nprotect \"/data\"\nallow-writer \"/exe\" 0 \"/data\" all\n";
     for (const auto *duration : {"100", "1500", "3600000"}) {
         std::istringstream leased(lease_base + "writer-lease-ms " + duration);

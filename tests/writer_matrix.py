@@ -14,7 +14,7 @@ from file_policy_map import PolicyMapView, key_for, policy_outer_ids
 from management_harness import call
 from monitor_harness import MonitorRun
 
-OPERATIONS = ('open-write', 'write', 'truncate', 'unlink', 'rename', 'link', 'setattr', 'mmap-write')
+OPERATIONS = ('open-write', 'write', 'truncate', 'unlink', 'rename', 'link', 'setattr', 'mmap-write', 'setxattr', 'removexattr', 'setacl', 'removeacl', 'ioctl-write')
 
 
 def main():
@@ -61,14 +61,14 @@ def main():
             stage.replace(config)
 
         def model(rules):
-            result = {key_for(path): [1, 0, 0, [0] * 8] for path in paths}
+            result = {key_for(path): [1, 0, 0, [0] * len(OPERATIONS)] for path in paths}
             for index, (program, uid, target, mask) in enumerate(rules):
-                value = result.setdefault(key_for(program), [0, 0, 0, [0] * 8])
+                value = result.setdefault(key_for(program), [0, 0, 0, [0] * len(OPERATIONS)])
                 value[0] |= 6
                 value[1] = uid
                 value[2] |= 1 << index
                 selected = result[key_for(target)]
-                for operation in range(8):
+                for operation in range(len(OPERATIONS)):
                     if mask & (1 << operation):
                         selected[3][operation] |= 1 << index
             return {key: (flags, uid, bits, tuple(allowed)) for key, (flags, uid, bits, allowed) in result.items()}
@@ -97,7 +97,7 @@ def main():
                     rng.shuffle(pairs)
                     selected = mandatory + [pair for pair in pairs[:rng.randrange(len(pairs) + 1)] if pair not in mandatory]
                     rng.shuffle(selected)
-                    rules = [(program, uids[key_for(program)], target, rng.randrange(1, 256)) for program, target in selected]
+                    rules = [(program, uids[key_for(program)], target, rng.randrange(1, 1 << len(OPERATIONS))) for program, target in selected]
                     if iteration % 7 == 0:
                         old = inspect()
                         # 同 inode 不同路径/UID，解析可通过而候选准备必须整体拒绝。

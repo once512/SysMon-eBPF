@@ -14,7 +14,7 @@ allow-writer "/opt/secmon-demo/writer" 65534 "/srv/secmon-demo/data" open-write,
 
 ## 操作字段与实际检查点
 
-操作列表不带引号，以逗号连接，不允许空项、重复项或未知项。显式 all 表示指定目标上的全部八类文件检查点，不能与其他名字混写，也不表示所有保护目标。
+操作列表不带引号，以逗号连接，不允许空项、重复项或未知项。显式 all 表示指定目标上的全部十三类文件检查点，不能与其他名字混写，也不表示所有保护目标。
 
 | 名称 | 对应检查 |
 | --- | --- |
@@ -26,6 +26,11 @@ allow-writer "/opt/secmon-demo/writer" 65534 "/srv/secmon-demo/data" open-write,
 | link | 新建指向该 inode 的硬链接 |
 | setattr | 已覆盖的属性变更检查，例如 chmod/时间等 |
 | mmap-write | 新增共享可写 mmap 或通过 mprotect 增加写权限 |
+| setxattr / removexattr | 设置 / 删除普通扩展属性 |
+| setacl / removeacl | 设置 / 删除 POSIX ACL |
+| ioctl-write | 已分类的文件修改 ioctl，详见[范围](FILE_METADATA.md) |
+
+新增检查点不从原有 setattr 授权继承；未知 ioctl 即使 all 也拒绝。原来显式八项操作名的范围不变，all 则包括新增五项。
 
 名称表示检查点，不保证一个系统调用只经过一项。普通新写入通常需要 open-write,write；仅 write 可让已有 FD 写入，但拒绝新可写打开。仅 mmap-write 可用于已有 FD 的共享映射，但新打开仍需独立权限。截断也可能经过属性修改检查，应按实际调用链明确选择组合。私有映射不会写回文件，仍按既有语义允许。授权不绕过 DAC、其他 LSM 或 fanotify。
 
@@ -33,7 +38,7 @@ allow-writer "/opt/secmon-demo/writer" 65534 "/srv/secmon-demo/data" open-write,
 
 宿主以 `O_PATH` 打开路径，使用 `fstat` 得到设备主次号和 inode，并保存 FD。路径只负责首次选择，FD 固定对象以避免 inode 回收复用；不读取程序内容，不获取 SHA-256。已有配置来源 SHA-256 仍只代表配置原始字节。
 
-`src/writer_identity.h/.cpp` 负责固定和检查；`src/file_policy.cpp` 将两类对象合入同一个 HASH Map。value 当前为 352 字节（含保险箱会话槽），包含只读、writer、身份保护标志、writer EUID、主体规则位集合与按操作索引的目标授权集合，以及可选的启动时钟租期截止时间。与保险箱共用最多 336 个不同 inode，宿主按路径分别持有最多 336 个 FD；保护路径和 writer 路径重合时合并标志。
+`src/writer_identity.h/.cpp` 负责固定和检查；`src/file_policy.cpp` 将两类对象合入同一个 HASH Map。value 当前为 408 字节（含保险箱会话槽），包含只读、writer、身份保护标志、writer EUID、主体规则位集合与按操作索引的目标授权集合，以及可选的启动时钟租期截止时间。与保险箱共用最多 336 个不同 inode，宿主按路径分别持有最多 336 个 FD；保护路径和 writer 路径重合时合并标志。
 
 | value 字段/标志 | 含义 |
 | --- | --- |
@@ -42,7 +47,7 @@ allow-writer "/opt/secmon-demo/writer" 65534 "/srv/secmon-demo/data" open-write,
 | flags bit 2，数值 4 | 身份对象强制只读，优先于主体例外 |
 | writer_euid，uint32 | 只有 writer 位存在时才参与主体 UID 匹配 |
 | writer_rules，uint64 | 当前执行 inode 对应的规则位；同 inode 多条规则按位合并 |
-| allowed_writers[8]，uint64 数组 | 此目标每个文件操作检查点允许的规则位集合 |
+| allowed_writers[13]，uint64 数组 | 此目标每个文件操作检查点允许的规则位集合 |
 
 普通保护 flags 通常是 1，授权程序是 6，同时作为 protect 和 writer 的对象是 7。没有授权的目标其 allowed_writers 全零；零 UID 字段本身不授予 root 权限。最多 64 条规则按候选内的位置编号 0..63，主体位与目标某操作的位集合相交才允许。主体与目标处于同一个 Map，因此重排规则后不会把旧编号误用于新对象。
 
@@ -110,6 +115,6 @@ sudo python3 tests/run_privileged.py --build-dir build --only writer-identity wr
 
 `writer-capacity` 验证 256+64 个不同 inode 的实际容量与完整回滚，及同一对象同时具备多种标志时的优先级。`writer-layers` 使用同一配置验证 BPF 与 fanotify 的独立允许/拒绝和退出顺序，明确 open 门不撤销已有写 FD。可选 `--writer-soak-duration 30` 会保持 root/65534 两个授权程序进程和一个未授权进程存活，持续轮换 UID/撤销，并校验每次成功后的新操作、错误候选、摘要与 FD 回收。
 
-`tests/file_policy_map.py` 还只读检查本实例的外层引用和内层键值。同时核对当前 352 字节 value 的规则位与目标操作矩阵（包括第 63 位），外部检查 FD 故意固定旧 Map，证明完整切换后旧快照仍可读取；关闭检查 FD 后轮询确认旧 Map ID 消失。自保护会拒绝外部读取宿主 fdinfo，因此该专题采用启动前后外层 Map ID 差集并要求唯一；如果同时启动别的实例造成歧义，会失败而不任意选择同名 Map。这个测试不写全局或其他实例的 Map。
+`tests/file_policy_map.py` 还只读检查本实例的外层引用和内层键值。同时核对当前 408 字节 value 的规则位与目标操作矩阵（包括第 63 位），外部检查 FD 故意固定旧 Map，证明完整切换后旧快照仍可读取；关闭检查 FD 后轮询确认旧 Map ID 消失。自保护会拒绝外部读取宿主 fdinfo，因此该专题采用启动前后外层 Map ID 差集并要求唯一；如果同时启动别的实例造成歧义，会失败而不任意选择同名 Map。这个测试不写全局或其他实例的 Map。
 
 独立规则模型与同进程持续负载可通过 [测试矩阵](TESTING.md) 运行。

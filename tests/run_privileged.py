@@ -22,6 +22,8 @@ TESTS = (
     ('policy-reload', 'policy_reload.py'),
     ('writer-identity', 'writer_identity.py'),
     ('writer-lease', 'writer_lease.py'),
+    ('file-metadata', 'file_metadata.py'),
+    ('metadata-identity', 'metadata_identity.py'),
     ('canary-response', 'canary_response.py'),
     ('canary-capacity', 'canary_capacity.py'),
     ('canary-backpressure', 'canary_backpressure.py'),

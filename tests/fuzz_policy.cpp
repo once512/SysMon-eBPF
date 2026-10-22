@@ -2,6 +2,7 @@
 // libFuzzer 的语法/归一化属性：接受的文本必须能按完整值模型重编码并稳定重解析。
 // 仅解析内存，使用虚构路径；不读取实际文件、不创建 socket、不加载 BPF/fanotify。
 #include "policy_config.h"
+#include <secmon/file_operations.h>
 #include <secmon/policy_limits.h>
 #include <cstddef>
 #include <cstdint>
@@ -29,11 +30,11 @@ std::string canonical(const PolicyConfig &policy)
             << ' ' << session.duration_ms << ' ' << session.boot_id << ' ' << session.issued_boot_ns << '\n';
     if (policy.writer_lease_ms) out << "writer-lease-ms " << policy.writer_lease_ms << '\n';
     // 数字 mask 不属于配置语法；测试编码器把每个有效位明确还原为操作名。
-    const char *names[] = {"open-write", "write", "truncate", "unlink", "rename", "link", "setattr", "mmap-write"};
+    const char *names[] = {"open-write", "write", "truncate", "unlink", "rename", "link", "setattr", "mmap-write", "setxattr", "removexattr", "setacl", "removeacl", "ioctl-write"};
     for (const auto &writer : policy.writers) {
         out << "allow-writer " << std::quoted(writer.path) << ' ' << writer.euid << ' ' << std::quoted(writer.target) << ' ';
         bool first = true;
-        for (unsigned operation = 0; operation < 8; ++operation) {
+        for (unsigned operation = 0; operation < SECMON_FILE_OPERATION_COUNT; ++operation) {
             if (!(writer.operations & (1U << operation))) continue;
             if (!first) out << ',';
             out << names[operation];

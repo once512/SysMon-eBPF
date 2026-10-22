@@ -19,10 +19,11 @@ static __always_inline int authorized_writer(void *policy, const struct file_pol
     if (!writer || !(writer->flags & SECMON_FILE_WRITER)) return 0;
     // kuid.val 是内核全局 UID 坐标，不是容器内自行解释的 UID 数字。
     if (writer->writer_euid != BPF_CORE_READ(task, cred, euid.val)) return 0;
-    /* 显式界限也让 verifier 能证明下面动态索引始终在 value 的八个元素内。 */
-    if (!operation || operation > SECMON_FILE_OPERATION_COUNT) return 0;
+    /* 显式界限也让 verifier 能证明下面动态索引始终在 value 的授权元素内。 */
+    u32 index = secmon_writer_operation_index(operation);
+    if (index >= SECMON_FILE_OPERATION_COUNT) return 0;
     /* 主体与目标都在同一只读候选 Map 中：切换不会混用两版规则位编号。 */
-    if (!(writer->writer_rules & target->allowed_writers[operation - 1])) return 0;
+    if (!(writer->writer_rules & target->allowed_writers[index])) return 0;
     // Expiry is enforced in-kernel even if the service is delayed/stopped.
     // A lease never revokes a writable mapping already granted before expiry.
     if (writer->writer_deadline_boot_ns && bpf_ktime_get_boot_ns() >= writer->writer_deadline_boot_ns)

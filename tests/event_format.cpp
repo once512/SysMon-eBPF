@@ -29,6 +29,8 @@ int main()
         require(line->find("\"process_inode\":987654321") != std::string::npos);
     }
     event.kind = SECMON_FILE_DENIED;
+    event.ioctl_command = 0x40086602U;
+    require(format_event(&event, sizeof(event))->find("\"ioctl_command\":1074292226") != std::string::npos);
     event.flags = SECMON_WRITER_LEASE_EXPIRED;
     require(format_event(&event, sizeof(event))->find("\"writer_lease_expired\":true") != std::string::npos);
     event.flags = 0;

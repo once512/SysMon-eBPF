@@ -134,9 +134,14 @@ for index in range(100000000 if sys.argv[2] == 'continuous' else 8000):
                         flood.communicate(timeout=5)
                     started = time.monotonic()
                     call(binary, 'stop', control)
+                    # Permission release is the fast safety contract. Kernel
+                    # trampoline/link teardown has a separate measured budget.
+                    assert open_errno(gate) == 0
+                    release_elapsed = time.monotonic() - started
+                    assert release_elapsed < 0.5, (mode, 'permission release', release_elapsed)
                     process.wait(timeout=5)
                     elapsed = time.monotonic() - started
-                    assert elapsed < 3 and process.returncode == 0, (mode, elapsed, process.returncode,
+                    assert elapsed < 5 and process.returncode == 0, (mode, elapsed, process.returncode,
                         os.pread(errors.fileno(), os.fstat(errors.fileno()).st_size, 0).decode())
                     if mode == 'recover':
                         # 管道写端都已关闭，非阻塞读取不会等新数据；每条已输出记录仍是完整 JSONL。

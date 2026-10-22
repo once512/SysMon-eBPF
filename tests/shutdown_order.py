@@ -59,10 +59,14 @@ def main():
                         os.write(filler, b'X' * 4096)
                     except BlockingIOError:
                         break
+                started = time.monotonic()
                 call(binary, 'stop', control)
-                # 不消费 stderr；权限组必须已释放，诊断线程有限等待后退出。
+                # Keep stderr blocked. Permission release has a tighter budget
+                # than complete in-kernel BPF link/trampoline teardown.
                 assert open_errno(target) == 0
-                process.wait(timeout=3)
+                assert time.monotonic() - started < 0.5, 'permission release delayed'
+                process.wait(timeout=5)
+                assert time.monotonic() - started < 5
                 assert process.returncode == 0
                 assert not control.exists()
                 print('PASS full stderr does not block authorized shutdown; fanotify group released without draining diagnostics')

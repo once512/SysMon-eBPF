@@ -71,8 +71,8 @@ def main():
                     assert len(entries) == 320
                     detailed = old_view.entries(full=True)
                     # 第 63 位也必须保留；所有规则只授予 files[0]，不能扩散到其余 255 个对象。
-                    assert detailed[key_for(files[0])][3] == ((1 << 64) - 1,) * 8
-                    assert all(detailed[key_for(p)][3] == (0,) * 8 for p in files[1:])
+                    assert detailed[key_for(files[0])][3] == ((1 << 64) - 1,) * 13
+                    assert all(detailed[key_for(p)][3] == (0,) * 13 for p in files[1:])
                     assert all(detailed[key_for(p)][2] == 1 << i for i, p in enumerate(writers))
                     assert all(entries[key_for(p)] == (1, 0) for p in files)
                     assert all(entries[key_for(p)] == (6, 0) for p in writers)

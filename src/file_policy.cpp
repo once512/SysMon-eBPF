@@ -26,7 +26,7 @@
 
 void ProtectedFiles::install(int map_fd, const PolicyConfig &config, const std::vector<int> &reader_targets)
 {
-    static_assert(sizeof(file_policy_value) == 368);
+    static_assert(sizeof(file_policy_value) == 408);
     static_assert(SECMON_MAX_WRITER_RULES <= 64, "Rule bitmap must fit uint64");
     const auto &paths = config.paths;
     if (config.writers.size() > SECMON_MAX_WRITER_RULES) throw std::runtime_error("Too many authorized writers");
