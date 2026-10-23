@@ -19,6 +19,8 @@ class MonitorService {
     std::unique_ptr<FanotifyMonitor> fanotify_;
     management::Reply snapshot() const;
     void commit(const PolicyConfig &candidate);
+    void preparation_progress();
+    std::chrono::steady_clock::time_point run_deadline_{};
 public:
     MonitorService(Options options, DiagnosticOutput &diagnostics);
     ~MonitorService();

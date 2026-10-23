@@ -2,6 +2,8 @@
 // fanotify 权限事件会挂起请求方：读取事件得到 FD，向同一 group 写 fanotify_response 才作出裁决。
 // 这不同于只观察事件的通知接口；close 事件 FD 本身不等同于发送拒绝，关闭整个 group 会释放未决请求。
 #include "gate.h"
+#include "cached_inode.h"
+#include "writer_identity.h"
 #include "metadata.h"
 #include <array>
 #include "audit_sink.h"
@@ -27,20 +29,7 @@ namespace {
 }
 int pin_file(const std::string &path)
 {
-    int fd = open(path.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
-    if (fd < 0) fail("pin fanotify target");
-    struct stat st{};
-    if (fstat(fd, &st)) {
-        const int saved = errno;
-        close(fd);
-        errno = saved;
-        fail("stat fanotify target");
-    }
-    if (!S_ISREG(st.st_mode)) {
-        close(fd);
-        throw std::runtime_error("fanotify target must be an existing regular file, not a symlink");
-    }
-    return fd;
+    return pin_policy_file(path, false).fd.release();
 }
 std::vector<OwnedFd> pin_targets(const std::vector<std::string> &paths, const std::string &policy_path,
                                const std::vector<std::pair<std::string, int>> &retained)
@@ -63,7 +52,7 @@ std::vector<OwnedFd> pin_targets(const std::vector<std::string> &paths, const st
         OwnedFd target(previous == retained.end() ? pin_file(path) : fcntl(previous->second, F_DUPFD_CLOEXEC, 0));
         if (target.get() < 0) fail("duplicate retained fanotify target");
         struct stat value{};
-        if (fstat(target.get(), &value)) fail("stat pinned fanotify target");
+        if (cached_inode_stat(target.get(), &value)) fail("stat pinned fanotify target");
         if (!S_ISREG(value.st_mode)) throw std::invalid_argument("Fanotify target must remain a regular file");
         if (!identities.emplace(value.st_dev, value.st_ino).second)
             throw std::invalid_argument("Duplicate fanotify inode, including hard links");
@@ -112,7 +101,7 @@ PermissionGate::PermissionGate(const std::vector<std::string> &paths, DecisionCo
     target_fds_.reserve(targets_.size());
     for (const auto &target : targets_) {
         struct stat value{};
-        if (fstat(target.get(), &value)) fail("stat fanotify target");
+        if (cached_inode_stat(target.get(), &value)) fail("stat fanotify target");
         objects_.push_back({major(value.st_dev), minor(value.st_dev), value.st_ino});
         target_fds_.push_back(target.get());
         const auto pinned = "/proc/self/fd/" + std::to_string(target.get());
@@ -159,7 +148,7 @@ bool PermissionGate::poll_once(int timeout_ms)
     if (event.file.get() < 0 || event.mask != mask_)
         throw std::runtime_error("Unexpected fanotify permission event");
     struct stat value{};
-    if (fstat(event.file.get(), &value)) fail("stat permission event target");
+    if (cached_inode_stat(event.file.get(), &value)) fail("stat permission event target");
     const auto found = std::find_if(objects_.begin(), objects_.end(), [&](const auto &object) {
         return object.major == major(value.st_dev) && object.minor == minor(value.st_dev) && object.inode == value.st_ino;
     });

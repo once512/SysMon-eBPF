@@ -19,6 +19,7 @@
 #include "secmon.h"
 
 #include "file_policy.h"
+#include "cached_inode.h"
 #include "owned_fd.h"
 #include "writer_identity.h"
 #include "boot_clock.h"
@@ -55,7 +56,7 @@ void ProtectedFiles::install(int map_fd, const PolicyConfig &config, const std::
     std::set<std::tuple<unsigned int, unsigned int, unsigned long long>> reader_keys;
     if (!vaults.empty()) for (const int fd : reader_targets) {
         struct stat value{};
-        if (fstat(fd, &value)) throw std::runtime_error("Cannot inspect fanotify reader target");
+        if (cached_inode_stat(fd, &value)) throw std::runtime_error("Cannot inspect fanotify reader target");
         reader_keys.emplace(major(value.st_dev), minor(value.st_dev), value.st_ino);
     }
     const auto boot = config.vault_sessions.empty() ? std::string() : secmon_clock::boot_id();

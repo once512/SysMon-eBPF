@@ -27,5 +27,6 @@ public:
     management::Code reload(const std::function<void(const PolicyConfig &)> &commit, const std::vector<int> &excluded_fds = {});
     // 只复制协调器自己的版本/历史；
     // 队列数、worker 状态和保护条数由后端适配器补齐。
+    void reject_busy() noexcept { ++rejections_; last_code_ = management::Code::busy; }
     management::Reply snapshot(management::Backend backend) const;
 };

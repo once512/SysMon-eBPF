@@ -3,6 +3,7 @@
 // 语法解析不负责文件权限；本文件不触碰后端资源，失败时借助 OwnedFd 回收全部临时引用。
 #include "policy_config.h"
 #include "owned_fd.h"
+#include "cached_inode.h"
 #include <secmon/policy_limits.h>
 #include <cerrno>
 #include <fcntl.h>
@@ -22,7 +23,7 @@ PolicyConfig load_policy(const std::string &path, const std::vector<int> &forbid
     // 必须在 O_RDONLY 打开之前排除监听器自身目标：否则 open/access 权限事件会让服务等待自己的裁决。
     for (const int forbidden_inode_fd : forbidden_inode_fds) {
         struct stat forbidden{};
-        if (fstat(forbidden_inode_fd, &forbidden)) throw std::runtime_error("Cannot inspect excluded policy inode");
+        if (cached_inode_stat(forbidden_inode_fd, &forbidden)) throw std::runtime_error("Cannot inspect excluded policy inode");
         if (before.st_dev == forbidden.st_dev && before.st_ino == forbidden.st_ino)
             throw std::runtime_error("Fanotify policy file cannot be the marked inode (including hard links)");
     }

@@ -78,3 +78,6 @@ sudo python3 tests/run_privileged.py --build-dir build --only unified-service po
 ## 可选视图提供组件（2026-10-23）
 
 `secmon-decoyfs` 只提供合成文件视图，没有BPF管理、策略配置、裁决IPC或PID响应通道；主服务仍通过同一个配置/管理socket选择并固定实际inode。当前提供组件由管理员独立启动/停止，MonitorService尚未监督它或自动协调重挂载，正常收尾先停止安全服务和访问者再卸载视图。故障、等待和重新绑定边界见[虚拟诱饵合同](VIRTUAL_DECOYS.md)。
+
+
+重载对象准备现使用[有期限的短命子进程](BOUNDED_PREPARATION.md)。等待时只推进旧策略的事件和status/stop，并发重载返回busy；完整句柄缓存之后，后端prepare/commit之间仍不消费事件。它不是第二套监控服务或后台发布线程。尚未隔离FUSE权限事件FD的VFS等待，故不承诺所有路径的端到端硬期限。

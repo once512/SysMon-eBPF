@@ -29,6 +29,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
+| virtual-preparation | `bounded_preparation.py` | 暂停FUSE候选准备、status/stop、busy计数、旧策略、健康本地权限队列与取消 |
 | virtual-view | `decoy_view.py` | 真实 FUSE 1/64 文件、内容/映射/备份、修改拒绝、崩溃/卸载/重挂载；无 BPF |
 | virtual-response | `virtual_decoy.py` | root/普通 UID 的九类虚拟诱饵修改、原生响应、正常读取、失败重载与到期 |
 | virtual-lifecycle | `virtual_decoy_lifecycle.py` | 旧挂载固定、新挂载显式绑定、提供进程崩溃、暂停消费者下的内核期限 |

@@ -60,6 +60,7 @@ add_executable(secmon
     src/diagnostic_output.cpp
     src/file_policy.cpp
     src/writer_identity.cpp
+    src/policy_pins.cpp
     "${BPF_SKEL}")
 # build 放在 eBPF 前面，确保使用新生成的 skeleton；仓库里的旧生成快照不是本次构建输入。
 target_include_directories(secmon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" eBPF src)

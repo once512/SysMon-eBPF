@@ -8,6 +8,9 @@
 #include "fanotify/monitor.h"
 #include "fanotify/policy.h"
 #include "control.h"
+#include "policy_pins.h"
+#include "boot_clock.h"
+#include <algorithm>
 #include <csignal>
 #include <atomic>
 #include <iostream>
@@ -67,6 +70,20 @@ void MonitorService::commit(const PolicyConfig &candidate)
 {
     if (!bpf_ && (!candidate.vaults.empty() || candidate.canary_response))
         throw std::runtime_error("Vault/canary policy requires the BPF module");
+    if (!fanotify_ && candidate.fanotify && options_.modules != Options::Modules::bpf_only)
+        throw management::Error(management::Code::restart_required, "Enabling fanotify requires restart");
+    auto paths = bpf_ ? candidate.paths : std::vector<std::string>{};
+    if (bpf_) for (const auto &writer : candidate.writers) paths.push_back(writer.path);
+    // Include active-boot grants only: stale boot grants must not require a
+    // program which may no longer exist (same rule as ProtectedFiles).
+    const auto boot = (!bpf_ || candidate.vault_sessions.empty()) ? std::string() : secmon_clock::boot_id();
+    if (bpf_) for (const auto &session : candidate.vault_sessions)
+        if (session.boot_id == boot) paths.push_back(session.program);
+    if (fanotify_ && candidate.fanotify) for (const auto &path : candidate.fanotify->paths) {
+        const auto &old = runtime_.active().fanotify;
+        if (!old || std::find(old->paths.begin(), old->paths.end(), path) == old->paths.end()) paths.push_back(path);
+    }
+    PolicyPins pins(paths, [this] { preparation_progress(); });
     std::optional<FanotifyMonitor::Prepared> next;
     if (fanotify_) next = fanotify_->prepare(candidate);
     else if (candidate.fanotify && options_.modules != Options::Modules::bpf_only)
@@ -76,6 +93,22 @@ void MonitorService::commit(const PolicyConfig &candidate)
     if (bpf_) bpf_->install(candidate, next ? fanotify_->prepared_target_fds(*next) : std::vector<int>{});
     if (fanotify_) fanotify_->commit(std::move(*next), candidate.revision);
     // 这是用户态提交顺序保证，不声称不同内核钩子或在途系统调用的全局原子切换。
+}
+void MonitorService::preparation_progress()
+{
+    if (control_) control_->dispatch([this](ControlCommand command) {
+        if (command == ControlCommand::stop) stopping.store(true, std::memory_order_relaxed);
+        if (command == ControlCommand::reload) runtime_.reject_busy();
+        auto reply = snapshot();
+        if (command == ControlCommand::reload) reply.code = management::Code::busy;
+        return reply;
+    });
+    if (run_deadline_ != std::chrono::steady_clock::time_point{} &&
+        std::chrono::steady_clock::now() >= run_deadline_)
+        stopping.store(true, std::memory_order_relaxed);
+    if (stopping.load(std::memory_order_relaxed)) throw std::runtime_error("Policy preparation cancelled by stop");
+    if (bpf_) bpf_->poll_once(0);
+    if (fanotify_) fanotify_->poll_once(0);
 }
 management::Reply MonitorService::snapshot() const
 {
@@ -112,8 +145,10 @@ void MonitorService::run()
 {
     const std::vector<int> no_targets;
     const auto started = std::chrono::steady_clock::now();
+    if (options_.run_seconds) run_deadline_ = started + std::chrono::seconds(options_.run_seconds);
     auto next_report = started + std::chrono::seconds(10);
     while (!stopping.load(std::memory_order_relaxed)) {
+        PolicyPins::reap();
         if (options_.run_seconds && std::chrono::steady_clock::now() - started >= std::chrono::seconds(options_.run_seconds)) break;
         if (control_) control_->dispatch([&](ControlCommand command) {
             auto code = management::Code::ok;
@@ -143,4 +178,5 @@ void MonitorService::run()
     if (audit_) report_audit_stats(audit_->stats());
     // 审计流继续使用 stdout JSONL；混合模式的结束统计写 stderr，避免污染事件消费者。
     if (fanotify_) fanotify_->report(audit_ ? std::cerr : std::cout);
+    PolicyPins::reap();
 }
