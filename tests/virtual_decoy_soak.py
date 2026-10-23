@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import subprocess
 import tempfile
@@ -33,7 +34,7 @@ def main():
     parser.add_argument('--duration', type=int, default=1800)
     parser.add_argument('--artifact-dir', type=Path, required=True)
     args = parser.parse_args()
-    assert os.geteuid() == 0 and __debug__ and 5 <= args.duration <= 3600
+    assert os.geteuid() == 0 and __debug__ and 5 <= args.duration <= 3480
     build, repo, artifact = args.build_dir.resolve(), Path(__file__).resolve().parent.parent, args.artifact_dir.resolve()
     artifact.mkdir()  # Never overwrite a prior evidence directory.
     before_hashes = snapshots(repo, build)
@@ -75,7 +76,8 @@ def main():
         errors = stack.enter_context((artifact / 'diagnostics.log').open('w+'))
         previous_maps = response_ids()
         process = subprocess.Popen([str(build / 'secmon'), '--policy', str(policy), '--control', str(control),
-                                    '--audit-permissions', '--requester-pidfd'], stdout=output, stderr=errors)
+                                    '--audit-permissions', '--requester-pidfd',
+                                    '--run-for', str(args.duration + 120)], stdout=output, stderr=errors)
         def stop():
             if process.poll() is None:
                 call(build / 'secmon', 'stop', control); process.wait(timeout=10)
@@ -249,4 +251,8 @@ def main():
 
 
 if __name__ == '__main__':
+    def interrupted(signum, _frame):
+        raise KeyboardInterrupt(f'sustained test interrupted by signal {signum}')
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGHUP, interrupted)
     main()

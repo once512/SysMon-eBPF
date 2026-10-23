@@ -93,3 +93,6 @@ flowchart TD
 一次中间回归与同目录重新链接重叠，发生可执行文件替换窗口中的启动失败；该轮未记作完整通过。构建收尾后复制到 build/structure-checkpoint 重跑，完整汇总 passed=true。原始日志为本机 /tmp/secmon-structure-final-root.log，无特权测试为 /tmp/secmon-structure-final-tests.log。该验证不将先前 15 分钟授权长测记为本次重构的重新执行，也不包含单独的 spawn 分配故障注入。
 
 统一入口后的审计出口另拆为纯编码、C 回调和 AuditSink；I/O 线程只消费队列，不访问 PolicyRuntime 或 fanotify 裁决。相关失败边界与已知诊断限制见 [审计出口](AUDIT_OUTPUT.md)。
+
+
+2026-10-23新增的可选FUSE组件是文件视图提供者，不是另一套安全服务。它复用既有inode策略及响应，只引入libfuse依赖和有界回调，未增加内核Map/安全IPC/管理ABI。当前并未纳入MonitorService的子进程监督；补齐生命周期时须围绕现有候选准备/提交合同，明确就绪、死亡、路径等待与同路径不同挂载的身份，而非只按PID或字符串自动重绑。详见[虚拟视图合同](VIRTUAL_DECOYS.md)。

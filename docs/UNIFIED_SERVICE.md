@@ -1,6 +1,6 @@
 # 一个主服务、两个监控对象
 
-`src/main.cpp` 是唯一监控服务入口。分析器和命令行管理工具仍有各自的 main，但不会作为第二个常驻监控服务运行。
+`src/main.cpp` 是唯一监控服务入口。分析器、可选 FUSE 视图提供组件和命令行管理工具仍有各自的 main，但不拥有第二套监控策略或管理服务。
 
 ```mermaid
 flowchart TD
@@ -15,6 +15,9 @@ flowchart TD
     BPF --> Skel[skeleton / Map / ring buffer / inode FD]
     Fan --> Gate[PermissionGate / mark / 队列]
     Gate --> Worker[独立降权分析器]
+    View[可选独立 FUSE 视图提供组件] --> Inodes[合成文件 inode]
+    Skel -.O_PATH 固定对象.-> Inodes
+    Gate -.可选 mark.-> Inodes
 ```
 
 | 文件 | 负责什么 |
@@ -56,7 +59,7 @@ fanotify 启用/禁用、目标、事件和分析器固定配置变更需重启�
 
 授权 stop 只设置本事件循环的退出状态，回复当前完整快照后，统一拒绝已交付的 fanotify 请求、关闭监听组、停止分析器、卸载 BPF 并报告统计；客户端收到确认不代表析构已全部完成。关闭 group 仍会释放未读请求，进程崩溃不提供持久拒绝保证。
 
-分析器是唯一必要的独立工作进程，继续按既有规则降权和清空 capabilities。它接收借出的只读事件 FD，其故障按 fanotify 回退策略处理，不负责 BPF 管理或整个主服务的策略版本。
+启用内容分析时，分析器作为独立工作进程，继续按既有规则降权和清空 capabilities。它接收借出的只读事件 FD，其故障按 fanotify 回退策略处理，不负责 BPF 管理或整个主服务的策略版本。
 
 `--bpf-only` / `--fanotify-only` 只用于诊断和机制实验，仍进入同一个 main 与 MonitorService。旧 secmon-fanotify 可执行文件不再构建；更新已有构建目录时应删除遗留旧产物，避免误运行。
 
@@ -70,3 +73,8 @@ sudo python3 tests/run_privileged.py --build-dir build --only unified-service po
 联合专题验证共享 PID/快照、两侧准备失败与忙队列回滚、确认后的读写行为、配置自身 inode 排除、固定后端变更拒绝、协调停止、分析器崩溃回退和第二模块启动失败后的清理。原机制专题继续用诊断模式研究分层效果。
 
 审计队列、输出错误和诊断边界见 [有界审计出口](AUDIT_OUTPUT.md)。
+
+
+## 可选视图提供组件（2026-10-23）
+
+`secmon-decoyfs` 只提供合成文件视图，没有BPF管理、策略配置、裁决IPC或PID响应通道；主服务仍通过同一个配置/管理socket选择并固定实际inode。当前提供组件由管理员独立启动/停止，MonitorService尚未监督它或自动协调重挂载，正常收尾先停止安全服务和访问者再卸载视图。故障、等待和重新绑定边界见[虚拟诱饵合同](VIRTUAL_DECOYS.md)。

@@ -197,4 +197,4 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 
 见[虚拟诱饵合同](VIRTUAL_DECOYS.md)。`virtual_decoy_soak.py` 使用一个64文件视图与一个联合服务，交替8个root/普通UID原生请求方，保存原始审计、逐轮日志、固定身份、源码/构建摘要、FD和响应Map回收证据。普通读取不触发，未知ioctl只拒绝不触发，九类显式修改分别触发；权限读取、失败重载、解除、到期和退出另行对账。长测采用流式审计核对，避免按运行时长积累Python对象。
 
-这些专题需要 libfuse3、/dev/fuse 和 fusermount3；关闭组件构建时完整runner省略virtual专题，显式选择它们则报告缺少构建。不要并行运行多个特权runner/soak，实例Map发现和临时全局LSM策略需要独立环境。实际结果以日期验收记录为准。
+这些专题需要 libfuse3、/dev/fuse 和 fusermount3；构建目录没有secmon-decoyfs时，完整runner省略virtual专题，显式选择它们则报告缺少构建。关闭组件建议使用新的构建目录；复用目录时CMake不会删除此前生成的可执行文件，runner仍会按文件是否存在判断。不要并行运行多个特权runner/soak，实例Map发现和临时全局LSM策略需要独立环境。实际结果以日期验收记录为准。

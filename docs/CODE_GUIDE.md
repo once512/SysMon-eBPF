@@ -6,6 +6,7 @@
 
 | 文件 | 职责 | 阅读重点 |
 | --- | --- | --- |
+| `src/decoy/main.cpp` | 可选的独立 FUSE 合成视图 | 固定有界命名空间/内容、拒绝全部修改、前台 mount/loop/unmount；安全策略仍由主服务按实际 inode 执行 |
 | `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助、停止和重载；解析过程不访问 BPF 或 socket |
 | `src/main.cpp` / `src/service.cpp` | 唯一入口与主服务协调 | main 处理参数/管理动作，MonitorService 持有两模块、一个运行策略、管理端和统一 stdout 审计出口 |
 | `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
@@ -144,3 +145,10 @@ sudo python3 tests/self_protection.py --build-dir build
 主进程的审计入口每轮限量消费，输出经 AuditSink 有界排队；线程不修改运行策略。stdout 背压、错误与停止行为见 [审计出口](AUDIT_OUTPUT.md)。
 
 保险箱会话沿用 `file_policy` 的候选及 root 重载；`boot_clock` 统一全局启动时钟坐标，`secmon-vault-session` 生成包含启动标识及绝对签发时间的配置行。语义和验证见 [保险箱会话](VAULT_SESSIONS.md)。
+
+
+## 虚拟诱饵阅读入口（2026-10-23）
+
+先读[视图合同](VIRTUAL_DECOYS.md)，再看 `src/decoy/main.cpp`。它使用 libfuse low-level API 固定 inode/目录偏移，直接回复合成内容，不转发业务文件，不把 FUSE 请求 PID 发给安全服务。随后沿 `pin_policy_file` → `ProtectedFiles` → `guard_inode_policy_detail` → 原有 response 跟踪真实设备/inode如何复用既有安全底座。
+
+验证先读 `decoy_view.py` 的无特权文件系统对照，再读 `virtual_decoy.py`、`virtual_decoy_lifecycle.py` 和 `virtual_decoy_fanotify.py`，最后看单视图/单联合服务的 `virtual_decoy_soak.py`。提供进程当前不受 MonitorService 管理；不要从它有独立 main 推导出新增一套策略服务，也不要推导出已具备自动监督和重挂载恢复。
