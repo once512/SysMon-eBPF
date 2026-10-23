@@ -7,6 +7,7 @@
 #include "event_kind.h"
 #include "analysis/client.h"
 #include "audit.h"
+#include "event_reader.h"
 class AuditSink;
 #include <memory>
 #include <cstdint>
@@ -23,6 +24,7 @@ class PermissionGate {
     std::vector<PermissionObject> objects_;
     std::vector<int> target_fds_; // Borrowed views for policy-source exclusions.
     OwnedFd group_;
+    std::unique_ptr<EventReader> reader_;
     std::uint64_t mask_;
     bool requester_pidfd_;
     GateStats stats_;
@@ -40,6 +42,7 @@ public:
                    bool requester_pidfd = false, std::uint64_t *request_sequence = nullptr,
                    const std::vector<std::pair<std::string, int>> &retained = {},
                    std::uint64_t subscription_generation = 1);
+    ~PermissionGate();
     PermissionGate(const PermissionGate &) = delete;
     PermissionGate &operator=(const PermissionGate &) = delete;
     // pending 的回复 lambda 捕获当前 this；

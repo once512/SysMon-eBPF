@@ -9,7 +9,7 @@
 #include <sys/socket.h>
 
 namespace analysis {
-Packet receive_packet(int channel, void *data, std::size_t capacity)
+Packet receive_packet(int channel, void *data, std::size_t capacity, bool allow_control_truncation)
 {
     // Allocate ownership storage before recvmsg installs any FDs in this process.
     // Once descriptors arrive, taking ownership must not allocate/throw.
@@ -50,7 +50,8 @@ Packet receive_packet(int channel, void *data, std::size_t capacity)
         }
     }
     // 即使正文或辅助数据被截断，也先让 packet 托管已经收到的所有 FD，异常析构时统一关闭。
-    if (unexpected || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)))
+    packet.control_truncated = message.msg_flags & MSG_CTRUNC;
+    if (unexpected || (message.msg_flags & MSG_TRUNC) || (packet.control_truncated && !allow_control_truncation))
         throw std::runtime_error("Truncated or unexpected analysis packet");
     return packet;
 }

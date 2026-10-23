@@ -109,13 +109,15 @@ PermissionGate::PermissionGate(const std::vector<std::string> &paths, DecisionCo
         if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_, AT_FDCWD, pinned.c_str()))
             fail("fanotify_mark permission event");
     }
+    if (!analyzer_) reader_ = std::make_unique<EventReader>(group_.get(), requester_pidfd_);
 }
 
 bool PermissionGate::poll_once(int timeout_ms)
 {
     service_analysis();
+    if (reader_) reader_->flush();
     // 同时等待内核事件与分析结果，不能在这里同步读取大文件，否则整个权限服务会被一个分析拖住。
-    pollfd ready[] = {{group_.get(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
+    pollfd ready[] = {{reader_ ? reader_->fd() : group_.get(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
     const int wait_ms = pending_.poll_timeout(timeout_ms, PendingDecisions::Clock::now());
     // 分析器 channel 与 fanotify group 一起等待；
     // 队列给出的更短截止时间防止 poll 阻塞过头。
@@ -132,25 +134,36 @@ bool PermissionGate::poll_once(int timeout_ms)
     if (ready[0].revents & (POLLERR | POLLHUP | POLLNVAL))
         throw std::runtime_error("fanotify poll reported an unusable group");
     if (!(ready[0].revents & POLLIN)) return false;
-    // Buffer admits exactly one PIDFD-mode event, or one legacy event (the tail is too small for a second).
-    std::array<char, sizeof(fanotify_event_metadata) + sizeof(fanotify_event_info_pidfd)> buffer{};
-    const auto size = read(group_.get(), buffer.data(), buffer.size());
-    if (size < 0) {
-        if (errno == EAGAIN || errno == EINTR) return false;
-        fail("fanotify read");
-    }
     const auto received = PendingDecisions::Clock::now();
-    auto event = decode_permission_metadata(buffer.data(), static_cast<std::size_t>(size), requester_pidfd_);
+    PermissionMetadata event;
+    PermissionObject object{};
+    if (reader_) {
+        auto delivered = reader_->receive();
+        if (!delivered) return false;
+        event = std::move(delivered->metadata); object = delivered->object;
+    } else {
+        std::array<char, sizeof(fanotify_event_metadata) + sizeof(fanotify_event_info_pidfd)> buffer{};
+        const auto size = read(group_.get(), buffer.data(), buffer.size());
+        if (size < 0) {
+            if (errno == EAGAIN || errno == EINTR) return false;
+            fail("fanotify read");
+        }
+        event = decode_permission_metadata(buffer.data(), static_cast<std::size_t>(size), requester_pidfd_);
+        if (event.file.get() >= 0) {
+            struct stat value{};
+            if (cached_inode_stat(event.file.get(), &value)) fail("stat permission event target");
+            object = {major(value.st_dev), minor(value.st_dev), value.st_ino};
+        }
+    }
     if (event.mask & FAN_Q_OVERFLOW) {
         ++stats_.overflow;
         throw std::runtime_error("fanotify queue overflow; closing group releases pending requests");
     }
     if (event.file.get() < 0 || event.mask != mask_)
         throw std::runtime_error("Unexpected fanotify permission event");
-    struct stat value{};
-    if (cached_inode_stat(event.file.get(), &value)) fail("stat permission event target");
+    const auto event_object = object;
     const auto found = std::find_if(objects_.begin(), objects_.end(), [&](const auto &object) {
-        return object.major == major(value.st_dev) && object.minor == minor(value.st_dev) && object.inode == value.st_ino;
+        return object.major == event_object.major && object.minor == event_object.minor && object.inode == event_object.inode;
     });
     if (found == objects_.end()) throw std::runtime_error("Unmarked permission event target");
     pending_.submit(std::move(event.file), received, event.pid, revision_, std::move(event.requester), *found);
@@ -162,12 +175,13 @@ bool PermissionGate::poll_once(int timeout_ms)
 void PermissionGate::respond(int fd, const PermissionRequest &request, Verdict verdict)
 {
     // 回复用的是当前事件 FD，而不是业务进程 PID；写入 group 成功后，队列才会关闭对应事件 FD。
-    fanotify_response response{fd, static_cast<unsigned int>(verdict.allow ? FAN_ALLOW : FAN_DENY)};
+    fanotify_response response{reader_ ? reader_->kernel_fd(fd) : fd, static_cast<unsigned int>(verdict.allow ? FAN_ALLOW : FAN_DENY)};
     ssize_t written;
     do { written = write(group_.get(), &response, sizeof(response)); }
     while (written < 0 && errno == EINTR);
     if (written < 0) fail("fanotify permission response");
     if (written != sizeof(response)) throw std::runtime_error("Short fanotify response");
+    if (reader_) reader_->release(fd);
     const auto responded = PendingDecisions::Clock::now();
     if (audit_) {
         try {
@@ -268,6 +282,12 @@ void PermissionGate::shutdown()
 {
     pending_.shutdown();
     // close group 立即释放仍在内核队列的等待；统计渲染和分析器退出不能推迟这个资源边界。
+    if (reader_) reader_->stop();
     group_ = OwnedFd();
     if (analyzer_) analyzer_->stop();
+}
+
+PermissionGate::~PermissionGate()
+{
+    if (reader_) reader_->stop();
 }

@@ -94,3 +94,6 @@ sudo python3 -B tests/virtual_decoy_soak.py --build-dir build \
 
 
 2026-10-23后续增量已隔离重载的候选对象准备，BPF-only及健康本地权限目标场景中status/stop可推进，约2秒失败保留旧策略。但暂停FUSE本身的fanotify事件路径仍可阻塞，监督与自动重绑定尚未完成，见[准备合同](BOUNDED_PREPARATION.md)。前面的“未修复”描述对应首版阶段，不据此扩大后续增量范围。
+
+
+随后静态fanotify事件读取/真实事件FD关闭也已隔离，暂停FUSE期间管理与已交付旧请求期限可推进；内容分析模式仍未迁移，读取者队首阻塞、未交付审计及不可中断内核等待见[静态事件读取合同](STATIC_EVENT_READER.md)。

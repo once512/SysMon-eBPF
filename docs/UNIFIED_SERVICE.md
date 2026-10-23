@@ -81,3 +81,6 @@ sudo python3 tests/run_privileged.py --build-dir build --only unified-service po
 
 
 重载对象准备现使用[有期限的短命子进程](BOUNDED_PREPARATION.md)。等待时只推进旧策略的事件和status/stop，并发重载返回busy；完整句柄缓存之后，后端prepare/commit之间仍不消费事件。它不是第二套监控服务或后台发布线程。尚未隔离FUSE权限事件FD的VFS等待，故不承诺所有路径的端到端硬期限。
+
+
+静态权限门现另有[有界事件读取者](STATIC_EVENT_READER.md)，只处理内核事件导出与真实文件引用，不执行策略或拥有BPF/管理资源。主服务仍拥有裁决、版本和期限；分析模式暂保留原链。关闭权限组先停止读取者，避免其额外引用无意延长监听组寿命；不可中断内核等待例外如合同所述。

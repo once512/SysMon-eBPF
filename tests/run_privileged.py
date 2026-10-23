@@ -24,6 +24,7 @@ TESTS = (
     ('writer-lease', 'writer_lease.py'),
     ('file-metadata', 'file_metadata.py'),
     ('metadata-identity', 'metadata_identity.py'),
+    ('virtual-reader', 'fanotify_reader_pause.py'),
     ('virtual-preparation', 'bounded_preparation.py'),
     ('virtual-view', 'decoy_view.py'),
     ('virtual-response', 'virtual_decoy.py'),

@@ -149,6 +149,7 @@ void MonitorService::run()
     auto next_report = started + std::chrono::seconds(10);
     while (!stopping.load(std::memory_order_relaxed)) {
         PolicyPins::reap();
+        EventReader::reap();
         if (options_.run_seconds && std::chrono::steady_clock::now() - started >= std::chrono::seconds(options_.run_seconds)) break;
         if (control_) control_->dispatch([&](ControlCommand command) {
             auto code = management::Code::ok;
@@ -179,4 +180,5 @@ void MonitorService::run()
     // 审计流继续使用 stdout JSONL；混合模式的结束统计写 stderr，避免污染事件消费者。
     if (fanotify_) fanotify_->report(audit_ ? std::cerr : std::cout);
     PolicyPins::reap();
+    EventReader::reap();
 }
