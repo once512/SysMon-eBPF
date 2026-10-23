@@ -24,6 +24,10 @@ TESTS = (
     ('writer-lease', 'writer_lease.py'),
     ('file-metadata', 'file_metadata.py'),
     ('metadata-identity', 'metadata_identity.py'),
+    ('virtual-view', 'decoy_view.py'),
+    ('virtual-response', 'virtual_decoy.py'),
+    ('virtual-lifecycle', 'virtual_decoy_lifecycle.py'),
+    ('virtual-fanotify', 'virtual_decoy_fanotify.py'),
     ('canary-response', 'canary_response.py'),
     ('canary-capacity', 'canary_capacity.py'),
     ('canary-backpressure', 'canary_backpressure.py'),
@@ -107,6 +111,10 @@ def main():
     build = Path(args.build_dir).resolve()
     commands = [(name, [sys.executable, str(root / script), '--build-dir', str(build)])
                 for name, script in TESTS if args.only is None or name in args.only]
+    if not (build / 'secmon-decoyfs').exists():
+        if args.only and any(name.startswith('virtual-') for name in args.only):
+            parser.error('virtual topics require SECMON_BUILD_DECOYFS=ON')
+        commands = [(name, command) for name, command in commands if not name.startswith('virtual-')]
     commands += [(name + '-pidfd', [sys.executable, str(root / script), '--build-dir', str(build), '--requester-pidfd'])
                  for name, script in (('identity-threads', 'identity_threads.py'), ('permission-namespace', 'permission_namespace.py'),
                                       ('permission-audit-backpressure', 'permission_audit_backpressure.py'))

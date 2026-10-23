@@ -76,6 +76,16 @@ add_executable(secmon-policyctl src/management/main.cpp)
 target_link_libraries(secmon-policyctl PRIVATE secmon-policy)
 target_compile_options(secmon-policyctl PRIVATE -Wall -Wextra -Werror)
 
+# Optional view provider; the core security service does not depend on FUSE.
+option(SECMON_BUILD_DECOYFS "Build immutable FUSE virtual decoy view" ON)
+if(SECMON_BUILD_DECOYFS)
+    pkg_check_modules(FUSE3 REQUIRED IMPORTED_TARGET fuse3)
+    add_executable(secmon-decoyfs src/decoy/main.cpp)
+    target_compile_definitions(secmon-decoyfs PRIVATE _FILE_OFFSET_BITS=64)
+    target_compile_options(secmon-decoyfs PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(secmon-decoyfs PRIVATE PkgConfig::FUSE3)
+endif()
+
 add_executable(secmon-vault-session src/vault_session_main.cpp)
 target_link_libraries(secmon-vault-session PRIVATE secmon-policy)
 target_compile_options(secmon-vault-session PRIVATE -Wall -Wextra -Werror)
@@ -88,6 +98,10 @@ target_compile_options(secmon-analyzer PRIVATE -Wall -Wextra -Werror)
 # CTest 运行无特权检查；真实加载 BPF、fanotify 权限事件和权限转换由 tests/run_privileged.py 另行组织。
 include(CTest)
 if(BUILD_TESTING)
+    if(SECMON_BUILD_DECOYFS)
+        add_executable(secmon-virtual-decoy-scenario tests/virtual_decoy_scenario.cpp)
+        target_compile_options(secmon-virtual-decoy-scenario PRIVATE -Wall -Wextra -Werror)
+    endif()
     add_executable(secmon-metadata-compat tests/metadata_compat.cpp)
     target_compile_options(secmon-metadata-compat PRIVATE -m32 -fno-pie -fno-stack-protector
         -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
@@ -131,6 +145,10 @@ if(BUILD_TESTING)
     add_test(NAME policyctl-cli COMMAND ${CMAKE_COMMAND} -DPOLICYCTL=$<TARGET_FILE:secmon-policyctl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/policyctl_cli.cmake)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    if(SECMON_BUILD_DECOYFS)
+        add_test(NAME decoyfs-cli COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/decoy_cli.py --binary $<TARGET_FILE:secmon-decoyfs>)
+    endif()
     add_test(NAME vault-session-declaration COMMAND ${Python3_EXECUTABLE} -B
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/vault_declaration.py --binary $<TARGET_FILE:secmon-vault-session>)
     add_test(NAME subscription-generations COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/subscription_generations.py)

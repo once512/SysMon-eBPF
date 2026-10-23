@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-当前 CTest 有 32 项（新增会话生成工具帮助与声明边界检查）（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界，以及离线归组、行为、重放、评估和多对象检查），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+默认构建的 CTest 有 33 项（含虚拟视图参数边界；关闭 SECMON_BUILD_DECOYFS 时为 32 项）（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界，以及离线归组、行为、重放、评估和多对象检查），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -29,6 +29,10 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
+| virtual-view | `decoy_view.py` | 真实 FUSE 1/64 文件、内容/映射/备份、修改拒绝、崩溃/卸载/重挂载；无 BPF |
+| virtual-response | `virtual_decoy.py` | root/普通 UID 的九类虚拟诱饵修改、原生响应、正常读取、失败重载与到期 |
+| virtual-lifecycle | `virtual_decoy_lifecycle.py` | 旧挂载固定、新挂载显式绑定、提供进程崩溃、暂停消费者下的内核期限 |
+| virtual-fanotify | `virtual_decoy_fanotify.py` | FUSE 上 open/access 等待、逐请求身份与原生响应独立执行 |
 | permission-audit | `permission_audit.py` | 逐请求身份/对象、revision/回滚、六类原因、open/access/exec 与汇总对账 |
 | decoy-evidence | `decoy_evidence.py` | 受控读取、授权修改、旧 FD、未授权修改与撤销后的证据关联 |
 | decoy-workloads | `decoy_workloads.py` | 完整文件索引/备份、硬链接/符号链接、改名与原路径 inode 替换 |
@@ -187,3 +191,10 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 `run_privileged.py --only canary-response canary-capacity canary-backpressure canary-namespace canary-layers` 验证显式违规的内核有限期响应、解除、线程组身份、容量失败与日志独立性，详见 [范围与合同](CANARY_RESPONSE.md)。
 
 单实例联合持续验证：`sudo python3 -B tests/canary_soak.py --duration 900 --artifact-dir /tmp/自选空目录`，保留原始审计、诊断、逐轮记录、源码/二进制与产物摘要。包含 writer 例外优先级、fanotify/pidfd 审计、自动到期与显式解除；不会安装持久策略。
+
+
+## 虚拟视图持续验证
+
+见[虚拟诱饵合同](VIRTUAL_DECOYS.md)。`virtual_decoy_soak.py` 使用一个64文件视图与一个联合服务，交替8个root/普通UID原生请求方，保存原始审计、逐轮日志、固定身份、源码/构建摘要、FD和响应Map回收证据。普通读取不触发，未知ioctl只拒绝不触发，九类显式修改分别触发；权限读取、失败重载、解除、到期和退出另行对账。长测采用流式审计核对，避免按运行时长积累Python对象。
+
+这些专题需要 libfuse3、/dev/fuse 和 fusermount3；关闭组件构建时完整runner省略virtual专题，显式选择它们则报告缺少构建。不要并行运行多个特权runner/soak，实例Map发现和临时全局LSM策略需要独立环境。实际结果以日期验收记录为准。
