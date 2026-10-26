@@ -6,21 +6,22 @@
 #include <array>
 #include <map>
 #include <memory>
-// Static decisions need identity, not a readable event file in the main
-// process. Keep real event FDs in an isolated reader and use local eventfd
-// handles in PendingDecisions. Kernel replies use the reader's original token.
+// Keep real event FDs in an isolated reader and use local eventfd handles
+// in PendingDecisions. Analysis files travel directly to the worker. Kernel
+// replies use the reader's original token; the main process never closes a file.
 class EventReader {
     struct Token { std::uint64_t sequence; int kernel_fd; };
+    struct Command { Token token; std::uint64_t request_id; };
     OwnedFd channel_;
     int slot_ = -1;
     bool pidfd_mode_;
     std::uint64_t next_sequence_ = 1;
     std::map<int, Token> tokens_;
-    std::array<Token, 4097> releases_{};
-    std::size_t release_head_ = 0, release_count_ = 0;
+    std::array<Command, 4098> commands_{};
+    std::size_t command_head_ = 0, command_count_ = 0;
 public:
-    struct Event { PermissionMetadata metadata; PermissionObject object; };
-    EventReader(int group, bool pidfd_mode);
+    struct Event { PermissionMetadata metadata; PermissionObject object; std::uint64_t dispatch_error = 0; };
+    EventReader(int group, bool pidfd_mode, int analyzer_channel = -1);
     ~EventReader();
     EventReader(const EventReader &) = delete;
     EventReader &operator=(const EventReader &) = delete;
@@ -29,6 +30,7 @@ public:
     std::optional<Event> receive();
     int kernel_fd(int handle) const;
     void release(int handle);
+    void dispatch(int handle, std::uint64_t request_id);
     void stop() noexcept;
     static void reap() noexcept;
 };

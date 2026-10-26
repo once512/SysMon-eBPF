@@ -109,15 +109,15 @@ PermissionGate::PermissionGate(const std::vector<std::string> &paths, DecisionCo
         if (fanotify_mark(group_.get(), FAN_MARK_ADD, mask_, AT_FDCWD, pinned.c_str()))
             fail("fanotify_mark permission event");
     }
-    if (!analyzer_) reader_ = std::make_unique<EventReader>(group_.get(), requester_pidfd_);
+    reader_ = std::make_unique<EventReader>(group_.get(), requester_pidfd_, analyzer_ ? analyzer_->fd() : -1);
 }
 
 bool PermissionGate::poll_once(int timeout_ms)
 {
     service_analysis();
-    if (reader_) reader_->flush();
+    reader_->flush();
     // 同时等待内核事件与分析结果，不能在这里同步读取大文件，否则整个权限服务会被一个分析拖住。
-    pollfd ready[] = {{reader_ ? reader_->fd() : group_.get(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
+    pollfd ready[] = {{reader_->fd(), POLLIN, 0}, {analyzer_ ? analyzer_->fd() : -1, POLLIN, 0}};
     const int wait_ms = pending_.poll_timeout(timeout_ms, PendingDecisions::Clock::now());
     // 分析器 channel 与 fanotify group 一起等待；
     // 队列给出的更短截止时间防止 poll 阻塞过头。
@@ -137,24 +137,17 @@ bool PermissionGate::poll_once(int timeout_ms)
     const auto received = PendingDecisions::Clock::now();
     PermissionMetadata event;
     PermissionObject object{};
-    if (reader_) {
-        auto delivered = reader_->receive();
-        if (!delivered) return false;
-        event = std::move(delivered->metadata); object = delivered->object;
-    } else {
-        std::array<char, sizeof(fanotify_event_metadata) + sizeof(fanotify_event_info_pidfd)> buffer{};
-        const auto size = read(group_.get(), buffer.data(), buffer.size());
-        if (size < 0) {
-            if (errno == EAGAIN || errno == EINTR) return false;
-            fail("fanotify read");
+    auto delivered = reader_->receive();
+    if (!delivered) return false;
+    if (delivered->dispatch_error) {
+        if (analyzer_ && analyzer_->online() && analyzer_->active() == delivered->dispatch_error) {
+            analyzer_->stop();
+            ++stats_.analyzer_failures;
+            pending_.fail_analysis();
         }
-        event = decode_permission_metadata(buffer.data(), static_cast<std::size_t>(size), requester_pidfd_);
-        if (event.file.get() >= 0) {
-            struct stat value{};
-            if (cached_inode_stat(event.file.get(), &value)) fail("stat permission event target");
-            object = {major(value.st_dev), minor(value.st_dev), value.st_ino};
-        }
+        return true;
     }
+    event = std::move(delivered->metadata); object = delivered->object;
     if (event.mask & FAN_Q_OVERFLOW) {
         ++stats_.overflow;
         throw std::runtime_error("fanotify queue overflow; closing group releases pending requests");
@@ -174,14 +167,14 @@ bool PermissionGate::poll_once(int timeout_ms)
 
 void PermissionGate::respond(int fd, const PermissionRequest &request, Verdict verdict)
 {
-    // 回复用的是当前事件 FD，而不是业务进程 PID；写入 group 成功后，队列才会关闭对应事件 FD。
-    fanotify_response response{reader_ ? reader_->kernel_fd(fd) : fd, static_cast<unsigned int>(verdict.allow ? FAN_ALLOW : FAN_DENY)};
+    // 使用读取者原始令牌回复；主队列只有本地代理 FD，不持有或关闭真实文件。
+    fanotify_response response{reader_->kernel_fd(fd), static_cast<unsigned int>(verdict.allow ? FAN_ALLOW : FAN_DENY)};
     ssize_t written;
     do { written = write(group_.get(), &response, sizeof(response)); }
     while (written < 0 && errno == EINTR);
     if (written < 0) fail("fanotify permission response");
     if (written != sizeof(response)) throw std::runtime_error("Short fanotify response");
-    if (reader_) reader_->release(fd);
+    reader_->release(fd);
     const auto responded = PendingDecisions::Clock::now();
     if (audit_) {
         try {
@@ -255,7 +248,10 @@ void PermissionGate::service_analysis()
     if (!analyzer_->active()) {
         auto request = pending_.next_request();
         if (request) {
-            try { analyzer_->submit(request->id, request->fd); }
+            try {
+                reader_->dispatch(request->fd, request->id);
+                analyzer_->track_submission(request->id);
+            }
             catch (const std::exception &) {
                 analyzer_->stop();
                 ++stats_.analyzer_failures;

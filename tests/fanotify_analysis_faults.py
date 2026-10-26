@@ -24,7 +24,7 @@ def main():
         target.write_bytes(b'clean')
         for mode in ('wrong-id', 'wrong-version', 'wrong-size', 'wrong-bytes', 'wrong-verdict',
                      'short', 'extra-fds', 'exit', 'late', 'duplicate', 'wrong-error', 'allow-error',
-                     'error-without-reason', 'wrong-errno', 'metadata-no-errno'):
+                     'error-without-reason', 'wrong-errno', 'metadata-no-errno', 'refuse-requests'):
             run = GateRun(build / 'secmon', target, None,
                           ['--analyzer', str(build / 'secmon-analysis-fault-worker'), '--deny-marker', mode,
                            '--request-timeout-ms', '100' if mode == 'late' else '1000'])
@@ -44,6 +44,15 @@ def main():
             assert stats['analyzer_error'] == (1 if mode in ('late', 'duplicate') else 2)
             assert stats['denied'] == (1 if mode == 'duplicate' else 2)
             print(f'PASS {mode}: bounded quarantine, no unauthorized allow or leaked reply FDs')
+        run = GateRun(build / 'secmon', target, None,
+                      ['--analyzer', str(build / 'secmon-analysis-fault-worker'), '--deny-marker', 'refuse-requests',
+                       '--analyzer-error-decision', 'allow'])
+        try:
+            assert open_errno(target) == 0 and open_errno(target) == 0
+        finally:
+            stats = run.finish()
+        assert stats['analyzer_failures'] == 1 and stats['backend_error_requests'] == 2 and stats['timed_out'] == 0
+        print('PASS direct FD relay refusal applies allow fallback without losing the permission gate')
         for allow in (False, True):
             run = GateRun(build / 'secmon', target, None,
                           ['--analyzer', str(build / 'secmon-analysis-fault-worker'), '--deny-marker', 'resource-error',

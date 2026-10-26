@@ -15,11 +15,14 @@ int main(int argc, char **argv)
     if (argc != 9) return 2;
     const std::string mode(argv[4]);
     if (mode == "no-ready") { poll(nullptr, 0, 5000); return 0; }
+    if (mode == "refuse-requests" && shutdown(3, SHUT_RD)) return 8;
     analysis::Response initialized;
     initialized.result = analysis::Result::ready;
     if (mode == "ready-error") initialized.error = analysis::ScanError::changed;
     if (mode == "bad-ready") initialized.id = 42;
     analysis::send_packet(3, &initialized, sizeof(initialized), mode == "ready-fds" ? 0 : -1);
+    if (mode == "refuse-requests") { poll(nullptr, 0, 5000); return 0; }
+    unsigned requests = 0;
     while (true) {
         pollfd ready{3, POLLIN, 0};
         if (poll(&ready, 1, 5000) <= 0) return 3;
@@ -29,6 +32,10 @@ int main(int argc, char **argv)
         analysis::Response reply;
         reply.id = request.id;
         reply.result = analysis::Result::allow;
+        if (mode == "fuse-reply-fds" && !requests++) {
+            analysis::send_packet(3, &reply, sizeof(reply));
+            continue;
+        }
         if (mode == "delay") {
             usleep(200000);
             analysis::send_packet(3, &reply, sizeof(reply));
@@ -57,7 +64,7 @@ int main(int argc, char **argv)
             analysis::send_packet(3, &reply, 1);
             poll(nullptr, 0, 5000);
             return 0;
-        } else if (mode == "extra-fds") {
+        } else if ((mode == "extra-fds" || mode == "fuse-reply-fds")) {
             // Nine copies exceed the receiver's eight-FD ancillary budget.
             alignas(cmsghdr) char control[CMSG_SPACE(sizeof(int) * 9)]{};
             iovec vector{&reply, sizeof(reply)};

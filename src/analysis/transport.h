@@ -21,6 +21,9 @@ struct Packet {
 // ready 只表示收到了报文，绝不代表协议合法；
 // 上层仍必须验证 packet.size 和附件数量。
 Packet receive_packet(int channel, void *data, std::size_t capacity, bool allow_control_truncation = false);
+// Replies/readiness must carry no descriptors. Reject ancillary rights without
+// installing them in the receiving process (avoids close/flush on event files).
+Packet receive_plain_packet(int channel, void *data, std::size_t capacity);
 // 函数借用 fd，成功发送也不会关闭它；
 // 返回 false 代表暂时未发送，异常代表传输错误。
 bool send_packet(int channel, const void *data, std::size_t size, int fd = -1);

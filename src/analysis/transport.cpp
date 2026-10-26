@@ -9,20 +9,20 @@
 #include <sys/socket.h>
 
 namespace analysis {
-Packet receive_packet(int channel, void *data, std::size_t capacity, bool allow_control_truncation)
+static Packet receive(int channel, void *data, std::size_t capacity, bool allow_control_truncation, bool accept_fds)
 {
     // Allocate ownership storage before recvmsg installs any FDs in this process.
     // Once descriptors arrive, taking ownership must not allocate/throw.
     Packet packet{Io::ready, 0, {}};
     // recvmsg 会在本进程安装新 FD；必须在它之前预留容器，安装后接管不能再因分配失败抛错。
-    packet.fds.reserve(8);
+    if (accept_fds) packet.fds.reserve(8);
     alignas(cmsghdr) char control[CMSG_SPACE(sizeof(int) * 8)]{};
     iovec vector{data, capacity};
     msghdr message{};
     message.msg_iov = &vector;
     message.msg_iovlen = 1;
-    message.msg_control = control;
-    message.msg_controllen = sizeof(control);
+    message.msg_control = accept_fds ? control : nullptr;
+    message.msg_controllen = accept_fds ? sizeof(control) : 0;
     ssize_t count;
     do { count = recvmsg(channel, &message, MSG_DONTWAIT | MSG_CMSG_CLOEXEC); }
     while (count < 0 && errno == EINTR);
@@ -54,6 +54,15 @@ Packet receive_packet(int channel, void *data, std::size_t capacity, bool allow_
     if (unexpected || (message.msg_flags & MSG_TRUNC) || (packet.control_truncated && !allow_control_truncation))
         throw std::runtime_error("Truncated or unexpected analysis packet");
     return packet;
+}
+
+Packet receive_packet(int channel, void *data, std::size_t capacity, bool allow_control_truncation)
+{
+    return receive(channel, data, capacity, allow_control_truncation, true);
+}
+Packet receive_plain_packet(int channel, void *data, std::size_t capacity)
+{
+    return receive(channel, data, capacity, false, false);
 }
 
 bool send_packet(int channel, const void *data, std::size_t size, int fd)

@@ -30,3 +30,5 @@ sudo python3 -B tests/run_privileged.py --only virtual-reader
 首轮夹具把FAN_DENY误当作BPF的EACCES，实际内核返回EPERM；修正预期后通过。另在现有FD压力专题发现仅剩一槽时服务退出，已通过优先保留裁决句柄、可选pidfd错误降级修补。不同失败路径各自复测，不以长期重复命令数量作为完成依据。
 
 验收结果：原生与Release各33项CTest通过，读取者源文件Clang静态分析0诊断。特权专题中，新增virtual-reader通过（legacy/pidfd两种模式，暂停期间status约11ms、stop确认约2–12ms）；既有deferred、virtual-preparation、virtual-fanotify、handover、permission-audit及permission-namespace的legacy模式通过。修补FD压力问题后，requester-pidfd的open/access各七种场景及exec场景、shutdown-order均复测通过。未宣称完整特权套件全部重跑，未追加持续压力测试。原始输出位于本机`/tmp/secmon-reader-validation-20261023`，临时目录不保证长期保存。
+
+后续增量：2026-10-26已扩展到[内容分析路径](ANALYSIS_EVENT_READER.md)。上文静态限定描述本轮原始验收，不代表后续版本仍使用同步分析读取。

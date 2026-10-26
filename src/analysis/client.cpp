@@ -75,7 +75,7 @@ AnalysisClient::AnalysisClient(const AnalyzerConfig &config)
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         while (true) {
             analysis::Response ready;
-            auto packet = analysis::receive_packet(channel_.get(), &ready, sizeof(ready));
+            auto packet = analysis::receive_plain_packet(channel_.get(), &ready, sizeof(ready));
             if (packet.status != analysis::Io::would_block) {
                 if (packet.status != analysis::Io::ready || packet.size != sizeof(ready) || !packet.fds.empty() ||
                     ready.magic_value != analysis::magic || ready.abi != analysis::version ||
@@ -144,13 +144,18 @@ void AnalysisClient::submit(std::uint64_t id, int event_fd)
         throw std::runtime_error("Analysis request channel full");
     // 只有发送成功才登记在途 ID；
     // 若 channel 满导致发送失败，不能假装分析器已经接收了该事件。
+    track_submission(id);
+}
+void AnalysisClient::track_submission(std::uint64_t id)
+{
+    if (!online() || active_ || !id) throw std::runtime_error("Analysis worker not ready for relay");
     active_ = id;
 }
 std::optional<analysis::Response> AnalysisClient::receive()
 {
     if (!online()) { reap(); return std::nullopt; }
     analysis::Response response;
-    auto packet = analysis::receive_packet(channel_.get(), &response, sizeof(response));
+    auto packet = analysis::receive_plain_packet(channel_.get(), &response, sizeof(response));
     if (packet.status == analysis::Io::would_block) return std::nullopt;
     if (packet.status == analysis::Io::closed) throw std::runtime_error("Analysis worker disconnected");
     // 把分析后端视作可能故障的协议对端：检查 ID、ABI、长度、结果和无附加 FD，迟到/重复回复均拒绝。

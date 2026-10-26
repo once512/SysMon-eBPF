@@ -36,6 +36,8 @@ public:
     // 提交借用队列中的事件 FD，发送端仍保留原引用；
     // 一次最多一个 active 请求，失败不能进入在途状态。
     void submit(std::uint64_t id, int event_fd);
+    // Record a request queued for direct reader-to-worker FD transfer.
+    void track_submission(std::uint64_t id);
     // nullopt 表示当前没有结果；
     // 非法帧/断连抛异常，由权限门停止后端并选择回退，不在此处决定业务 allow。
     std::optional<analysis::Response> receive();
