@@ -240,3 +240,17 @@ if(SECMON_BUILD_FUZZERS)
         -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined)
     target_link_options(secmon-policy-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
+
+# Install one matching runtime set. Internal helpers keep explicit configured
+# paths; tests, generated headers and the private static library stay in build.
+include(GNUInstallDirs)
+install(TARGETS secmon secmon-policyctl secmon-vault-session
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(TARGETS secmon-analyzer RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/secmon")
+if(TARGET secmon-decoyfs)
+    install(TARGETS secmon-decoyfs RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/secmon")
+endif()
+install(FILES README.md README_en.md DESIGN.md LICENSE LICENSE-MIT LICENSE-GPL
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+install(DIRECTORY docs/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/docs" FILES_MATCHING PATTERN "*.md")
+install(DIRECTORY examples/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/examples" FILES_MATCHING PATTERN "*.conf")

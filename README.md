@@ -14,7 +14,7 @@
 
 目前实现执行与凭证审计、指定文件对象的只读保护与授权修改原型，以及可选的 secmon 进程自保护；同一主进程内提供[最多 64 个固定目标的 fanotify 裁决](docs/FANOTIFY_MULTITARGET.md)，支持[即时 allow 模式的在线目标切换](docs/FANOTIFY_HANDOVER.md)，另以独立降权进程完成有界字节标记扫描实验。已有临时真实诱饵的受控证据、完整文件读取/备份实验，以及按可信进程键归组的[离线行为观察规则](docs/BEHAVIOR_OBSERVATION.md)，包含真实第三方目录负载与良性匹配反例。生产诱饵管理、真实恶意行为识别和完整保险箱仍待实现。
 
-总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)，当前待办见 [下一步](docs/NEXT_STEPS.md)。
+当前能力与未完成项见[状态表](docs/STATUS_2026_10_26.md)。总体方案见 [DESIGN.md](DESIGN.md)，学习入口见 [代码导读](docs/CODE_GUIDE.md)。结构与面向对象评估见 [架构整理](docs/ARCHITECTURE_REVIEW.md)，验证入口见 [测试矩阵](docs/TESTING.md)，当前待办见 [下一步](docs/NEXT_STEPS.md)。
 
 - 管理员可声明 [canary 诱饵修改响应](docs/CANARY_RESPONSE.md)：修改尝试被拒绝后，对触发线程组施加有期限的文件修改、fork/clone 和 exec 限制；读取不触发，尚非通用恶意分类。验证结果见[本轮验收](docs/VALIDATION_CANARY_2026_10_21.md)。
 - 可选 [FUSE 虚拟诱饵视图](docs/VIRTUAL_DECOYS.md)提供没有磁盘后端的合成文件，复用上述 canary 策略与响应。可[由主服务显式托管启动与进度监督](docs/MANAGED_DECOYS.md)，保留独立挂载方式；尚无业务目录透明注入或自动重挂载重新绑定。验证范围见[阶段验收](docs/VALIDATION_VIRTUAL_2026_10_23.md)。
@@ -56,6 +56,8 @@ cmake --build build -j
 ./build/secmon --check
 sudo ./build/secmon > events.jsonl
 ```
+
+安装交付见[安装说明](docs/INSTALL.md)，包括同包运行程序的位置和暂存安装验证。
 
 ## 指定文件只读保护
 
