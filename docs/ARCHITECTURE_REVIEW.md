@@ -40,7 +40,7 @@ ControlServer 与 PolicyRuntime 显式禁止复制，让服务资源和运行实
 
 ### 单主服务的组合关系
 
-主服务现已统一为 MonitorService；BpfMonitor 与 FanotifyMonitor 分别封装模块资源。main 只处理动作和顶层错误，两个模块不再各自创建进程/主循环。两阶段提交和运行边界见 [单服务结构](UNIFIED_SERVICE.md)。
+主服务现已统一为 MonitorService；BpfMonitor 与 FanotifyMonitor 分别封装模块资源。main 只处理动作和顶层错误，两个模块不各自运行第二个策略服务；文件操作辅助进程仍独立隔离，决策与管理由同一主循环协调。两阶段提交和运行边界见 [单服务结构](UNIFIED_SERVICE.md)。
 
 ### 统计数据与权限门分离
 
@@ -96,3 +96,8 @@ flowchart TD
 
 
 2026-10-23新增的可选FUSE组件是文件视图提供者，不是另一套安全服务。它复用既有inode策略及响应，只引入libfuse依赖和有界回调，未增加内核Map/安全IPC/管理ABI。当前并未纳入MonitorService的子进程监督；补齐生命周期时须围绕现有候选准备/提交合同，明确就绪、死亡、路径等待与同路径不同挂载的身份，而非只按PID或字符串自动重绑。详见[虚拟视图合同](VIRTUAL_DECOYS.md)。
+
+
+## 后续所有权增量（2026-10-26）
+
+权限门现组合EventReader：真实文件留在读取子进程，主队列仅持有代理，分析FD直接发给降权扫描器，裁决仍由主服务完成。MonitorService可另持有DecoyProvider，先获得视图Ready，再固定政策对象，最后按资源依赖停止视图。这些对象沿用组合和RAII，没有增加策略继承树或独立管理服务；路径及资源图见[代码导读](CODE_GUIDE.md)。进度探测及局部等待有界不等于所有内核VFS等待可取消，也不等于已有自动重绑定或持久防护。

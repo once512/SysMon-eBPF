@@ -1,6 +1,6 @@
 # 当前能力与下一步
 
-更新于 2026-10-26。最新进度见[内容分析隔离](ANALYSIS_EVENT_READER.md)、[进度监督](READER_HEALTH.md)、[辅助自保护](HELPER_PROTECTION.md)及[托管视图](MANAGED_DECOYS.md)。新增 [保险箱会话](VAULT_SESSIONS.md)，[验收记录](VALIDATION_VAULT_2026_10_21.md)，包含默认读拒绝、独立读写期限及关闭。最新代际、限时维护授权及凭证进展见 [本轮记录](VALIDATION_2026_10_21.md)。最新受限在线目标切换见 [本轮验收](VALIDATION_HANDOVER_2026_10_20.md)，固定多目标订阅见 [多目标验收](VALIDATION_MULTITARGET_2026_10_20.md)，离线覆盖评估见 [评估验收](VALIDATION_EVALUATION_2026_10_20.md)，离线归组与观察规则见 [行为阶段验证](VALIDATION_BEHAVIOR_2026_10_19.md)，逐请求权限审计结果见 [权限验证](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)，诊断隔离进展见 [诊断验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)，目标授权及此前验证见 [授权与审计记录](VALIDATION_SCOPED_2026_10_18.md)，总体方向及历史决策保留在 [DESIGN](../DESIGN.md)。
+更新于 2026-10-26。当前完成/未完成能力及优先顺序见[状态表](STATUS_2026_10_26.md)。最新进度见[内容分析隔离](ANALYSIS_EVENT_READER.md)、[进度监督](READER_HEALTH.md)、[辅助自保护](HELPER_PROTECTION.md)及[托管视图](MANAGED_DECOYS.md)。新增 [保险箱会话](VAULT_SESSIONS.md)，[验收记录](VALIDATION_VAULT_2026_10_21.md)，包含默认读拒绝、独立读写期限及关闭。最新代际、限时维护授权及凭证进展见 [本轮记录](VALIDATION_2026_10_21.md)。最新受限在线目标切换见 [本轮验收](VALIDATION_HANDOVER_2026_10_20.md)，固定多目标订阅见 [多目标验收](VALIDATION_MULTITARGET_2026_10_20.md)，离线覆盖评估见 [评估验收](VALIDATION_EVALUATION_2026_10_20.md)，离线归组与观察规则见 [行为阶段验证](VALIDATION_BEHAVIOR_2026_10_19.md)，逐请求权限审计结果见 [权限验证](VALIDATION_PERMISSION_AUDIT_2026_10_18.md)，诊断隔离进展见 [诊断验证记录](VALIDATION_DIAGNOSTIC_2026_10_18.md)，目标授权及此前验证见 [授权与审计记录](VALIDATION_SCOPED_2026_10_18.md)，总体方向及历史决策保留在 [DESIGN](../DESIGN.md)。
 
 目前已有一个主服务、BPF/fanotify 两个资源对象、独立降权分析器和短时管理工具；配置和活动 revision 统一。文件修改例外已能按执行 inode、EUID、目标和文件检查点声明，审计 stdout 使用有界队列，停止时先关闭权限组再输出统计。
 
@@ -160,3 +160,8 @@ BPF 和 fanotify 借用服务拥有的唯一 stdout 队列；开启权限审计�
 ## 显式托管虚拟视图（2026-10-26）
 
 主服务可启动一个提供进程，等待FUSE就绪后再解析策略，查询异步进度/错误，退出时按引用依赖清理；托管的root提供进程随宿主自保护。管理布局为同包v9/472字节。默认不自动重启或换绑inode，异常时可能残留断开挂载，详见[合同与操作示例](MANAGED_DECOYS.md)。此前“无自动启动/健康管理”对应独立首版阶段；下一步是条件明确的对象恢复与部署应用验收。
+
+
+## 本轮收尾（2026-10-26）
+
+普通/Release各34项CTest、可选FUSE关闭后的核心33项及完整72项特权专题/模式通过；完整名单按一次旧文本断言修正分段完成，未重跑已通过前缀，未增加持续长测。安装后的真实视图/扫描/响应链也已验证，详见[验收记录](VALIDATION_RUNTIME_2026_10_26.md)。当前完成/未完成能力及下一步顺序以[状态表](STATUS_2026_10_26.md)为入口。

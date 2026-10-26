@@ -1,12 +1,13 @@
 # 代码导读
 
-架构、面向对象与资源所有权的评估见 [结构整理说明](ARCHITECTURE_REVIEW.md)。建议先阅读 README 的运行边界，再按下面的顺序研究代码。当前代码围绕三个能力组织：执行与凭证审计、指定文件只读保护、进程自保护。
+架构、面向对象与资源所有权的评估见 [结构整理说明](ARCHITECTURE_REVIEW.md)。建议先阅读 README 的运行边界，再按下面的顺序研究代码。当前代码围绕执行与凭证、文件/保险箱策略、自保护，以及fanotify和诱饵模块组织。
 
 ## 宿主程序：从参数到事件
 
 | 文件 | 职责 | 阅读重点 |
 | --- | --- | --- |
-| `src/decoy/main.cpp` | 可选的独立 FUSE 合成视图 | 固定有界命名空间/内容、拒绝全部修改、前台 mount/loop/unmount；安全策略仍由主服务按实际 inode 执行 |
+| `src/decoy/main.cpp` / `provider.cpp` | 合成视图及可选托管监督 | 主服务等Ready后固定inode；独立模式保留；托管循环同时处理FUSE与进度探测 |
+| `src/fanotify/event_reader.h/.cpp` | 真实事件文件FD隔离及进度 | 读取者持有文件、主队列持有代理，文件直接传扫描器；内核裁决仍由主进程负责 |
 | `src/options.h` / `src/options.cpp` | 参数解析和互斥校验 | `Options` 保存配置；`CliAction` 区分运行、帮助、停止和重载；解析过程不访问 BPF 或 socket |
 | `src/main.cpp` / `src/service.cpp` | 唯一入口与主服务协调 | main 处理参数/管理动作，MonitorService 持有两模块、一个运行策略、管理端和统一 stdout 审计出口 |
 | `src/bpf/monitor.cpp` / `src/fanotify/monitor.cpp` | 两个模块对象 | BPF 拥有 skeleton/Map/ring，fanotify 拥有权限门；不各自拥有主循环或进程 |
@@ -63,7 +64,7 @@ sudo python3 tests/self_protection.py --build-dir build
 
 ## 后续研究方向
 
-现已在统一主进程内提供单文件 fanotify 原型，源码位于 `src/fanotify/`，详见 [fanotify 学习实验](FANOTIFY_LAB.md)。已加入接收后的请求超时、用户态并发预算和对应实验；后续可研究真实内核队列溢出，继续扩展现有联合策略。fanotify 不能作为所有写入操作的通用阻断入口；详细设计和已验证范围见 `DESIGN.md`。
+现已在统一主进程内提供固定多目标 fanotify 裁决，源码位于 `src/fanotify/`，详见 [fanotify 学习实验](FANOTIFY_LAB.md)。已加入接收后的请求超时、用户态并发预算和对应实验；后续可研究真实内核队列溢出，继续扩展现有联合策略。fanotify 不能作为所有写入操作的通用阻断入口；详细设计和已验证范围见 `DESIGN.md`。
 
 同时研究两个策略模块时，可参照 [策略组合实验](POLICY_LAYERS.md) 的状态矩阵，区分单层退出与所有防护退出。
 
@@ -137,7 +138,7 @@ sudo python3 tests/self_protection.py --build-dir build
 本轮进一步在手写源码/头文件中补充函数契约、参数单位、资源转移与失败语义，不只提供文件顶部的模块说明。可以选一条路径顺序读，遇到陌生接口就看紧邻调用处的注释：
 
 1. **内核拒绝路径**：[fileguard.bpf.c](../eBPF/fileguard.bpf.c) 的 `guard_inode_policy` → [writer_identity.bpf.c](../eBPF/writer_identity.bpf.c) 的 `authorized_writer` → ring buffer 拒绝事件。注意目标集合查询未命中与调用主体查询未命中含义不同；辅助函数的逻辑 0 也不同于 LSM 的放行返回值。先理解 Map 同一快照，再看 rename 的两个操作数。
-2. **fanotify 请求路径**：[gate.cpp](../src/fanotify/gate.cpp) 的 `poll_once` → [decisions.cpp](../src/fanotify/decisions.cpp) 的 `submit`/`next_request` → [client.cpp](../src/analysis/client.cpp) 的 `submit` → [worker_main.cpp](../src/analysis/worker_main.cpp) → [scanner.cpp](../src/analysis/scanner.cpp) → `service_analysis`/`complete`/`respond`。沿途追踪原事件 FD、SCM_RIGHTS 重复引用、请求 ID、截止时间和迟到结果，最后确认由谁关闭每个 FD。
+2. **fanotify 请求路径**：[gate.cpp](../src/fanotify/gate.cpp) 的 `poll_once` → [decisions.cpp](../src/fanotify/decisions.cpp) 的 `submit`/`next_request` → [client.cpp](../src/analysis/client.cpp) 的 `track_submission`与读取者派发 → [worker_main.cpp](../src/analysis/worker_main.cpp) → [scanner.cpp](../src/analysis/scanner.cpp) → `service_analysis`/`complete`/`respond`。沿途区分主进程代理句柄、读取者原始FD令牌、直接传给扫描器的SCM_RIGHTS引用、请求ID及期限；主进程不关闭真实事件文件，实际释放由读取者处理。
 3. **策略替换路径**：[policy_runtime.cpp](../src/policy_runtime.cpp) 的 `reload` → [policy_config.cpp](../src/policy_config.cpp) 的 `load_policy`/`parse_policy` → [file_policy.cpp](../src/file_policy.cpp) 的 `install` → 外层 Map 引用切换 → 活动配置移动赋值。分别看配置读取失败、候选准备失败和成功提交后的状态变化；不要把候选日志当作活动策略已经切换。
 
 接口旁也补充了返回值的边界：`poll_once(false)` 不等于后端离线，`receive_packet(ready)` 不等于协议合法，`scan(allow)` 不等于恶意内容识别完成，`snapshot` 不会主动探测分析器。生成的 vmlinux.h、skeleton 和第三方代码仍按生成/供应方来源阅读，学习入口优先选择手写源码。
@@ -151,4 +152,27 @@ sudo python3 tests/self_protection.py --build-dir build
 
 先读[视图合同](VIRTUAL_DECOYS.md)，再看 `src/decoy/main.cpp`。它使用 libfuse low-level API 固定 inode/目录偏移，直接回复合成内容，不转发业务文件，不把 FUSE 请求 PID 发给安全服务。随后沿 `pin_policy_file` → `ProtectedFiles` → `guard_inode_policy_detail` → 原有 response 跟踪真实设备/inode如何复用既有安全底座。
 
-验证先读 `decoy_view.py` 的无特权文件系统对照，再读 `virtual_decoy.py`、`virtual_decoy_lifecycle.py` 和 `virtual_decoy_fanotify.py`，最后看单视图/单联合服务的 `virtual_decoy_soak.py`。提供进程当前不受 MonitorService 管理；不要从它有独立 main 推导出新增一套策略服务，也不要推导出已具备自动监督和重挂载恢复。
+验证先读 `decoy_view.py` 的无特权文件系统对照，再读 `virtual_decoy.py`、`virtual_decoy_lifecycle.py` 和 `virtual_decoy_fanotify.py`，最后看单视图/单联合服务的 `virtual_decoy_soak.py`。该节对应独立首版。后续已可由MonitorService显式托管启动、就绪与进度；当前仍不具备自动重挂载/目标重新绑定，见[托管合同](MANAGED_DECOYS.md)。
+
+
+## 隔离进程与所有权（2026-10-26）
+
+```mermaid
+flowchart LR
+    Service[主服务：版本、管理、期限] --> Gate[PermissionGate / PendingDecisions]
+    Gate --> Proxy[本地代理FD与原始令牌]
+    Gate --> Reader[EventReader主端]
+    Reader --> Child[读取子进程：真实事件FD]
+    Child -- 文件直接传递 --> Scanner[降权扫描进程]
+    Scanner -- 结果 --> Client[AnalysisClient监督]
+    Client --> Gate
+    Gate -- 原始令牌裁决 --> Group[fanotify group]
+    Group -- 事件 --> Child
+    Service --> Owner[DecoyProvider]
+    Owner <-->|Ready / 进度探测确认| View[FUSE提供进程]
+    View --> Files[合成文件对象]
+```
+
+图表示通信及资源分工，不是额外安全策略服务。进度/派发/清理均有固定预算；主队列接收之前的事件不具有端到端期限。正常析构最后停止托管视图，保证原有策略和订阅先释放对象引用。主入口先恢复SIGCHLD可回收状态，再启动辅助进程；`child_startup_cleanup.cpp`只在独立测试中包装系统调用，验证pidfd分配失败仍能清理自有子进程。
+
+建议按[静态读取](STATIC_EVENT_READER.md)→[分析文件直传](ANALYSIS_EVENT_READER.md)→[进度监督](READER_HEALTH.md)→[辅助自保护](HELPER_PROTECTION.md)→[托管视图](MANAGED_DECOYS.md)阅读。`secmon-policyctl --require-ready/--require-decoy`只消费同一份已验证状态，不产生第二份策略或恢复循环。
