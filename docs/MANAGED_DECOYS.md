@@ -63,3 +63,5 @@ sudo ./build/secmon --stop /run/secmon-demo/management/control.sock
 ## 验证
 
 `virtual-managed`覆盖真实视图的策略前就绪、静态/内容分析、默认访问限制及显式allow-other、64文件边界、canary响应、自保护、空闲进度、暂停/恢复、真实死亡和暂停期间有界停止；另以不挂载文件系统的测试协议对端覆盖Ready超时/附件/版本/断连及运行期错误，核对独立BPF文件策略继续拒绝。后者是协议故障注入，不冒充真实挂载验收。失败策略后的真实视图回滚也检查卸载。
+
+后续增量：现已支持管理员以更高fanotify-rebind-epoch[显式重新绑定同路径对象](FANOTIFY_REBIND.md)，仅限旧门即时静态allow且空闲。它不执行重挂载，也不接管新提供进程或清除托管offline状态；此前“同路径保留旧inode”继续描述普通重载。

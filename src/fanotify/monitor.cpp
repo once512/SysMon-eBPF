@@ -47,7 +47,7 @@ FanotifyMonitor::FanotifyMonitor(FanotifyOptions options, const std::string &pol
               << " analyzer_pid=" << gate_->analyzer_pid() << " event=" << permission_name(options_.event)
               << " targets=" << gate_->target_count() << '\n';
 }
-FanotifyMonitor::Prepared FanotifyMonitor::prepare(const PolicyConfig &candidate)
+FanotifyOptions FanotifyMonitor::checked_options(const PolicyConfig &candidate) const
 {
     if (!candidate.fanotify)
         throw management::Error(management::Code::restart_required, "Disabling fanotify requires restart");
@@ -55,23 +55,31 @@ FanotifyMonitor::Prepared FanotifyMonitor::prepare(const PolicyConfig &candidate
     apply_fanotify_policy(candidate, next);
     if (!same_fanotify_backend(options_, next))
         throw management::Error(management::Code::restart_required, "Changing fanotify event or analyzer requires restart");
+    if (next.rebind_epoch < options_.rebind_epoch)
+        throw management::Error(management::Code::invalid_policy, "Fanotify rebind epoch cannot decrease or be omitted after activation");
     gate_->validate_reconfigure(next.decision);
-    Prepared prepared{std::move(next), {}};
-    if (prepared.options.paths != options_.paths) {
-        // Closing a fanotify group allows kernel-unread requests. This handover
-        // is therefore legal only when the old nominal policy already allowed
-        // immediate access and there are no delivered requests or active scans.
+    if (next.paths != options_.paths || next.rebind_epoch > options_.rebind_epoch) {
+        // Group closure releases kernel-unread permissions under prior allow.
+        // Explicit re-pinning never relaxes this existing handover condition.
         if (options_.decision.external || !options_.decision.allow || options_.decision.delay.count())
             throw management::Error(management::Code::restart_required,
-                "Target handover requires the old gate to use immediate static allow");
+                "Target handover/rebind requires the old gate to use immediate static allow");
         if (subscription_generation_ == std::numeric_limits<std::uint64_t>::max())
             throw std::runtime_error("Subscription generation exhausted");
+    }
+    return next;
+}
+FanotifyMonitor::Prepared FanotifyMonitor::prepare(const PolicyConfig &candidate)
+{
+    Prepared prepared{checked_options(candidate), {}};
+    const bool rebind = prepared.options.rebind_epoch > options_.rebind_epoch;
+    if (prepared.options.paths != options_.paths || rebind) {
         std::vector<std::pair<std::string, int>> retained;
         retained.reserve(options_.paths.size());
-        for (std::size_t i = 0; i < options_.paths.size(); ++i)
+        for (std::size_t i = 0; !rebind && i < options_.paths.size(); ++i)
             retained.emplace_back(options_.paths[i], gate_->target_fds()[i]);
         for (const auto &path : prepared.options.paths)
-            prepared.retained_targets += std::find(options_.paths.begin(), options_.paths.end(), path) != options_.paths.end();
+            if (!rebind) prepared.retained_targets += std::find(options_.paths.begin(), options_.paths.end(), path) != options_.paths.end();
         prepared.replacement = std::make_unique<PermissionGate>(prepared.options.paths, prepared.options.decision,
             prepared.options.event, prepared.options.analyzer, policy_path_, audit_, instance_ns_, candidate.revision,
             requester_pidfd_, &request_sequence_, retained, subscription_generation_ + 1);
@@ -102,6 +110,8 @@ void FanotifyMonitor::commit(Prepared candidate, std::uint64_t revision) noexcep
                     ",\"to_revision\":" + std::to_string(revision) + ",\"old_targets\":" + std::to_string(old_count) +
                     ",\"new_targets\":" + std::to_string(gate_->target_count()) +
                     ",\"retained_targets\":" + std::to_string(candidate.retained_targets) +
+                    ",\"from_rebind_epoch\":" + std::to_string(options_.rebind_epoch) +
+                    ",\"to_rebind_epoch\":" + std::to_string(candidate.options.rebind_epoch) +
                     ",\"next_request_id\":" + std::to_string(request_sequence_) + ",\"timestamp_ns\":" + std::to_string(timestamp) +
                     ",\"kernel_unread\":\"released_under_prior_allow\",\"individual_audit_complete\":false}\n");
             } catch (...) { audit_->note_drop(); }

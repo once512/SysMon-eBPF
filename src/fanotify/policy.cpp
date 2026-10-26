@@ -8,6 +8,7 @@ void apply_fanotify_policy(const PolicyConfig &policy, FanotifyOptions &options)
     if (!policy.fanotify) throw std::runtime_error("Policy has no fanotify configuration");
     const auto &source = *policy.fanotify;
     options.paths = source.paths;
+    options.rebind_epoch = source.rebind_epoch;
     // 文本配置与运行枚举在适配层转换；
     // 内核 FAN_* 掩码不直接作为配置/管理协议的枚举数值。
     options.event = parse_permission_event(source.event);

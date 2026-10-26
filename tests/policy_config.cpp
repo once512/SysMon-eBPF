@@ -60,6 +60,11 @@ int main() {
     require(parse_policy(target_input).fanotify->paths.size() == 64);
     reject(targets + "fanotify-file \"/overflow\"\n");
     reject(targets + "fanotify-file \"/target0\"\n");
+    std::istringstream rebound("revision 1\nfanotify-file \"/gate\"\nfanotify-decision allow\nfanotify-rebind-epoch 18446744073709551615\n");
+    require(parse_policy(rebound).fanotify->rebind_epoch == UINT64_MAX);
+    for (const auto *value : {"0", "-1", "+1", "1x", "18446744073709551616"})
+        reject(std::string("revision 1\nfanotify-file \"/gate\"\nfanotify-decision allow\nfanotify-rebind-epoch ") + value);
+    reject("revision 1\nfanotify-file \"/gate\"\nfanotify-decision allow\nfanotify-rebind-epoch 1\nfanotify-rebind-epoch 2");
     const std::string base = "revision 1\nfanotify-file \"/gate\"\n";
     for (const auto *tail : {"", "fanotify-decision maybe", "fanotify-decision allow\nfanotify-decision deny",
             "fanotify-decision deny\nfanotify-event read", "fanotify-decision deny\nfanotify-timeout-decision maybe",

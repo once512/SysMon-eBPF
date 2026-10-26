@@ -11,6 +11,7 @@
 
 struct FanotifyPolicy {
     std::vector<std::string> paths;
+    std::uint64_t rebind_epoch = 0; // Higher epochs explicitly re-pin all targets.
     std::string event = "open";
     std::string decision; // Required for a static backend; empty with analyzer.
     std::string analyzer;

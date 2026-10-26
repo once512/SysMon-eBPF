@@ -9,6 +9,7 @@
 
 struct FanotifyOptions {
     std::vector<std::string> paths;
+    std::uint64_t rebind_epoch = 0;
     PermissionEvent event = PermissionEvent::open;
     DecisionConfig decision;
     AnalyzerConfig analyzer;

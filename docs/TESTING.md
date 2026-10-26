@@ -52,6 +52,8 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | audit-backpressure | `audit_backpressure.py` | 审计 stdout 堵塞/恢复/断开/持续洪流时的裁决、重载与停止；用户态丢失可诊断 |
 | audit-file | `integration.py` | 执行/凭证事件、旧 TID、文件只读的 13 类拒绝、读取与私有映射、退出解除 |
 | self-protection | `self_protection.py` | 信号、ptrace 类检查、管理端身份、授权停止、期限及 socket 清理 |
+| fanotify-rebind | `fanotify_rebind.py` | 同路径替换、显式代际、回滚、忙/拒绝/分析限制及身份/FD计量 |
+| virtual-rebind | `virtual_decoy_rebind.py` | 同路径FUSE重挂载、暂停准备回滚、BPF/fanotify对象一致及独立响应epoch |
 | fanotify-open | `fanotify.py` | 单文件打开裁决、硬链接/重命名、已有 FD、崩溃释放 |
 | fanotify-deferred | `fanotify_deferred.py` | 延迟、接收后超时、容量回退、队列预算、正常退出排空 |
 | analysis-faults | `fanotify_analysis_faults.py` | 错误/重复/迟到回复、FD 超额、请求取消及后端隔离 |

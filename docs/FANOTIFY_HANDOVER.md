@@ -76,3 +76,7 @@ sudo python3 -B tests/run_privileged.py --build-dir build --only fanotify-handov
 专题覆盖 open/access × pidfd 开关的列表增删、保留/重加 inode、候选 mark 与 BPF 准备失败、配置自我等待、持续请求号及累计统计。另有 64/65 边界、忙时/延迟/分析模式拒绝、停止 fanotify-only 实例后排队八个旧内核请求的受控恢复测试。暂停实验不用于联合自保护实例。每个完整循环保存原始流、离线结果、来源摘要和角色声明；rounds 为 1..512，duration 为 0..2400 秒。
 
 后续任意拒绝/扫描模式的目标热迁移，需要独立解决旧在途事件的裁决与生命周期问题；本轮不以宽松的排空判断代替这个合同。
+
+## 显式同路径刷新
+
+更高`fanotify-rebind-epoch`可在相同allow/空闲条件下重新固定全部候选目标；相同代际仍保留共同路径。失败不消耗代际，新增审计from_rebind_epoch/to_rebind_epoch，详见[重绑定合同](FANOTIFY_REBIND.md)。上文默认对象保留规则继续适用于普通重载。

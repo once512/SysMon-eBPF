@@ -53,6 +53,8 @@ TESTS = (
     ('fanotify-policy', 'fanotify_policy.py'),
     ('fanotify-multiple', 'fanotify_multiple.py'),
     ('fanotify-handover', 'fanotify_handover.py'),
+    ('fanotify-rebind', 'fanotify_rebind.py'),
+    ('virtual-rebind', 'virtual_decoy_rebind.py'),
     ('subscription-lifecycle', 'subscription_live.py'),
     ('management-live', 'management_live.py'),
     ('management-faults', 'management_faults.py'),

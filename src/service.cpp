@@ -73,6 +73,7 @@ void MonitorService::commit(const PolicyConfig &candidate)
         throw std::runtime_error("Vault/canary policy requires the BPF module");
     if (!fanotify_ && candidate.fanotify && options_.modules != Options::Modules::bpf_only)
         throw management::Error(management::Code::restart_required, "Enabling fanotify requires restart");
+    if (fanotify_) fanotify_->validate_candidate(candidate); // Reject unsafe rebind before VFS preparation.
     auto paths = bpf_ ? candidate.paths : std::vector<std::string>{};
     if (bpf_) for (const auto &writer : candidate.writers) paths.push_back(writer.path);
     // Include active-boot grants only: stale boot grants must not require a
@@ -82,7 +83,8 @@ void MonitorService::commit(const PolicyConfig &candidate)
         if (session.boot_id == boot) paths.push_back(session.program);
     if (fanotify_ && candidate.fanotify) for (const auto &path : candidate.fanotify->paths) {
         const auto &old = runtime_.active().fanotify;
-        if (!old || std::find(old->paths.begin(), old->paths.end(), path) == old->paths.end()) paths.push_back(path);
+        if (!old || candidate.fanotify->rebind_epoch > old->rebind_epoch ||
+            std::find(old->paths.begin(), old->paths.end(), path) == old->paths.end()) paths.push_back(path);
     }
     PolicyPins pins(paths, [this] { preparation_progress(); });
     std::optional<FanotifyMonitor::Prepared> next;

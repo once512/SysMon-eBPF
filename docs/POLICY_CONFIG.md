@@ -95,6 +95,7 @@ MonitorService 只维护一份活动策略、一个管理通道。联合重载�
 | 字段 | 默认/约束 | 在线更新 |
 | --- | --- | --- |
 | `fanotify-file` | 必填，可重复 1..64 次，双引号绝对路径，互不重复的普通文件 | 旧门即时静态 allow 且空闲时可切换，其他需重启 |
+| `fanotify-rebind-epoch` | 默认未声明为0，显式1..uint64最大值；提高时重新固定全部目标 | 仅旧门即时静态allow且空闲，见[同路径重绑定](FANOTIFY_REBIND.md) |
 | `fanotify-event` | open；可选 open/access/exec | 需重启 |
 | `fanotify-decision` | 静态模式必填 allow/deny；分析模式禁用 | 静态模式可更新 |
 | `fanotify-analyzer` | 分析模式的双引号绝对程序路径 | 需重启；不能在线切换模式 |

@@ -4,6 +4,7 @@
 #include "fields.h"
 #include <secmon/policy_limits.h>
 #include <algorithm>
+#include <limits>
 namespace policy_fields {
 void FanotifyFields::parse(const std::string &key, std::istream &fields)
 {
@@ -20,7 +21,8 @@ void FanotifyFields::parse(const std::string &key, std::istream &fields)
     else if (key == "fanotify-marker") value_.marker = quoted(fields, 256);
     else {
         const auto value = word(fields);
-        if (key == "fanotify-event") {
+        if (key == "fanotify-rebind-epoch") value_.rebind_epoch = number<std::uint64_t>(value, 1, std::numeric_limits<std::uint64_t>::max());
+        else if (key == "fanotify-event") {
             if (value != "open" && value != "access" && value != "exec") invalid("unknown fanotify event");
             value_.event = value;
         } else if (key == "fanotify-decision") { (void)allow(value); value_.decision = value; }

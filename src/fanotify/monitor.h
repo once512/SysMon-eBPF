@@ -18,6 +18,7 @@ class FanotifyMonitor {
     std::unique_ptr<PermissionGate> gate_;
     GateStats history_;
     GateStats combined_stats() const;
+    FanotifyOptions checked_options(const PolicyConfig &candidate) const;
 public:
     struct Prepared {
         FanotifyOptions options;
@@ -30,6 +31,7 @@ public:
     FanotifyMonitor &operator=(const FanotifyMonitor &) = delete;
     FanotifyMonitor(FanotifyMonitor &&) = delete;
     FanotifyMonitor &operator=(FanotifyMonitor &&) = delete;
+    void validate_candidate(const PolicyConfig &candidate) const { (void)checked_options(candidate); }
     Prepared prepare(const PolicyConfig &candidate);
     const std::vector<int> &prepared_target_fds(const Prepared &candidate) const {
         return candidate.replacement ? candidate.replacement->target_fds() : gate_->target_fds();
