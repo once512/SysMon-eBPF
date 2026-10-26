@@ -9,16 +9,22 @@ int main(int argc, char **argv)
 {
     std::string socket;
     std::uint64_t expected = 0;
+    bool require_ready = false, require_decoy = false;
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--help") {
-            std::cout << "Usage: secmon-policyctl --socket PATH [--expect-revision N]\n"
-                         "Read-only active policy check of the single monitor service. Requires root.\n";
+            std::cout << "Usage: secmon-policyctl --socket PATH [--expect-revision N] [--require-ready] [--require-decoy]\n"
+                         "Read-only active policy check of the single monitor service. Requires root.\n"
+                         "--require-ready: also check observed reader/analyzer/configured-provider readiness.\n"
+                         "--require-decoy: require a configured, responsive managed view.\n";
             return 0;
         }
         std::set<std::string_view> seen;
         for (int i = 1; i < argc; ++i) {
             const std::string_view option(argv[i]);
-            if (!seen.insert(option).second || i + 1 >= argc) throw std::invalid_argument("Duplicate or incomplete option");
+            if (!seen.insert(option).second) throw std::invalid_argument("Duplicate option");
+            if (option == "--require-ready") { require_ready = true; continue; }
+            if (option == "--require-decoy") { require_decoy = true; continue; }
+            if (i + 1 >= argc) throw std::invalid_argument("Incomplete option");
             const std::string_view value(argv[++i]);
             if (option == "--expect-revision") {
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), expected);
@@ -36,9 +42,18 @@ int main(int argc, char **argv)
     }
     try {
         const auto reply = query_status(socket);
-        const auto *code = reply.code != management::Code::ok ? "query_failed" :
+        const char *code = reply.code != management::Code::ok ? "query_failed" :
             (!(reply.flags & management::configured) ? "unconfigured" :
              (expected && reply.revision != expected ? "unexpected_revision" : "ok"));
+        if (std::string_view(code) == "ok") {
+            if (require_decoy && !reply.decoy_files) code = "decoy_missing";
+            else if (require_ready && reply.backend != management::Backend::bpf && reply.reader_state != management::ReaderState::responsive)
+                code = "reader_unresponsive";
+            else if (require_ready && (reply.flags & management::analyzer) && !(reply.flags & management::analyzer_online))
+                code = "analyzer_offline";
+            else if ((require_ready || require_decoy) && reply.decoy_files && reply.decoy_provider_state != management::ProviderState::responsive)
+                code = reply.decoy_provider_state == management::ProviderState::offline ? "decoy_provider_offline" : "decoy_provider_unresponsive";
+        }
         std::cout << "{\"code\":\"" << code << "\",\"status\":" << management::reply_json(reply) << "}\n";
         return std::string_view(code) == "ok" ? 0 : 1;
     } catch (const std::exception &error) {

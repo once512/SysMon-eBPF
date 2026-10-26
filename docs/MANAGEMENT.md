@@ -116,3 +116,10 @@ BPF 状态的 writer_paths 是已提交的 allow-writer 规则中的程序路径
 ## 保险箱状态
 
 v6 提供 vault_paths、vault_sessions、vault_live_sessions、vault_stale_sessions、vault_session_history、vault_clock_valid、vault_next_deadline_boot_ns，含义及查询时钟边界见 [保险箱会话](VAULT_SESSIONS.md)。所有同包客户端与测试须同步更新，不解码历史响应。
+
+
+## 只读就绪检查
+
+`secmon-policyctl --socket SOCKET --expect-revision N --require-ready`在原有配置/版本核对之外，要求当前启用的读取者近期响应、分析器通道在线及已托管提供进程近期响应。`--require-decoy`另外要求存在托管视图且近期响应，可以单独使用。没有这些标志时保留原有只读策略核对行为。
+
+不满足时返回退出码1和完整status，code分别为decoy_missing、reader_unresponsive、analyzer_offline、decoy_provider_unresponsive或decoy_provider_offline；配置/版本/传输错误优先按既有code报告。它不重载、恢复或循环等待，只比较一次采样进度和通道状态，不验证当前挂载路径或保证后续持续可用。

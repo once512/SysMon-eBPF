@@ -5,6 +5,7 @@ import argparse
 import array
 import errno
 import hashlib
+import json
 import os
 from pathlib import Path
 import socket
@@ -202,6 +203,9 @@ def main():
             assert open_errno(target) == errno.EPERM
             failed = call(fan, 'status', gate_socket)
             assert not failed['analyzer_online'] and failed['backend_error_requests'] == 1
+            readiness = subprocess.run([str(build / 'secmon-policyctl'), '--socket', str(gate_socket), '--require-ready'],
+                                       capture_output=True, text=True, timeout=3)
+            assert readiness.returncode == 1 and json.loads(readiness.stdout)['code'] == 'analyzer_offline', readiness
             assert failed['analyzer_error'] == 2 and failed['last_scan_error'] == 'oversized'
             assert failed['last_code'] == 'ok' and failed['revision'] == 20
         print('PASS live scan reasons and backend-error accounting preserve policy state')

@@ -34,8 +34,8 @@ def main():
             stage.replace(config)
             return hashlib.sha256(text.encode()).hexdigest()
 
-        def check(code='ok', expected=None, missing=False):
-            command = [str(checker), '--socket', str(root / 'missing' if missing else control)]
+        def check(code='ok', expected=None, missing=False, extra=()):
+            command = [str(checker), '--socket', str(root / 'missing' if missing else control), *extra]
             if expected is not None:
                 command += ['--expect-revision', str(expected)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=5)
@@ -50,6 +50,9 @@ def main():
             assert first['backend'] == 'combined' and first['pid'] == process.pid
             assert first['source_sha256'] == first_digest
             assert first['protected_paths'] == 1 and first['decision'] == 'allow'
+            assert check(expected=1, extra=['--require-ready'])['revision'] == 1
+            missing_view = check('decoy_missing', expected=1, extra=['--require-decoy'])
+            assert missing_view['reloads'] == 0 and missing_view['revision'] == 1
             digest = publish(2)
             unchanged = check(expected=1)  # 只读查询不会加载磁盘上的新候选。
             assert unchanged['reloads'] == 0 and unchanged['source_sha256'] == first_digest

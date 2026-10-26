@@ -26,6 +26,8 @@ sudo ./build/secmon --policy /run/secmon-demo/policy.conf \
 
 ```bash
 sudo ./build/secmon --status /run/secmon-demo/management/control.sock
+sudo ./build/secmon-policyctl --socket /run/secmon-demo/management/control.sock \
+  --expect-revision 1 --require-ready --require-decoy
 cat /run/secmon-demo/view/accounts.csv
 sudo ./build/secmon --stop /run/secmon-demo/management/control.sock
 ```

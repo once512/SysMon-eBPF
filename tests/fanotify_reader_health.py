@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import subprocess
 import tempfile
 import time
 from permission_audit import AuditedService, begin_request, finish_request, contents, request
@@ -59,6 +60,9 @@ def experiment(build, analysis, pidfd):
         assert degraded['reader_pid'] == reader and degraded['reader_progress_age_ms'] >= 2000
         assert degraded['pending'] == 0 and degraded['allowed'] == 1 and degraded['denied'] == 0, degraded
         assert pending.poll() is None, 'reader failure silently allowed an unreceived request'
+        checked = subprocess.run([str(build / 'secmon-policyctl'), '--socket', str(service.control), '--require-ready'],
+                                 capture_output=True, text=True, timeout=3)
+        assert checked.returncode == 1 and json.loads(checked.stdout)['code'] == 'reader_unresponsive', checked
         begin = time.monotonic(); service.status(); status_ms = (time.monotonic() - begin) * 1000
         assert status_ms < 500
         os.kill(reader, signal.SIGCONT); stopped = False

@@ -69,6 +69,15 @@ class ManagedRun:
         assert self.provider_pid > 0 and state['decoy_files'] == self.file_count, state
         return state
 
+    def check(self, code='ok'):
+        result = subprocess.run([str(self.build / 'secmon-policyctl'), '--socket', str(self.control),
+                                 '--expect-revision', '1', '--require-ready', '--require-decoy'],
+                                capture_output=True, text=True, timeout=3)
+        assert result.returncode == (0 if code == 'ok' else 1), result
+        reply = json.loads(result.stdout)
+        assert reply['code'] == code and reply['status']['revision'] == 1, reply
+        return reply['status']
+
     def status(self): return call(self.build / 'secmon', 'status', self.control)
 
     def wait_state(self, state):
@@ -107,6 +116,7 @@ def normal(build, analysis, allow_other, capacity=False):
         service = ManagedRun(build, Path(tmp), analysis=analysis, allow_other=allow_other, capacity=capacity, ignore_sigchld=not analysis and not capacity); stack.callback(service.close)
         state = service.ready(); pid = state['decoy_provider_pid']
         assert state['decoy_provider_state'] == 'responsive' and state['revision'] == 1
+        service.check()
         actor = stack.enter_context(DecoyActor(build / 'secmon-virtual-decoy-scenario', service.trap, service.victim))
         assert len(list(service.view.iterdir())) == service.file_count
         assert actor.request('r') == 0
@@ -155,6 +165,7 @@ def paused(build, stop_paused):
         state = service.wait_state('unresponsive')
         assert state['revision'] == 1 and state['decoy_provider_progress_age_ms'] >= 2000
         assert state['decoy_provider_error'] == 'none'
+        service.check('decoy_provider_unresponsive')
         begin = time.monotonic(); service.status(); latency = time.monotonic() - begin
         assert latency < .5
         if stop_paused:
@@ -172,6 +183,7 @@ def paused(build, stop_paused):
             state = service.wait_state('offline')
             assert state['revision'] == 1 and state['decoy_provider_error'] == 'disconnected', state
             assert service.process.poll() is None
+            service.check('decoy_provider_offline')
             service.stop()
             print('PASS managed provider pause/recovery and real death stay visible without implicit remount')
 
@@ -206,6 +218,7 @@ def peer_failure(build):
             assert state['decoy_provider_error'] == expected and state['revision'] == 1, state
             assert writer.request('w') == errno.EACCES
             assert service.status()['self_protected']
+            service.check('decoy_provider_offline')
             service.stop()
     print('PASS injected provider protocol failures preserve the independent BPF file policy')
 

@@ -33,7 +33,7 @@
 - 可通过重复的 `--protect-file PATH` 参数启用指定文件只读保护，另输出拒绝操作计数及 `file_denied` 事件。
 - 配置可加入 `writer-lease-ms` 限制维护写例外的期限，内核按启动时钟收回；成功新策略会重新计时，语义与既有映射限制见 [策略配置](docs/POLICY_CONFIG.md)。
 - 指定文件可使用 [vault 与限时读写会话](docs/VAULT_SESSIONS.md)，默认锁定读取，关闭或到期后重新限制普通已有 FD，绝对期限跨服务重启保留；尚无加密和最终用户认证。
-- `secmon-policyctl --socket SOCKET` 只读核对主服务的活动策略和可选预期 revision。
+- `secmon-policyctl --socket SOCKET` 只读核对活动策略和可选预期 revision；`--require-ready`及`--require-decoy`可进一步要求采样后端就绪及托管视图存在。
 - `--status SOCKET` 查询活动版本、重载结果与后端状态，`--reload` 返回结构化结果，详见 [管理接口](docs/MANAGEMENT.md)。
 - `--policy FILE` 加载带递增 revision 的文件策略，`--reload SOCKET` 在线完整替换；同一主进程同时应用 BPF 和 fanotify 字段，支持空闲时联合更新，详见 [策略配置导读](docs/POLICY_CONFIG.md)。
 - 配置中的 `allow-writer` 按执行文件 inode、有效 UID、目标 inode 与操作检查点授予文件修改例外，并自动保护程序对象；详见 [程序对象授权](docs/WRITER_IDENTITY.md)。它尚不认证程序内容、加载链或运行时状态。本轮目标/操作授权与审计可靠性验证见 [最新记录](docs/VALIDATION_SCOPED_2026_10_18.md)，此前结果见 [授权阶段记录](docs/VALIDATION_WRITER_2026_10_17.md)。
