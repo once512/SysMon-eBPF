@@ -97,3 +97,5 @@ sudo python3 -B tests/virtual_decoy_soak.py --build-dir build \
 
 
 随后静态fanotify事件读取/真实事件FD关闭也已隔离，暂停FUSE期间管理与已交付旧请求期限可推进；内容分析模式仍未迁移，读取者队首阻塞、未交付审计及不可中断内核等待见[静态事件读取合同](STATIC_EVENT_READER.md)。
+
+2026-10-26：已将[内容分析事件读取与释放](ANALYSIS_EVENT_READER.md)迁移到隔离链，并加入[读取者进度监督](READER_HEALTH.md)。特权读取辅助进程随主服务[自保护](HELPER_PROTECTION.md)，独立FUSE提供进程仍不在该范围。前文“分析未迁移”是历史阶段状态；提供进程自动启动/监控、重挂载对象的重新绑定仍待完成。

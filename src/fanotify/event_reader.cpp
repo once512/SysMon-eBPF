@@ -40,7 +40,7 @@ struct Held { std::uint64_t sequence = 0; int fd = -1; };
     const int socket_copy = fcntl(channel, F_DUPFD_CLOEXEC, 6);
     const int group_copy = fcntl(group, F_DUPFD_CLOEXEC, 6);
     const int analyzer_copy = analyzer < 0 ? -1 : fcntl(analyzer, F_DUPFD_CLOEXEC, 6);
-    if (socket_copy < 0 || group_copy < 0 || prctl(PR_SET_PDEATHSIG, SIGKILL) || getppid() != parent ||
+    if (socket_copy < 0 || group_copy < 0 || prctl(PR_SET_PDEATHSIG, SIGKILL) || prctl(PR_SET_DUMPABLE, 0) || getppid() != parent ||
         dup2(socket_copy, 3) < 0 || dup2(group_copy, 4) < 0 ||
         (analyzer >= 0 && (analyzer_copy < 0 || dup2(analyzer_copy, 5) < 0)) ||
         syscall(SYS_close_range, 6U, ~0U, 0)) _exit(1);

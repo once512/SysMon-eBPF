@@ -17,3 +17,5 @@ Scoped online file-vault sessions now reuse the existing policy and root managem
 
 
 An optional [FUSE virtual decoy view](docs/VIRTUAL_DECOYS.md) now provides up to 64 immutable synthetic files without a business-file backing store. Existing inode-based canary policies and kernel responses apply directly. This initial independent mount does not provide transparent business-directory injection, automatic provider supervision or policy rebinding after remount. Build with libfuse3 development headers, or set `SECMON_BUILD_DECOYFS=OFF` for the core service alone.
+
+Fanotify now isolates event-file acquisition and cleanup for both static and [analysis decisions](docs/ANALYSIS_EVENT_READER.md). [Reader progress](docs/READER_HEALTH.md) is observable in status; a missing acknowledgement for two seconds reports unresponsive without automatically replacing the permission group. BPF self-protection also covers [privileged direct helpers](docs/HELPER_PROTECTION.md), while the host retains cleanup authority.

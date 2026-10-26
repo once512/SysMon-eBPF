@@ -6,6 +6,8 @@
 #include <cstring>
 #include <cerrno>
 #include <poll.h>
+#include <grp.h>
+#include <sys/prctl.h>
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -13,6 +15,11 @@
 int main(int argc, char **argv)
 {
     if (argc != 9) return 2;
+    // Match the real worker's non-root identity so fault injection does not
+    // require disabling privileged-helper protection in a combined service.
+    if (geteuid() == 0 && (setgroups(0, nullptr) || setresgid(65534, 65534, 65534) ||
+                          setresuid(65534, 65534, 65534))) return 9;
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) || prctl(PR_SET_DUMPABLE, 0)) return 9;
     const std::string mode(argv[4]);
     if (mode == "no-ready") { poll(nullptr, 0, 5000); return 0; }
     if (mode == "refuse-requests" && shutdown(3, SHUT_RD)) return 8;

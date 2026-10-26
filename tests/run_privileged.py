@@ -13,6 +13,7 @@ import time
 TESTS = (
     ('audit-file', 'integration.py'),
     ('self-protection', 'self_protection.py'),
+    ('helper-protection', 'helper_protection.py'),
     ('fanotify-open', 'fanotify.py'),
     ('fanotify-deferred', 'fanotify_deferred.py'),
     ('fanotify-events', 'fanotify_events.py'),

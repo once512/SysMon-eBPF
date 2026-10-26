@@ -15,10 +15,23 @@ static __always_inline int guard_task(struct task_struct *target, u32 operation,
      * copies pointer bytes into a scalar and loses verifier provenance. */
     /* 此直接访问保留 verifier 识别的 BTF task 指针；helper 需要它，不能先 probe-read 成无类型地址标量。 */
     struct task_struct *leader = target->group_leader;
-    if (!leader || !bpf_task_storage_get(&protected_tasks, leader, 0, 0)) return 0;
+    if (!leader) return 0;
+    struct task_struct *controller = leader;
+    if (!bpf_task_storage_get(&protected_tasks, leader, 0, 0)) {
+        /* Privileged direct helpers hold group/policy capabilities. Anchor
+         * their protection in the actual parent's task storage, not a PID.
+         * Dropped-UID scanners are deliberately outside this root-helper rule.
+         * Direct BTF accesses preserve the helper's task pointer provenance. */
+        struct task_struct *parent = leader->real_parent;
+        if (!parent) return 0;
+        controller = parent->group_leader;
+        if (!controller || !bpf_task_storage_get(&protected_tasks, controller, 0, 0) ||
+            BPF_CORE_READ(leader, cred, uid.val) || BPF_CORE_READ(leader, cred, euid.val)) return 0;
+    }
     struct task_struct *current = bpf_get_current_task_btf();
-    /* 只允许受保护线程组自身操作，其他进程即使 UID=0 也拒绝；授权停止另走用户态控制 socket。 */
-    if (BPF_CORE_READ(current, group_leader) == leader) return 0;
+    /* 只允许目标自身或它的受保护宿主操作；外部root仍需走管理socket。 */
+    struct task_struct *caller = BPF_CORE_READ(current, group_leader);
+    if (caller == leader || caller == controller) return 0;
     count_stat(SECMON_SELF_DENIED);
     struct exec_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     /* 先决定拒绝，再尽力写审计； */
