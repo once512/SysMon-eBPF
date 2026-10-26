@@ -30,6 +30,11 @@ int main()
         try { validate_reply(bad, Command::status); } catch (const std::runtime_error &) { return; }
         throw std::runtime_error("Bad management response accepted");
     };
+    reject([](Reply &x) { x.decoy_provider_state = static_cast<ProviderState>(99); });
+    reject([](Reply &x) { x.decoy_files = 65; });
+    reject([](Reply &x) { x.decoy_provider_pid = 123; });
+    reject([](Reply &x) { x.decoy_provider_progress_age_ms = 1; });
+    reject([](Reply &x) { x.decoy_provider_error = static_cast<ProviderError>(99); });
     reject([](Reply &x) { x.reader_pid = 123; });
     reject([](Reply &x) { x.reader_state = static_cast<ReaderState>(99); });
     reject([](Reply &x) { x.reader_progress_age_ms = 1; });
@@ -72,6 +77,14 @@ int main()
     reject([](Reply &x) { x.diagnostic_errno = -1; });
     reject([](Reply &x) { x.diagnostic_errno = 4096; });
     reject([](Reply &x) { x.diagnostic_invalid = 1; });
+    r.decoy_files = 2; r.decoy_provider_pid = 123; r.decoy_provider_state = ProviderState::responsive;
+    reject([](Reply &x) { x.decoy_files = 0; });
+    reject([](Reply &x) { x.decoy_provider_pid = -1; });
+    reject([](Reply &x) { x.decoy_provider_state = ProviderState::unresponsive; });
+    reject([](Reply &x) { x.decoy_provider_progress_age_ms = reader_stall_ms; });
+    r.decoy_provider_state = ProviderState::offline; r.decoy_provider_pid = -1; r.decoy_provider_error = ProviderError::disconnected;
+    require(reply_json(r).find("\"decoy_provider_state\":\"offline\"") != std::string::npos);
+    r.decoy_files = 0; r.decoy_provider_state = ProviderState::none; r.decoy_provider_error = ProviderError::none;
     r.diagnostic_written = 5;
     r.diagnostic_dropped = 2;
     r.diagnostic_invalid = 1;

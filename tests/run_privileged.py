@@ -26,6 +26,7 @@ TESTS = (
     ('writer-lease', 'writer_lease.py'),
     ('file-metadata', 'file_metadata.py'),
     ('metadata-identity', 'metadata_identity.py'),
+    ('virtual-managed', 'managed_decoy.py'),
     ('virtual-reader', 'fanotify_reader_pause.py'),
     ('virtual-analysis-reader', 'fanotify_analysis_reader.py'),
     ('virtual-preparation', 'bounded_preparation.py'),

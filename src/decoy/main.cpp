@@ -18,6 +18,13 @@
 #include <sys/statvfs.h>
 #include <unistd.h>
 #include <vector>
+#include <charconv>
+#include <poll.h>
+#include <csignal>
+#include <sys/prctl.h>
+#include <sys/socket.h>
+#include "config.h"
+#include "protocol.h"
 
 namespace {
 constexpr size_t max_files = 64, file_size = 4096;
@@ -27,6 +34,9 @@ struct View {
     uid_t uid = getuid();
     gid_t gid = getgid();
     time_t created = time(nullptr);
+    int managed_fd = -1;
+    fuse_session *session = nullptr;
+    bool ready = false, management_error = false;
 };
 View &view(fuse_req_t req) { return *static_cast<View *>(fuse_req_userdata(req)); }
 bool exists(View &v, fuse_ino_t ino) { return ino >= 1 && ino <= v.files.size() + 1; }
@@ -143,13 +153,50 @@ void fallocate(fuse_req_t req, fuse_ino_t, int, off_t, off_t, struct fuse_file_i
 void ioctl(fuse_req_t req, fuse_ino_t, unsigned int, void *, struct fuse_file_info *, unsigned int,
            const void *, size_t, size_t) { fuse_reply_err(req, ENOTTY); }
 
-bool valid_name(const std::string &name)
+void initialized(void *userdata, fuse_conn_info *)
 {
-    if (name.empty() || name.size() > 255 || name == "." || name == "..") return false;
-    return std::all_of(name.begin(), name.end(), [](unsigned char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-               (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
-    });
+    auto &v = *static_cast<View *>(userdata);
+    if (v.managed_fd < 0) return;
+    const decoy::Frame ready;
+    v.ready = send(v.managed_fd, &ready, sizeof(ready), MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof(ready);
+    if (!v.ready) { v.management_error = true; fuse_session_exit(v.session); }
+}
+int managed_loop(View &v)
+{
+    const int fd = fuse_session_fd(v.session);
+    const int flags = fcntl(fd, F_GETFL);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK)) return -errno;
+    fuse_buf buffer{};
+    int result = 0;
+    while (!fuse_session_exited(v.session)) {
+        pollfd inputs[] = {{v.managed_fd, POLLIN, 0}, {fuse_session_fd(v.session), POLLIN, 0}};
+        const int polled = poll(inputs, 2, -1);
+        if (polled < 0 && errno == EINTR) continue;
+        if (polled < 0) { result = -errno; break; }
+        if (inputs[0].revents & (POLLHUP | POLLERR | POLLNVAL)) break;
+        if (inputs[0].revents & POLLIN) {
+            decoy::Frame probe;
+            iovec data{&probe, sizeof(probe)};
+            msghdr message{}; message.msg_iov = &data; message.msg_iovlen = 1;
+            const auto size = recvmsg(v.managed_fd, &message, MSG_DONTWAIT);
+            if (size < 0 && (errno == EAGAIN || errno == EINTR)) continue;
+            if (!size) break;
+            if (size != sizeof(probe) || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) ||
+                !v.ready || !decoy::valid(probe, decoy::Kind::probe) || !probe.sequence) { result = -EPROTO; break; }
+            probe.kind = decoy::Kind::progress;
+            if (send(v.managed_fd, &probe, sizeof(probe), MSG_DONTWAIT | MSG_NOSIGNAL) != sizeof(probe)) { result = -EPIPE; break; }
+        }
+        if (inputs[1].revents & (POLLIN | POLLHUP | POLLERR)) {
+            result = fuse_session_receive_buf(v.session, &buffer);
+            if (result == -EINTR || result == -EAGAIN) continue;
+            if (result <= 0) break;
+            fuse_session_process_buf(v.session, &buffer);
+            result = 0;
+        }
+        if (inputs[1].revents & POLLNVAL) { result = -EBADF; break; }
+    }
+    std::free(buffer.mem);
+    return v.management_error ? -EPROTO : result;
 }
 void usage()
 {
@@ -197,14 +244,23 @@ int main(int argc, char **argv)
         View v;
         std::string mountpoint;
         bool allow_other = false;
+        unsigned parent = 0;
         for (int i = 1; i < argc; ++i) {
             const std::string arg(argv[i]);
             if (arg == "--help" && argc == 2) { usage(); return 0; }
             if (arg == "--allow-other" && !allow_other) { allow_other = true; continue; }
+            if ((arg == "--managed-fd" || arg == "--parent-pid") && i + 1 < argc) {
+                const std::string value(argv[++i]); unsigned number = 0;
+                const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+                if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || !number || number > 2147483647U) return 2;
+                if (arg == "--managed-fd" && number == 3 && v.managed_fd < 0) { v.managed_fd = number; continue; }
+                if (arg == "--parent-pid" && !parent) { parent = number; continue; }
+                return 2;
+            }
             if ((arg == "--mountpoint" || arg == "--file") && i + 1 < argc) {
                 const std::string value(argv[++i]);
                 if (arg == "--mountpoint" && mountpoint.empty()) { mountpoint = value; continue; }
-                if (arg == "--file" && valid_name(value) && v.files.size() < max_files &&
+                if (arg == "--file" && valid_decoy_name(value) && v.files.size() < max_files &&
                     std::none_of(v.files.begin(), v.files.end(), [&](const File &f) { return f.name == value; })) {
                     File f; f.name = value;
                     const std::string seed = "SecMon synthetic decoy: " + value + "\n";
@@ -214,11 +270,20 @@ int main(int argc, char **argv)
             }
             std::fprintf(stderr, "Invalid or duplicate option/file name\n"); return 2;
         }
+        if ((v.managed_fd >= 0) != (parent > 0)) return 2;
         if (v.files.empty() || !empty_mountpoint(mountpoint) || (allow_other && geteuid() != 0)) {
             std::fprintf(stderr, "Require files and an absolute, empty, owned, non-symlink mountpoint without group/other write; allow-other requires root\n");
             return 2;
         }
+        if (v.managed_fd >= 0) {
+            int type = 0; socklen_t size = sizeof(type);
+            ucred peer{}; socklen_t peer_size = sizeof(peer);
+            if (getsockopt(v.managed_fd, SOL_SOCKET, SO_TYPE, &type, &size) || type != SOCK_SEQPACKET ||
+                getsockopt(v.managed_fd, SOL_SOCKET, SO_PEERCRED, &peer, &peer_size) ||
+                peer.pid != static_cast<pid_t>(parent) || peer.uid != geteuid()) return 2;
+        }
         struct fuse_lowlevel_ops ops{};
+        ops.init = initialized;
         ops.lookup = lookup; ops.forget = forget; ops.getattr = getattr; ops.setattr = setattr;
         ops.open = open; ops.read = read; ops.write = write; ops.flush = flush; ops.release = release;
         ops.opendir = opendir; ops.readdir = readdir; ops.releasedir = release; ops.statfs = statfs;
@@ -236,12 +301,17 @@ int main(int argc, char **argv)
         auto *session = fuse_session_new(&args, &ops, sizeof(ops), &v);
         fuse_opt_free_args(&args);
         if (!session) return 1;
+        v.session = session;
         if (fuse_set_signal_handlers(session)) { fuse_session_destroy(session); return 1; }
+        if (v.managed_fd >= 0 && (prctl(PR_SET_PDEATHSIG, SIGTERM) || prctl(PR_SET_DUMPABLE, 0) ||
+                                   getppid() != static_cast<pid_t>(parent))) {
+            fuse_remove_signal_handlers(session); fuse_session_destroy(session); return 1;
+        }
         int result = fuse_session_mount(session, mountpoint.c_str());
         if (!result) {
             // No per-request logging and no user-space security decisions: a
             // stalled output consumer cannot stall the view's request loop.
-            result = fuse_session_loop(session);
+            result = v.managed_fd < 0 ? fuse_session_loop(session) : managed_loop(v);
             fuse_session_unmount(session);
         }
         fuse_remove_signal_handlers(session);

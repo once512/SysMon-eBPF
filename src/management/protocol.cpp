@@ -35,7 +35,7 @@ void validate_reply(const Reply &r, Command expected)
     // 这是外部输入边界，错误值一律先拒绝；
     // 渲染函数不应靠“服务通常不会发错”来避免越界。
     if (r.magic_value != magic || r.abi != version || r.size != sizeof(r) || r.command != expected ||
-        !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
+        !command_name(r.command) || !code_name(r.code) || !code_name(r.last_code) || !r.pid || !r.instance_ns || r.reserved ||
         (r.flags & ~63U) || ((r.flags & requester_pidfd) && !(r.flags & permission_audit)) || ((r.flags & permission_audit) && r.backend == Backend::bpf) || (r.fallbacks & ~7U) ||
         r.vault_stale_sessions > r.vault_sessions || r.vault_clock_valid > 1 ||
         r.vault_paths > r.protected_paths || r.vault_sessions > SECMON_MAX_VAULT_SESSIONS ||
@@ -56,6 +56,15 @@ void validate_reply(const Reply &r, Command expected)
             (r.reader_pid <= 0 ||
              (r.reader_state != ReaderState::responsive && r.reader_state != ReaderState::unresponsive) ||
              ((r.reader_state == ReaderState::responsive) != (r.reader_progress_age_ms < reader_stall_ms)))) ||
+        static_cast<unsigned>(r.decoy_provider_error) > static_cast<unsigned>(ProviderError::sequence) ||
+        ((r.decoy_provider_state == ProviderState::offline) != (r.decoy_provider_error != ProviderError::none)) ||
+        r.decoy_files > 64 ||
+        (r.decoy_provider_state == ProviderState::none ?
+            (r.decoy_files || r.decoy_provider_pid != -1 || r.decoy_provider_progress_age_ms) :
+            (!r.decoy_files || r.decoy_provider_pid == 0 || r.decoy_provider_pid < -1 ||
+             (r.decoy_provider_state != ProviderState::responsive && r.decoy_provider_state != ProviderState::unresponsive && r.decoy_provider_state != ProviderState::offline) ||
+             (r.decoy_provider_state != ProviderState::offline &&
+              (r.decoy_provider_pid <= 0 || ((r.decoy_provider_state == ProviderState::responsive) != (r.decoy_provider_progress_age_ms < reader_stall_ms)))))) ||
         r.fanotify_targets > SECMON_MAX_FANOTIFY_TARGETS ||
         (r.backend == Backend::bpf ? r.fanotify_targets != 0 : r.fanotify_targets == 0) ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
@@ -98,6 +107,13 @@ std::string reply_json(const Reply &r)
     out << ",\"diagnostic_written\":" << r.diagnostic_written << ",\"diagnostic_dropped\":" << r.diagnostic_dropped
         << ",\"diagnostic_invalid\":" << r.diagnostic_invalid << ",\"diagnostic_queued\":" << r.diagnostic_queued
         << ",\"diagnostic_errno\":" << r.diagnostic_errno;
+    const char *provider_errors[] = {"none", "disconnected", "protocol", "transport", "sequence"};
+    const char *provider_states[] = {"none", "responsive", "unresponsive", "offline"};
+    out << ",\"decoy_provider_pid\":" << r.decoy_provider_pid
+        << ",\"decoy_provider_state\":\"" << provider_states[static_cast<unsigned>(r.decoy_provider_state)]
+        << "\",\"decoy_provider_progress_age_ms\":" << r.decoy_provider_progress_age_ms
+        << ",\"decoy_files\":" << r.decoy_files
+        << ",\"decoy_provider_error\":\"" << provider_errors[static_cast<unsigned>(r.decoy_provider_error)] << '"';
     // 按后端输出实际支持的字段，不给 BPF 状态填造 fanotify 的裁决业务计数。
     if (r.backend != Backend::fanotify)
         out << ",\"self_protected\":" << ((r.flags & self_protected) ? "true" : "false")

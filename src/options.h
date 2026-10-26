@@ -2,6 +2,7 @@
 // 宿主命令行的数据模型；这里只表达启动意图，实际文件读取、BPF 加载和控制连接在后续阶段进行。
 #pragma once
 #include "fanotify/options.h"
+#include "decoy/config.h"
 #include <string>
 #include <vector>
 
@@ -12,6 +13,7 @@ struct Options {
     // 默认 BPF 常驻，配置有 fanotify 字段时同时启用；单模块模式仅供诊断/机制测试。
     enum class Modules { automatic, bpf_only, fanotify_only } modules = Modules::automatic;
     FanotifyOptions fanotify;
+    DecoyConfig decoy;
     std::vector<std::string> paths;
     std::string control_path;
     unsigned int run_seconds = 0;

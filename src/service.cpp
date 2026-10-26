@@ -10,6 +10,7 @@
 #include "control.h"
 #include "policy_pins.h"
 #include "boot_clock.h"
+#include "decoy/provider.h"
 #include <algorithm>
 #include <csignal>
 #include <atomic>
@@ -31,7 +32,7 @@ PolicyConfig initial_policy(const Options &options)
 }
 }
 MonitorService::MonitorService(Options options, DiagnosticOutput &diagnostics)
-    : diagnostics_(diagnostics), options_(std::move(options)), runtime_(options_.policy_path, initial_policy(options_))
+    : diagnostics_(diagnostics), options_(std::move(options)), decoy_(options_.decoy.enabled() ? std::make_unique<DecoyProvider>(options_.decoy) : nullptr), runtime_(options_.policy_path, initial_policy(options_))
 {
     stopping.store(false, std::memory_order_relaxed);
     struct sigaction action{};
@@ -107,6 +108,7 @@ void MonitorService::preparation_progress()
         std::chrono::steady_clock::now() >= run_deadline_)
         stopping.store(true, std::memory_order_relaxed);
     if (stopping.load(std::memory_order_relaxed)) throw std::runtime_error("Policy preparation cancelled by stop");
+    if (decoy_) decoy_->poll_once();
     if (bpf_) bpf_->poll_once(0);
     if (fanotify_) fanotify_->poll_once(0);
 }
@@ -139,6 +141,7 @@ management::Reply MonitorService::snapshot() const
         reply.audit_errno = audit.output_errno;
     }
     if (fanotify_) fanotify_->snapshot(reply);
+    if (decoy_) decoy_->snapshot(reply);
     return reply;
 }
 void MonitorService::run()
@@ -150,6 +153,7 @@ void MonitorService::run()
     while (!stopping.load(std::memory_order_relaxed)) {
         PolicyPins::reap();
         EventReader::reap();
+        if (decoy_) decoy_->poll_once();
         if (options_.run_seconds && std::chrono::steady_clock::now() - started >= std::chrono::seconds(options_.run_seconds)) break;
         if (control_) control_->dispatch([&](ControlCommand command) {
             auto code = management::Code::ok;

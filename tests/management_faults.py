@@ -31,7 +31,9 @@ class Reply(ctypes.Structure):
                 ('canary_paths', ctypes.c_uint32), ('response_duration_ms', ctypes.c_uint32),
                 *[(name, ctypes.c_uint64) for name in ('response_epoch', 'response_started', 'response_failed', 'response_denied')],
                 ('vault_next_deadline_boot_ns', ctypes.c_uint64), ('reader_pid', ctypes.c_int32),
-                ('reader_state', ctypes.c_uint32), ('reader_progress_age_ms', ctypes.c_uint64)]
+                ('reader_state', ctypes.c_uint32), ('reader_progress_age_ms', ctypes.c_uint64),
+                ('decoy_provider_pid', ctypes.c_int32), ('decoy_provider_state', ctypes.c_uint32),
+                ('decoy_provider_progress_age_ms', ctypes.c_uint64), ('decoy_files', ctypes.c_uint32), ('decoy_provider_error', ctypes.c_uint32)]
 
 
 def main():
@@ -40,7 +42,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root to emulate a root control peer')
-    assert ctypes.sizeof(Reply) == 448
+    assert ctypes.sizeof(Reply) == 472
     binary = Path(args.build_dir).resolve() / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-fault-') as temporary:
         path = Path(temporary) / 'fake.sock'
@@ -62,9 +64,9 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 8, ctypes.sizeof(Reply)
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 9, ctypes.sizeof(Reply)
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
-                                reply.worker_pid = reply.reader_pid = -1
+                                reply.worker_pid = reply.reader_pid = reply.decoy_provider_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',
                                             'instance_ns', 'event', 'mode', 'fallbacks', 'reserved'):
                                     setattr(reply, case, {'abi': 3, 'size': ctypes.sizeof(Reply) - 1, 'command': (1 if command_id != 1 else 3), 'flags': 32,

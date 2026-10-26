@@ -9,9 +9,11 @@ class DiagnosticOutput;
 class ControlServer;
 class BpfMonitor;
 class FanotifyMonitor;
+class DecoyProvider;
 class MonitorService {
     DiagnosticOutput &diagnostics_;
     Options options_;
+    std::unique_ptr<DecoyProvider> decoy_; // Outlives all policy/target references.
     PolicyRuntime runtime_;
     std::unique_ptr<AuditSink> audit_; // 两个模块借用；最后释放，整个 stdout 只有一个写线程。
     std::unique_ptr<ControlServer> control_;

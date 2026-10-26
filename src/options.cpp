@@ -16,6 +16,8 @@ CliAction parse_options(int argc, char **argv, Options &options)
                      "--self-protect SOCKET: same control socket with BPF process protection.\n"
                      "--policy FILE: unified policy; revision must increase on reload.\n"
                      "secmon --status SOCKET | --reload SOCKET | --stop SOCKET\n"
+                     "--decoy-provider ABSOLUTE_EXE --decoy-mount ABSOLUTE_EMPTY_DIRECTORY --decoy-file NAME ...\n"
+                     "--decoy-allow-other: explicitly expose the managed immutable view to other users.\n"
                      "--check: inspect BPF environment without attaching.\n"
                      "--run-for SECONDS: optional internal lifetime, 1..3600; otherwise run until stopped.\n"
                      "Diagnostics: --bpf-only | --fanotify-only (same process and entry point).\n"
@@ -41,8 +43,9 @@ CliAction parse_options(int argc, char **argv, Options &options)
         "--max-pending", "--timeout-decision", "--overload-decision"};
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
-        if (arg != "--protect-file" && arg != "--file" && !seen.insert(arg).second) throw std::invalid_argument("Duplicate option");
+        if (arg != "--protect-file" && arg != "--file" && arg != "--decoy-file" && !seen.insert(arg).second) throw std::invalid_argument("Duplicate option");
         if (arg == "--audit-permissions") options.permission_audit = true;
+        else if (arg == "--decoy-allow-other") options.decoy.allow_other = true;
         else if (arg == "--requester-pidfd") options.requester_pidfd = true;
         else if (arg == "--check") options.check = true;
         else if (arg == "--bpf-only" || arg == "--fanotify-only") {
@@ -62,11 +65,23 @@ CliAction parse_options(int argc, char **argv, Options &options)
             } else if (arg == "--policy") {
                 if (value[0] != '/') throw std::invalid_argument("--policy requires an absolute path");
                 options.policy_path = value;
+            } else if (arg == "--decoy-provider" || arg == "--decoy-mount") {
+                if (value[0] != '/') throw std::invalid_argument("Decoy provider/mount requires absolute paths");
+                (arg == "--decoy-provider" ? options.decoy.executable : options.decoy.mountpoint) = value;
+            } else if (arg == "--decoy-file") {
+                if (!valid_decoy_name(value) || options.decoy.files.size() >= 64 ||
+                    std::find(options.decoy.files.begin(), options.decoy.files.end(), value) != options.decoy.files.end())
+                    throw std::invalid_argument("Require 1..64 distinct decoy file names");
+                options.decoy.files.emplace_back(value);
             } else if (arg == "--protect-file") options.paths.emplace_back(value);
             else if (fan_flags.count(arg)) { fan_args.push_back(argv[i - 1]); fan_args.push_back(value); }
             else throw std::invalid_argument("Unknown option; use --help");
         }
     }
+    const bool decoy_requested = options.decoy.enabled() || !options.decoy.mountpoint.empty() ||
+                                 !options.decoy.files.empty() || options.decoy.allow_other;
+    if (decoy_requested && (!options.decoy.enabled() || options.decoy.mountpoint.empty() || options.decoy.files.empty()))
+        throw std::invalid_argument("Managed view requires provider, mountpoint and file names");
     if ((options.requester_pidfd && !options.permission_audit) || (options.check && argc != 2) || options.paths.size() > SECMON_MAX_PROTECTED_PATHS ||
         (!options.policy_path.empty() && (!options.paths.empty() || fan_args.size() > 1)) ||
         (options.modules == Options::Modules::bpf_only && (fan_args.size() > 1 || options.permission_audit)) ||

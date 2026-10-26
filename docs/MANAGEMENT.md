@@ -35,6 +35,8 @@ permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启�
 
 读取者进度另提供reader_pid、reader_state和reader_progress_age_ms；约250ms异步探测、2000ms未确认显示unresponsive，详情见[进度监督](READER_HEALTH.md)。查询不触发探测，不因超时重建权限组。
 
+显式托管视图还提供decoy_provider_*和decoy_files，表示已观测的提供进程进度与故障，不扫描挂载或自动换绑inode。启动、就绪与退出顺序见[托管视图](MANAGED_DECOYS.md)。
+
 ## 稳定错误码
 
 | code | 含义与处理 |
@@ -52,7 +54,7 @@ permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启�
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 v8/448 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
+- `src/management/protocol.h/.cpp`：本机同架构的 v9/472 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析配置/校验递增 revision，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。

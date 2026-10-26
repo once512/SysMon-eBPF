@@ -30,7 +30,7 @@ canary 的上述已分类修改尝试会创建与普通写入相同的限时响�
 
 ## 布局与边界
 
-BPF 事件 ABI 为 8，新增 ioctl_command；管理协议保持同包 v8/448 字节。策略 value 为 408 字节，含十三个 uint64 授权槽，Map 容量仍为 337（336 个实际 inode 加一项响应配置）。所有主程序、BPF 对象和测试布局须同包构建。
+BPF 事件 ABI 为 8，新增 ioctl_command；管理协议保持同包 v9/472 字节。策略 value 为 408 字节，含十三个 uint64 授权槽，Map 容量仍为 337（336 个实际 inode 加一项响应配置）。所有主程序、BPF 对象和测试布局须同包构建。
 
 `tests/file_metadata.py` 使用保护启用前打开 FD 的原生请求者，验证四个 xattr/ACL 入口、SETFLAGS、FSSETXATTR、两种 reflink、逐项授权、错误程序、租期、vault 会话、独立 canary 触发及响应。另有不依赖 32 位 libc 的真实 i386 进程验证 compat SETFLAGS；不是将一个 32 位常量传给 64 位进程来代替 compat 验证。
 

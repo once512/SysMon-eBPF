@@ -68,7 +68,7 @@ target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy Threads::Threads)
 
 # fanotify 与 BPF 链接进同一个服务；分析器仍是独立降权进程。
-target_sources(secmon PRIVATE src/fanotify/event_reader.cpp src/fanotify/monitor.cpp src/fanotify/gate.cpp
+target_sources(secmon PRIVATE src/decoy/provider.cpp src/fanotify/event_reader.cpp src/fanotify/monitor.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
     src/fanotify/policy.cpp src/fanotify/requester.cpp src/fanotify/metadata.cpp src/fanotify/audit.cpp src/fanotify/status.cpp src/fanotify/stats.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
@@ -207,6 +207,10 @@ if(BUILD_TESTING)
     add_test(NAME fanotify-cli COMMAND ${CMAKE_COMMAND}
         -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
     add_test(NAME fanotify-help COMMAND secmon --help)
+    add_executable(secmon-decoy-fault-provider tests/decoy_fault_provider.cpp src/analysis/transport.cpp)
+    target_include_directories(secmon-decoy-fault-provider PRIVATE src)
+    target_compile_options(secmon-decoy-fault-provider PRIVATE -Wall -Wextra -Werror)
+
     add_test(NAME cli-help COMMAND secmon --help)
     add_test(NAME cli-validation COMMAND ${CMAKE_COMMAND}
         -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli.cmake)
