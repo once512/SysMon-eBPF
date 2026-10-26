@@ -25,7 +25,9 @@ def reject_start(build, root, paths, marker):
     policy.chmod(0o600)
     result = subprocess.run([str(build/'secmon'), '--fanotify-only', '--policy', str(policy), '--run-for', '1'],
                             capture_output=True, text=True, timeout=5)
-    assert result.returncode != 0 and marker in result.stderr, (paths, result.stderr)
+    markers = (marker,) if isinstance(marker, str) else marker
+    assert result.returncode == 1 and all(part in result.stderr for part in markers), (paths, result.stderr)
+    assert 'Fanotify active;' not in result.stderr, result.stderr
     # Failed construction must not leave an earlier mark blocking readers.
     for path in paths:
         if path.is_file() and not path.is_symlink():
@@ -214,7 +216,7 @@ def main():
         reject_start(build,root,[first,hard],'Duplicate fanotify inode')
         reject_start(build,root,[first,symbolic],'regular file')
         reject_start(build,root,[first,root],'regular file')
-        reject_start(build,root,[first,root/'missing'],'pin fanotify target')
+        reject_start(build,root,[first,root/'missing'],(f"Cannot pin {root/'missing'}", os.strerror(errno.ENOENT)))
         reject_start(build,root,[first,Path('/proc/self/status')],'fanotify_mark permission event')
         # The source is itself a secondary marked target.
         reject_start(build,root,[first,root/'bad-policy'],'policy file cannot be a marked inode')
