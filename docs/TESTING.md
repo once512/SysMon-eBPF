@@ -29,6 +29,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
+| reader-health | `fanotify_reader_health.py` | 空闲心跳、停止/恢复、未交付请求与审计边界、停止读取者期间退出、死亡报告 |
 | virtual-analysis-reader | `fanotify_analysis_reader.py` | 分析FD直接传递、FUSE读取/扫描/畸形回复暂停、独立/联合服务与legacy/pidfd |
 | virtual-reader | `fanotify_reader_pause.py` | FUSE事件FD隔离、旧本地期限、legacy/pidfd身份、恢复、暂停期间停止 |
 | virtual-preparation | `bounded_preparation.py` | 暂停FUSE候选准备、status/stop、busy计数、旧策略、健康本地权限队列与取消 |

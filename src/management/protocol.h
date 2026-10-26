@@ -9,7 +9,7 @@
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 7;
+constexpr std::uint16_t version = 8;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 // 这些 code 描述管理操作结果，不能拿来代替 fanotify 的 Result 或内核钩子返回的负 errno。
 enum class Code : std::uint32_t {
@@ -17,6 +17,8 @@ enum class Code : std::uint32_t {
     prepare_failed = 4, busy = 5, restart_required = 6, internal_error = 7
 };
 enum class Backend : std::uint32_t { bpf = 1, fanotify = 2, combined = 3 };
+enum class ReaderState : std::uint32_t { none = 0, responsive = 1, unresponsive = 2 };
+constexpr std::uint64_t reader_stall_ms = 2000;
 enum Flag : std::uint32_t { configured = 1, self_protected = 2, analyzer = 4, analyzer_online = 8, permission_audit = 16, requester_pidfd = 32 };
 // 只描述服务内存中的活动状态，查询不读取磁盘配置、不执行到期处理、不重启分析器。
 struct Reply {
@@ -90,9 +92,12 @@ struct Reply {
     std::uint64_t response_failed = 0;
     std::uint64_t response_denied = 0;
     std::uint64_t vault_next_deadline_boot_ns = 0; // Earliest configured deadline, even if expired.
+    std::int32_t reader_pid = -1;
+    ReaderState reader_state = ReaderState::none;
+    std::uint64_t reader_progress_age_ms = 0;
 };
 // 只约束当前完整结构的布局；调整字段时同步修改本包两端与测试，不保留历史前缀。
-static_assert(sizeof(Reply) == 432);
+static_assert(sizeof(Reply) == 448);
 class Error : public std::runtime_error {
     Code code_;
 public:

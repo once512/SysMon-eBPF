@@ -33,6 +33,8 @@ permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启�
 
 启用 fanotify 时另返回当前事件、裁决模式、延迟/超时/容量、三种回退设置、已交付 pending 与峰值、累计允许/拒绝/分析错误/后端故障/内核溢出。analyzer_online 表示宿主**已观测**的通道状态，不是瞬时进程健康保证；查询本身不做 ping/reap。analyzer_pid 可能是尚未回收的原子进程 PID，不能把该数字当成独立授权的发信号目标。内部终止仍使用 pidfd。
 
+读取者进度另提供reader_pid、reader_state和reader_progress_age_ms；约250ms异步探测、2000ms未确认显示unresponsive，详情见[进度监督](READER_HEALTH.md)。查询不触发探测，不因超时重建权限组。
+
 ## 稳定错误码
 
 | code | 含义与处理 |
@@ -50,7 +52,7 @@ permission_audit 表示是否开启逐请求 fanotify 审计，属于固定启�
 
 ## 协议与模块
 
-- `src/management/protocol.h/.cpp`：本机同架构的 v7/432 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
+- `src/management/protocol.h/.cpp`：本机同架构的 v8/448 字节完整响应、固定枚举、边界校验与 JSON 渲染，与 BPF 事件 ABI、分析器 ABI 独立；`fanotify_targets` 为固定订阅对象数（1..64）。
 - `src/policy_runtime.h/.cpp`：共用运行版本、重载计数和最近结果。先解析配置/校验递增 revision，后调用后端准备与提交，成功后才移动活动配置。调用方必须把所有可能失败的准备放在提交之前，移动赋值由编译期 noexcept 检查约束。
 - `src/fanotify/status.h/.cpp`：把只读后端状态转换为协议字段。
 - `src/control.h/.cpp`：处理根权限、报文边界及附加 FD；异常连接不影响服务的继续运行。

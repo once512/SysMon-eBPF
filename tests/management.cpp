@@ -30,6 +30,9 @@ int main()
         try { validate_reply(bad, Command::status); } catch (const std::runtime_error &) { return; }
         throw std::runtime_error("Bad management response accepted");
     };
+    reject([](Reply &x) { x.reader_pid = 123; });
+    reject([](Reply &x) { x.reader_state = static_cast<ReaderState>(99); });
+    reject([](Reply &x) { x.reader_progress_age_ms = 1; });
     reject([](Reply &x) { x.magic_value = 0; });
     reject([](Reply &x) { ++x.abi; });
     reject([](Reply &x) { --x.size; });
@@ -83,7 +86,14 @@ int main()
     reject([](Reply &x) { x.scan_errors[5] = 1; });
     reject([](Reply &x) { x.analysis_errors = UINT64_MAX; x.backend_error_requests = UINT64_MAX; x.scan_errors[5] = 1; });
     r.backend = Backend::fanotify; r.event = 2; r.mode = 3; r.flags |= analyzer | analyzer_online;
-    r.fanotify_targets = 1;
+    r.fanotify_targets = 1; r.reader_pid = 123; r.reader_state = ReaderState::responsive;
+    reject([](Reply &x) { x.reader_pid = -1; });
+    reject([](Reply &x) { x.reader_state = ReaderState::none; });
+    reject([](Reply &x) { x.reader_state = static_cast<ReaderState>(99); });
+    reject([](Reply &x) { x.reader_progress_age_ms = reader_stall_ms; });
+    r.reader_progress_age_ms = reader_stall_ms; r.reader_state = ReaderState::unresponsive;
+    require(reply_json(r).find("\"reader_state\":\"unresponsive\"") != std::string::npos);
+    r.reader_progress_age_ms = 0; r.reader_state = ReaderState::responsive;
     r.pending = 1; r.peak_pending = 3; r.max_pending = 4; r.fallbacks = 5;
     require(reply_json(r).find("\"permission_event\":\"access\"") != std::string::npos);
     require(reply_json(r).find("\"analyzer_online\":true") != std::string::npos);

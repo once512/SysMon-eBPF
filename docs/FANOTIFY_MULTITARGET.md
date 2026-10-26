@@ -30,7 +30,7 @@ sudo ./build/secmon --fanotify-only --file /absolute/one --file /absolute/two \
 
 接收事件时 fstat 事件 FD，与最多 64 项固定目标身份核对，再把设备/inode 快照和进程引用、revision、接收时刻一起存入请求。延迟、分析、容量、超时和停止回复使用该请求的对象快照，不借用“当前目标”，不按路径或数字 PID 重建对象/主体。未知对象或事件 FD 检查失败会终止该实例并关闭 group，不补造身份。
 
-审计 JSON 字段保持原意，major/minor/inode 是本条请求的对象。管理状态新增 `fanotify_targets`，表示固定订阅对象数；本地管理 ABI 为 v7/432 字节，客户端与服务端应使用同一构建，不提供历史协议转换。BPF 事件 ABI 和分析器 ABI 未因此调整。
+审计 JSON 字段保持原意，major/minor/inode 是本条请求的对象。管理状态新增 `fanotify_targets`，表示固定订阅对象数；本地管理 ABI 为 v8/448 字节，客户端与服务端应使用同一构建，不提供历史协议转换。BPF 事件 ABI 和分析器 ABI 未因此调整。
 
 ## 重载合同
 

@@ -51,6 +51,11 @@ void validate_reply(const Reply &r, Command expected)
         (r.canary_paths && !r.response_epoch) ||
         (r.response_epoch ? (r.response_duration_ms < 100 || r.response_duration_ms > 3600000) : r.response_duration_ms != 0) ||
         (r.backend == Backend::fanotify && (r.canary_paths || r.response_epoch || r.response_started || r.response_failed || r.response_denied)) ||
+        (r.backend == Backend::bpf ?
+            (r.reader_pid != -1 || r.reader_state != ReaderState::none || r.reader_progress_age_ms) :
+            (r.reader_pid <= 0 ||
+             (r.reader_state != ReaderState::responsive && r.reader_state != ReaderState::unresponsive) ||
+             ((r.reader_state == ReaderState::responsive) != (r.reader_progress_age_ms < reader_stall_ms)))) ||
         r.fanotify_targets > SECMON_MAX_FANOTIFY_TARGETS ||
         (r.backend == Backend::bpf ? r.fanotify_targets != 0 : r.fanotify_targets == 0) ||
         r.protected_paths > SECMON_MAX_PROTECTED_PATHS || r.writer_paths > SECMON_MAX_WRITER_RULES ||
@@ -121,6 +126,9 @@ std::string reply_json(const Reply &r)
             << ",\"overload_allow\":" << ((r.fallbacks & 2) ? "true" : "false")
             << ",\"analyzer_error_allow\":" << ((r.fallbacks & 4) ? "true" : "false")
             << ",\"fanotify_targets\":" << r.fanotify_targets
+            << ",\"reader_pid\":" << r.reader_pid
+            << ",\"reader_state\":\"" << (r.reader_state == ReaderState::responsive ? "responsive" : "unresponsive")
+            << "\",\"reader_progress_age_ms\":" << r.reader_progress_age_ms
             << ",\"analyzer_online\":" << ((r.flags & analyzer_online) ? "true" : "false")
             << ",\"analyzer_pid\":" << r.worker_pid << ",\"scan_limit_bytes\":" << r.scan_limit
             << ",\"allowed\":" << r.allowed << ",\"denied\":" << r.denied

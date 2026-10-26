@@ -25,8 +25,10 @@ struct Command {
     struct { std::uint64_t sequence; int kernel_fd; } token;
     std::uint64_t request_id; // 0 releases the file, otherwise relay a scan.
 };
+enum class FrameKind : std::uint32_t { ready, event, dispatch_error, progress };
 struct Frame {
-    std::uint64_t sequence, mask, dispatch_error;
+    std::uint64_t sequence, mask, request_id;
+    FrameKind kind;
     std::int32_t kernel_fd, requester_pid, pidfd;
     PermissionObject object;
 };
@@ -57,6 +59,13 @@ struct Held { std::uint64_t sequence = 0; int fd = -1; };
         if (!command) _exit(0);
         if (command > 0) {
             if (command != sizeof(request)) _exit(1);
+            if (!request.token.sequence) {
+                if (request.token.kernel_fd != -1 || !request.request_id) _exit(1);
+                Frame progress{}; progress.sequence = sequence++; progress.kernel_fd = -1;
+                progress.kind = FrameKind::progress; progress.request_id = request.request_id;
+                if (!progress.sequence || send(3, &progress, sizeof(progress), MSG_NOSIGNAL) != sizeof(progress)) _exit(1);
+                continue;
+            }
             bool found = false;
             for (auto &entry : held) if (entry.sequence == request.token.sequence && entry.fd == request.token.kernel_fd) {
                 found = true;
@@ -77,7 +86,7 @@ struct Held { std::uint64_t sequence = 0; int fd = -1; };
                     do { sent = sendmsg(5, &message, MSG_DONTWAIT | MSG_NOSIGNAL); } while (sent < 0 && errno == EINTR);
                     if (sent != sizeof(scan)) {
                         Frame failure{}; failure.sequence = sequence++; failure.kernel_fd = -1;
-                        failure.dispatch_error = request.request_id;
+                        failure.kind = FrameKind::dispatch_error; failure.request_id = request.request_id;
                         if (!failure.sequence || send(3, &failure, sizeof(failure), MSG_NOSIGNAL) != sizeof(failure)) _exit(1);
                     }
                 }
@@ -103,7 +112,7 @@ struct Held { std::uint64_t sequence = 0; int fd = -1; };
         if (metadata.vers != FANOTIFY_METADATA_VERSION || metadata.metadata_len != sizeof(metadata) || metadata.event_len != expected)
             _exit(1);
         Frame frame{};
-        frame.sequence = sequence++; frame.mask = metadata.mask; frame.kernel_fd = metadata.fd;
+        frame.kind = FrameKind::event; frame.sequence = sequence++; frame.mask = metadata.mask; frame.kernel_fd = metadata.fd;
         frame.requester_pid = metadata.pid; frame.pidfd = FAN_NOPIDFD;
         if (!frame.sequence) _exit(1);
         if (pidfd_mode) {
@@ -168,11 +177,17 @@ EventReader::EventReader(int group, bool pidfd_mode, int analyzer_channel) : pid
         Frame frame{};
         auto packet = analysis::receive_packet(channel_.get(), &frame, sizeof(frame));
         if (packet.status != analysis::Io::ready || packet.size != sizeof(frame) ||
-            frame.sequence || frame.mask || frame.dispatch_error || !packet.fds.empty())
+            frame.sequence || frame.mask || frame.request_id || frame.kind != FrameKind::ready || !packet.fds.empty())
             throw std::runtime_error("Invalid fanotify reader bootstrap");
+        last_progress_ = Clock::now(); next_probe_ = last_progress_ + std::chrono::milliseconds(250);
     } catch (...) { stop(); throw; }
 }
 EventReader::~EventReader() { stop(); }
+pid_t EventReader::pid() const { return slot_ < 0 ? -1 : children[slot_].pid; }
+std::uint64_t EventReader::progress_age_ms() const
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - last_progress_).count();
+}
 void EventReader::stop() noexcept
 {
     if (slot_ < 0) return;
@@ -190,6 +205,11 @@ void EventReader::stop() noexcept
 void EventReader::flush()
 {
     reap();
+    if (!probe_pending_ && Clock::now() >= next_probe_ && command_count_ < commands_.size()) {
+        if (!++probe_id_) throw std::runtime_error("Fanotify reader probe sequence exhausted");
+        commands_[(command_head_ + command_count_) % commands_.size()] = {{0, -1}, probe_id_};
+        ++command_count_; probe_pending_ = true;
+    }
     while (command_count_) {
         const auto &queued = commands_[command_head_];
         const Command message{{queued.token.sequence, queued.token.kernel_fd}, queued.request_id};
@@ -199,22 +219,40 @@ void EventReader::flush()
 }
 std::optional<EventReader::Event> EventReader::receive()
 {
-    // Reserve the decision handle first. With only one free descriptor, lose
-    // the optional requester reference rather than the permission verdict.
-    OwnedFd handle(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
-    if (handle.get() < 0) throw std::runtime_error("Cannot allocate permission handle");
+    // Peek only the body of this trusted child channel (its sole optional FD
+    // is a pidfd). Heartbeats/errors need no decision FD, including under EMFILE.
+    Frame preview{};
+    ssize_t size;
+    do { size = recv(channel_.get(), &preview, sizeof(preview), MSG_PEEK | MSG_DONTWAIT); } while (size < 0 && errno == EINTR);
+    if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return std::nullopt;
+    if (size != sizeof(preview)) throw std::runtime_error("Invalid or disconnected fanotify reader");
+    // Reserve the decision handle before receiving its optional requester FD.
+    OwnedFd handle;
+    if (preview.kind == FrameKind::event) {
+        handle = OwnedFd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+        if (handle.get() < 0) throw std::runtime_error("Cannot allocate permission handle");
+    }
     Frame frame{};
     auto packet = analysis::receive_packet(channel_.get(), &frame, sizeof(frame), true);
     if (packet.status == analysis::Io::would_block) return std::nullopt;
     if (packet.status != analysis::Io::ready || packet.size != sizeof(frame) || frame.sequence != next_sequence_++)
         throw std::runtime_error("Invalid or disconnected fanotify reader");
     Event result;
-    if (frame.dispatch_error) {
-        if (frame.mask || frame.kernel_fd != -1 || !packet.fds.empty() || packet.control_truncated)
-            throw std::runtime_error("Invalid fanotify dispatch failure");
-        result.dispatch_error = frame.dispatch_error;
+    if (frame.kind == FrameKind::dispatch_error || frame.kind == FrameKind::progress) {
+        if (!frame.request_id || frame.mask || frame.kernel_fd != -1 || frame.requester_pid || frame.pidfd ||
+            frame.object.major || frame.object.minor || frame.object.inode || !packet.fds.empty() || packet.control_truncated)
+            throw std::runtime_error("Invalid fanotify reader control response");
+        if (frame.kind == FrameKind::progress) {
+            if (!probe_pending_ || frame.request_id != probe_id_)
+                throw std::runtime_error("Unexpected fanotify reader progress response");
+            probe_pending_ = false; last_progress_ = Clock::now();
+            next_probe_ = last_progress_ + std::chrono::milliseconds(250);
+            result.progress = true;
+        } else result.dispatch_error = frame.request_id;
         return result;
     }
+    if (frame.kind != FrameKind::event || frame.request_id || handle.get() < 0)
+        throw std::runtime_error("Invalid fanotify reader event response");
     result.metadata.mask = frame.mask; result.metadata.pid = frame.requester_pid; result.object = frame.object;
     if (pidfd_mode_) {
         if (frame.pidfd >= 0) {

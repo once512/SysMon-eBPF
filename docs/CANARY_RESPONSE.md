@@ -48,7 +48,7 @@ BPF 事件 ABI 为 8；主程序与 skeleton 同包升级。`file_denied` 新增
 
 创建任务和 exec 被拒绝时输出 `process_response_denied`，操作号分别为 14、15，包含 pid/tid、start_ns、process_inode、代际、期限及 errno=13。审计丢失仍可发生，不能将缺少事件解释为未触发。
 
-管理布局为同包 v7/432 字节。BPF 状态增加 `canary_paths`、`response_epoch`、`response_duration_ms`，以及累计 `response_started`、`response_failed`、`response_denied`。这些是累计内核计数采样，不是当前受限进程数；采样跨 CPU 不是原子快照。配置关闭后累计值保留。stderr 定期输出同名计数。
+管理布局为同包 v8/448 字节。BPF 状态增加 `canary_paths`、`response_epoch`、`response_duration_ms`，以及累计 `response_started`、`response_failed`、`response_denied`。这些是累计内核计数采样，不是当前受限进程数；采样跨 CPU 不是原子快照。配置关闭后累计值保留。stderr 定期输出同名计数。
 
 策略内层为 337 项、408 字节 value：保留原有最多 336 个目标/主体 inode，额外一项使用不可能的设备主号作为响应配置。目标和响应配置通过同一个不可变 Map 引用切换，失败候选保留旧策略和解除编号。
 

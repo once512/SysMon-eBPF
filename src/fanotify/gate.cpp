@@ -139,6 +139,7 @@ bool PermissionGate::poll_once(int timeout_ms)
     PermissionObject object{};
     auto delivered = reader_->receive();
     if (!delivered) return false;
+    if (delivered->progress) return true;
     if (delivered->dispatch_error) {
         if (analyzer_ && analyzer_->online() && analyzer_->active() == delivered->dispatch_error) {
             analyzer_->stop();

@@ -8,6 +8,10 @@ void fill_fanotify_status(management::Reply &reply, const FanotifyOptions &optio
     // 只借用已有计数；
     // 查询不会处理超时或读取工作进程回复，所以状态可能反映最近一次事件循环观察。
     reply.fanotify_targets = gate.target_count();
+    reply.reader_pid = gate.reader_pid();
+    reply.reader_progress_age_ms = gate.reader_progress_age_ms();
+    reply.reader_state = reply.reader_progress_age_ms < management::reader_stall_ms ?
+        management::ReaderState::responsive : management::ReaderState::unresponsive;
     reply.allowed = stats.allowed;
     reply.denied = stats.denied;
     reply.analysis_errors = stats.analyzer_error;

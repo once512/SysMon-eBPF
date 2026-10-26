@@ -16,6 +16,7 @@ TESTS = (
     ('fanotify-open', 'fanotify.py'),
     ('fanotify-deferred', 'fanotify_deferred.py'),
     ('fanotify-events', 'fanotify_events.py'),
+    ('reader-health', 'fanotify_reader_health.py'),
     ('fanotify-analysis', 'fanotify_analysis.py'),
     ('analysis-faults', 'fanotify_analysis_faults.py'),
     ('policy-layers', 'policy_composition.py'),

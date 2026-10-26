@@ -65,6 +65,8 @@ public:
     const std::vector<int> &target_fds() const { return target_fds_; }
     std::size_t target_count() const { return targets_.size(); }
     std::uint64_t pid_namespace_inode() const { return audit_identity_.pid_namespace_inode; }
+    pid_t reader_pid() const { return reader_->pid(); }
+    std::uint64_t reader_progress_age_ms() const { return reader_->progress_age_ms(); }
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }
     // 这是监督器最近观测到的通信状态；
     // 查询不会主动 ping，进程刚刚死亡而尚未处理断连时可能仍显示在线。
