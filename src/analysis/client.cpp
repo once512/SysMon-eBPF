@@ -116,6 +116,7 @@ void AnalysisClient::stop()
     // PID cannot be reused while our child has not been reaped.
     // 用 pidfd 发信号定位本次创建的进程对象，避免把复用后的同号进程误杀。
     if (process_.get() >= 0) syscall(SYS_pidfd_send_signal, process_.get(), SIGKILL, nullptr, 0);
+    else if (pid_ > 0) kill(pid_, SIGKILL); // Our unreaped child cannot have its PID reused.
     reap();
 }
 // 这段有界等待用于构造失败/析构收尾；

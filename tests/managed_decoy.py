@@ -19,7 +19,7 @@ from writer_harness import WriterProcess
 
 
 class ManagedRun:
-    def __init__(self, build, root, combined=True, analysis=False, fault=None, invalid_policy=False, allow_other=True, capacity=False):
+    def __init__(self, build, root, combined=True, analysis=False, fault=None, invalid_policy=False, allow_other=True, capacity=False, ignore_sigchld=False):
         self.build, self.root = build, root
         self.view = root / 'view'; self.view.mkdir(mode=0o755)
         root.chmod(0o755)
@@ -51,7 +51,9 @@ class ManagedRun:
         self.file_count = 64 if capacity else 2 if fault is None else 1
         if not combined: args.append('--fanotify-only')
         self.started = time.monotonic()
-        self.process = subprocess.Popen(args, stdout=self.output, stderr=self.errors)
+        self.ignore_sigchld = ignore_sigchld
+        self.process = subprocess.Popen(args, stdout=self.output, stderr=self.errors,
+            preexec_fn=(lambda: signal.signal(signal.SIGCHLD, signal.SIG_IGN)) if ignore_sigchld else None)
         self.provider_pid = None
 
     def ready(self):
@@ -60,6 +62,10 @@ class ManagedRun:
             assert self.process.poll() is None and time.monotonic() < until, contents(self.errors)
             time.sleep(.01)
         state = self.status(); self.provider_pid = state['decoy_provider_pid']
+        if self.ignore_sigchld:
+            ignored = next(line.split()[1] for line in Path(f'/proc/{self.process.pid}/status').read_text().splitlines()
+                           if line.startswith('SigIgn:'))
+            assert not int(ignored, 16) & (1 << (signal.SIGCHLD - 1)), ignored
         assert self.provider_pid > 0 and state['decoy_files'] == self.file_count, state
         return state
 
@@ -98,7 +104,7 @@ class ManagedRun:
 
 def normal(build, analysis, allow_other, capacity=False):
     with tempfile.TemporaryDirectory(prefix='secmon-managed-') as tmp, ExitStack() as stack:
-        service = ManagedRun(build, Path(tmp), analysis=analysis, allow_other=allow_other, capacity=capacity); stack.callback(service.close)
+        service = ManagedRun(build, Path(tmp), analysis=analysis, allow_other=allow_other, capacity=capacity, ignore_sigchld=not analysis and not capacity); stack.callback(service.close)
         state = service.ready(); pid = state['decoy_provider_pid']
         assert state['decoy_provider_state'] == 'responsive' and state['revision'] == 1
         actor = stack.enter_context(DecoyActor(build / 'secmon-virtual-decoy-scenario', service.trap, service.victim))
@@ -123,7 +129,7 @@ def normal(build, analysis, allow_other, capacity=False):
         rows = [json.loads(line) for line in contents(service.output).splitlines()]
         assert any(e['event'] == 'self_denied' and e['target_pid'] == pid for e in rows)
         assert len([e for e in rows if e['event'] == 'fanotify_decision']) == state['allowed']
-        print(json.dumps({'analysis': analysis, 'allow_other': allow_other, 'files': service.file_count, 'ready_before_policy': True, 'provider_protected': True,
+        print(json.dumps({'analysis': analysis, 'allow_other': allow_other, 'files': service.file_count, 'inherited_sigchld_ignored': service.ignore_sigchld, 'ready_before_policy': True, 'provider_protected': True,
                           'canary_response': True, 'idle_progress': True, 'stop_ms': round(elapsed*1000, 2), 'unmounted': True}))
 
 

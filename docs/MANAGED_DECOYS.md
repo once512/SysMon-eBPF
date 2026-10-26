@@ -34,7 +34,7 @@ sudo ./build/secmon --stop /run/secmon-demo/management/control.sock
 
 ## 生命周期与协议
 
-主服务拥有提供进程的私有SOCK_SEQPACKET和pidfd。spawn只保留约定FD3及指向/dev/null的标准流，不继承管理、BPF或fanotify引用。提供进程核对socket类型、创建端身份和实际父进程，安装父死亡信号；完成FUSE初始化回调后发送Ready。spawn完成后的Ready等待最多约2秒；可执行程序路径的exec、配置源读取等仍不具有全局启动硬期限。
+主服务启动时先恢复SIGCHLD的可回收状态，避免继承忽略/自动回收破坏未回收子PID的所有权。主服务拥有提供进程的私有SOCK_SEQPACKET和pidfd。spawn只保留约定FD3及指向/dev/null的标准流，不继承管理、BPF或fanotify引用。提供进程核对socket类型、创建端身份和实际父进程，安装父死亡信号；完成FUSE初始化回调后发送Ready。spawn完成后的Ready等待最多约2秒；可执行程序路径的exec、配置源读取等仍不具有全局启动硬期限。
 
 托管模式在同一个FUSE请求循环中轮询控制通道，约250ms一个未确认探测，避免单独“心跳线程仍活着”掩盖回调循环停滞。FUSE设备使用非阻塞读取，处理就绪与取消之间的竞态。接收/处理缓冲区按[libfuse 3.16.2单线程循环](https://raw.githubusercontent.com/libfuse/libfuse/fuse-3.16.2/lib/fuse_loop.c)的生命周期释放；不新增逐文件磁盘后端。
 

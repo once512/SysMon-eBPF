@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-默认构建的 CTest 有 33 项（含虚拟视图参数边界；关闭 SECMON_BUILD_DECOYFS 时为 32 项）（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界，以及离线归组、行为、重放、评估和多对象检查），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+默认构建的 CTest 有 34 项（含虚拟视图参数边界；关闭 SECMON_BUILD_DECOYFS 时为 33 项）（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界，以及离线归组、行为、重放、评估和多对象检查），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -204,3 +204,5 @@ sudo python3 -B tests/identity_threads.py --build-dir build --duration 900 --rep
 见[虚拟诱饵合同](VIRTUAL_DECOYS.md)。`virtual_decoy_soak.py` 使用一个64文件视图与一个联合服务，交替8个root/普通UID原生请求方，保存原始审计、逐轮日志、固定身份、源码/构建摘要、FD和响应Map回收证据。普通读取不触发，未知ioctl只拒绝不触发，九类显式修改分别触发；权限读取、失败重载、解除、到期和退出另行对账。长测采用流式审计核对，避免按运行时长积累Python对象。
 
 这些专题需要 libfuse3、/dev/fuse 和 fusermount3；构建目录没有secmon-decoyfs时，完整runner省略virtual专题，显式选择它们则报告缺少构建。关闭组件建议使用新的构建目录；复用目录时CMake不会删除此前生成的可执行文件，runner仍会按文件是否存在判断。不要并行运行多个特权runner/soak，实例Map发现和临时全局LSM策略需要独立环境。实际结果以日期验收记录为准。
+
+child-startup-cleanup在无特权测试进程中强制spawn成功后的pidfd_open返回EMFILE，检查分析器与提供进程都只终止并回收本次子进程；测试子进程故意不读socket，不能靠通道关闭偶然通过。主服务启动会清除继承的SIGCHLD忽略/自动回收设置，保持数字子PID的未回收所有权；托管视图专题含继承忽略信号的实际启动验证。

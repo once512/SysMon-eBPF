@@ -207,6 +207,14 @@ if(BUILD_TESTING)
     add_test(NAME fanotify-cli COMMAND ${CMAKE_COMMAND}
         -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
     add_test(NAME fanotify-help COMMAND secmon --help)
+    add_executable(secmon-child-startup-tests tests/child_startup_cleanup.cpp
+        src/analysis/client.cpp src/analysis/transport.cpp src/decoy/provider.cpp)
+    target_include_directories(secmon-child-startup-tests PRIVATE src)
+    target_compile_options(secmon-child-startup-tests PRIVATE -Wall -Wextra -Werror)
+    target_link_options(secmon-child-startup-tests PRIVATE
+        -Wl,--wrap=posix_spawn -Wl,--wrap=syscall -Wl,--wrap=kill)
+    add_test(NAME child-startup-cleanup COMMAND secmon-child-startup-tests)
+
     add_executable(secmon-decoy-fault-provider tests/decoy_fault_provider.cpp src/analysis/transport.cpp)
     target_include_directories(secmon-decoy-fault-provider PRIVATE src)
     target_compile_options(secmon-decoy-fault-provider PRIVATE -Wall -Wextra -Werror)

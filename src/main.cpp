@@ -10,6 +10,9 @@
 #include "control_client.h"
 #include <iostream>
 #include <stdexcept>
+#include <csignal>
+#include <cerrno>
+#include <system_error>
 namespace {
 int libbpf_diagnostic(enum libbpf_print_level level, const char *format, va_list arguments)
 {
@@ -42,6 +45,13 @@ int main(int argc, char **argv)
         if (action == CliAction::reload) { request_reload(options.control_path); return 0; }
         if (action == CliAction::status) { request_status(options.control_path); return 0; }
         if (options.check) { BpfMonitor::check_environment(); return 0; }
+        // Reserve numeric child PIDs until their explicit waitpid. An inherited
+        // SIG_IGN/SA_NOCLDWAIT would auto-reap them and invalidate that ownership
+        // assumption before pidfd allocation or in the fork-only readers.
+        struct sigaction child_status{};
+        child_status.sa_handler = SIG_DFL;
+        if (sigemptyset(&child_status.sa_mask) || sigaction(SIGCHLD, &child_status, nullptr))
+            throw std::system_error(errno, std::generic_category(), "reset child status disposition");
         diagnostics = std::make_unique<DiagnosticOutput>();
         LibbpfDiagnostics libbpf_diagnostics;
         MonitorService service(std::move(options), *diagnostics);
