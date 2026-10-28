@@ -48,7 +48,7 @@ DecoyProvider::DecoyProvider(const DecoyConfig &config) : files_(config.files.si
             decoy::Frame ready;
             const auto packet = analysis::receive_plain_packet(channel_.get(), &ready, sizeof(ready));
             if (packet.status == analysis::Io::closed)
-                throw std::runtime_error("Decoy provider exited before readiness; check mountpoint and FUSE access");
+                throw std::runtime_error("Decoy provider exited before readiness; check trusted mountpoint ancestors, ownership and FUSE access");
             if (packet.status != analysis::Io::would_block) {
                 if (packet.status != analysis::Io::ready || packet.size != sizeof(ready) ||
                     !decoy::valid(ready, decoy::Kind::ready) || ready.sequence)

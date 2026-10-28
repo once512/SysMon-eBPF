@@ -209,9 +209,36 @@ void usage()
               "--allow-other requires root and explicitly exposes the view to other users.\n"
               "Stop secmon before unmounting; restart/reload policy after a new mount.");
 }
+bool trusted_mount_path(const std::string &path)
+{
+    OwnedFd current(::open("/",O_PATH | O_DIRECTORY | O_CLOEXEC));
+    if (current.get()<0) return false;
+    const auto uid=geteuid();
+    auto trusted=[&](int fd,bool final) {
+        // FUSE can report arbitrary UID/mode attributes. A privileged provider
+        // must not treat such metadata as proof of trusted path ownership.
+        if (!uid && decoy::fuse_mount(fd)) return false;
+        struct stat stat{};
+        if (fstat(fd,&stat) || (stat.st_uid && stat.st_uid!=uid)) return false;
+        return !(stat.st_mode & 0022) || (!final && !stat.st_uid && (stat.st_mode & S_ISVTX));
+    };
+    if (!trusted(current.get(),false)) return false;
+    for (std::size_t begin=1;begin<path.size();) {
+        const auto end=path.find('/',begin);
+        const auto part=path.substr(begin,end==std::string::npos?end:end-begin);
+        if (part.empty() || part=="." || part=="..") return false;
+        OwnedFd next(openat(current.get(),part.c_str(),O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+        if (next.get()<0 || !trusted(next.get(),end==std::string::npos)) return false;
+        current=std::move(next);
+        if (end==std::string::npos) break;
+        begin=end+1;
+    }
+    return true;
+}
 bool empty_mountpoint(const std::string &path)
 {
     if (path.empty() || path[0] != '/' || path == "/" || path.back() == '/') return false;
+    if (!trusted_mount_path(path)) return false;
     char *resolved = realpath(path.c_str(), nullptr);
     const bool canonical = resolved && path == resolved;
     std::free(resolved);
@@ -275,7 +302,7 @@ int main(int argc, char **argv)
         }
         if ((v.managed_fd >= 0) != (parent > 0)) return 2;
         if (v.files.empty() || !empty_mountpoint(mountpoint) || (allow_other && geteuid() != 0)) {
-            std::fprintf(stderr, "Require files and an absolute, empty, owned, non-symlink mountpoint without group/other write; allow-other requires root\n");
+            std::fprintf(stderr, "Require files, a trusted ancestor path and an absolute, empty, owned, non-symlink mountpoint without group/other write; allow-other requires root\n");
             return 2;
         }
         if (v.managed_fd >= 0) {

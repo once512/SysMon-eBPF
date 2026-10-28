@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <linux/mount.h>
+#include <linux/magic.h>
 #include <linux/stat.h>
 #include <sstream>
 #include <stdexcept>
@@ -56,6 +57,16 @@ std::uint64_t unique_mount_id(int fd)
     if (!(stat.stx_mask & STATX_MNT_ID_UNIQUE) || !stat.stx_mnt_id)
         throw std::runtime_error("Kernel did not return a unique mount ID");
     return stat.stx_mnt_id;
+}
+bool fuse_mount(int fd)
+{
+    struct mnt_id_req request{};
+    request.size=MNT_ID_REQ_SIZE_VER0; request.mnt_id=unique_mount_id(fd); request.param=STATMOUNT_SB_BASIC;
+    struct statmount result{};
+    if (syscall(SYS_statmount,&request,&result,sizeof(result),0))
+        throw std::system_error(errno,std::generic_category(),"inspect decoy ancestor filesystem");
+    if (!(result.mask & STATMOUNT_SB_BASIC)) throw std::runtime_error("Kernel did not report ancestor superblock type");
+    return result.sb_magic==FUSE_SUPER_MAGIC;
 }
 MountSnapshot inspect_mountinfo(std::istream &input, std::uint32_t id, const std::string &path)
 {
@@ -142,6 +153,7 @@ MountSnapshot inspect_mount(std::uint64_t unique_id, const std::string &path) no
             return {errno == ENOENT ? MountState::detached : MountState::unknown, errno == ENOENT ? 0 : errno};
         if (!(confirmed.mask & STATMOUNT_MNT_BASIC) || confirmed.mnt_id != unique_id ||
             confirmed.mnt_id_old != result.mnt_id_old) return {MountState::unknown, ESTALE};
+        if (snapshot.state == MountState::detached) return {MountState::unknown, ESTALE};
         return snapshot;
     } catch (...) { return {MountState::unknown, ENOMEM}; }
 }

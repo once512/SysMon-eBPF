@@ -9,7 +9,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from decoy_harness import mounted
+from decoy_harness import mounted, DecoyView
 from managed_decoy import ManagedRun
 
 
@@ -98,11 +98,31 @@ def case(build, mode):
         print(f'PASS managed mount {mode}: exact ID, sampled readiness and replacement preservation')
 
 
+def untrusted_ancestors(build):
+    with tempfile.TemporaryDirectory(prefix='secmon-mount-trust-') as tmp:
+        root=Path(tmp)
+        for mode in ('writable','foreign-owner'):
+            parent=root/mode;parent.mkdir();view=parent/'view';view.mkdir()
+            if mode=='writable':parent.chmod(0o777)
+            else:os.chown(parent,65534,65534)
+            result=subprocess.run([str(build/'secmon-decoyfs'),'--mountpoint',str(view),'--file','trap'],capture_output=True,timeout=2)
+            assert result.returncode==2 and not mounted(view),(mode,result)
+        outer=root/'outer';outer.mkdir()
+        with DecoyView(build/'secmon-decoyfs',outer) as provider:
+            os.kill(provider.process.pid,signal.SIGSTOP)
+            try:
+                result=subprocess.run([str(build/'secmon-decoyfs'),'--mountpoint',str(outer/'not-looked-up'),'--file','trap'],capture_output=True,timeout=2)
+                assert result.returncode==2,result
+            finally:os.kill(provider.process.pid,signal.SIGCONT)
+    print('PASS mount ancestors: root ownership, non-writable path and stalled FUSE rejected without trusting synthetic UID/mode')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-dir', type=Path, default=Path('build'))
     args = parser.parse_args()
     if os.geteuid() != 0 or not __debug__: parser.error('requires root without optimization')
+    untrusted_ancestors(args.build_dir.resolve())
     for mode in ('covered', 'ancestor', 'moved', 'detached', 'paused', 'uncovered'):
         case(args.build_dir.resolve(), mode)
 

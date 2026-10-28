@@ -18,7 +18,7 @@ sudo ./build/secmon --policy /run/secmon-demo/policy.conf \
   --decoy-allow-other --audit-permissions --requester-pidfd
 ```
 
-`--decoy-provider`和`--decoy-mount`须绝对路径，须有1..64个不同的合法`--decoy-file`名字；挂载点沿用原有空目录、所有权及路径校验。程序不创建该目录，也不接管已有挂载。提供程序由root启动配置显式选择，属于可信同包组件，不是任意不可信插件的沙箱。配置仍须逐项选择canary和fanotify目标；发布文件不会自动认定其已被策略选中。
+`--decoy-provider`和`--decoy-mount`须绝对路径，须有1..64个不同的合法`--decoy-file`名字；挂载点沿用空目录、所有权及路径校验，并要求root控制的可信祖先；root所有的sticky共享祖先可用，root模式拒绝FUSE祖先，详见[挂载路径信任](MOUNT_IDENTITY.md)。程序不创建该目录，也不接管已有挂载。提供程序由root启动配置显式选择，属于可信同包组件，不是任意不可信插件的沙箱。配置仍须逐项选择canary和fanotify目标；发布文件不会自动认定其已被策略选中。
 
 `--decoy-allow-other`默认关闭，只有明确指定才向其他用户开放FUSE访问。未开启时，降权内容分析器访问root视图的新鲜属性会得到EACCES，记录metadata_failed并采用配置的分析错误回退；不能把它误认为扫描器已死亡。选用内容分析器并需要正常扫描时应明确开启。该选项不会开放管理socket，管理目录仍为0700。
 
@@ -44,7 +44,7 @@ sudo ./build/secmon --stop /run/secmon-demo/management/control.sock
 
 ## 状态与失败
 
-当前管理协议为同包v10/496字节；BPF及分析协议未因此改变。新增字段在所有后端可查询：
+当前管理协议为同包v11/528字节；BPF及分析协议未因此改变。新增字段在所有后端可查询：
 
 | 字段 | 含义 |
 | --- | --- |

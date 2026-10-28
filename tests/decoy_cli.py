@@ -20,12 +20,14 @@ def main():
         nonempty = root / 'nonempty'; nonempty.mkdir(); (nonempty / 'saved').write_bytes(b'keep')
         alias = root / 'alias'; alias.symlink_to(empty)
         unsafe = root / 'unsafe'; unsafe.mkdir(); unsafe.chmod(0o777)
+        writable_parent=root/'writable-parent';writable_parent.mkdir();writable_parent.chmod(0o777)
+        nested=writable_parent/'empty';nested.mkdir()
         base = ['--mountpoint', str(empty), '--file', 'trap']
         invalid = [[], ['--help', 'extra'], base + ['--unknown'], base + ['--file', 'trap'],
                    base + ['--mountpoint', str(empty)], base + ['--allow-other', '--allow-other']]
         for name in ('', '.', '..', '../trap', 'a/b', 'a\nb', 'a b', 'a' * 256):
             invalid.append(['--mountpoint', str(empty), '--file', name])
-        for path in ('relative', '/', str(alias), str(unsafe), str(nonempty), str(root / 'missing'), str(empty) + '/'):
+        for path in ('relative', '/', str(alias), str(unsafe), str(nonempty), str(root / 'missing'), str(empty) + '/', str(nested)):
             invalid.append(['--mountpoint', path, '--file', 'trap'])
         invalid.append(['--mountpoint', str(empty)] + sum((['--file', f'trap{i}'] for i in range(65)), []))
         for command in invalid:

@@ -7,3 +7,5 @@
 原始产物在/tmp/secmon-development-20261028：ctest-mount.log、mount-privileged-final.log，以及开发过程的说明文件。首次moved夹具试图直接rename挂载点，内核返回EBUSY，改为rename父目录。首次汇总验收同时发生重链接，管理客户端exec返回EACCES；该轮无效，最终在稳定构建下重跑通过。该失败不能写成内核策略缺陷或忽略不记。
 
 另以独立临时tmpfs确认umount的proc-FD路径及cwd路径仍会跟随覆盖挂载，move_mount实验因源父挂载shared返回EINVAL；这些实验不构成精确FD卸载实现。本项保留root管理员串行管理假设，详见[MOUNT_IDENTITY.md](MOUNT_IDENTITY.md)。
+
+后续路径信任修正：原生38项CTest通过；virtual-mount-identity额外验证root拒绝非root所有/可写祖先，以及暂停FUSE祖先时不进入后续lookup。原有六种挂载情形继续通过，日志mount-trust-native.log。内核唯一ID仍存在而proc采样缺少条目时改报unknown/ESTALE，不把不一致快照直接认定为detach。最终跨构建验收见本轮汇总。

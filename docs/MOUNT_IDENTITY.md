@@ -6,7 +6,7 @@
 
 ## 状态与就绪
 
-管理协议升级为同包v10/496字节，主服务与管理客户端须一起更新：
+管理协议升级为同包v11/528字节，主服务与管理客户端须一起更新：
 
 | 字段 | 含义 |
 | --- | --- |
@@ -36,3 +36,12 @@ attached表示原挂载仍在配置路径的可见挂载链上；covered包括�
 无特权mount-identity覆盖拓扑、祖先遮蔽、边界分隔、转义、重复/畸形和容量拒绝；virtual-mount-identity在真实FUSE上覆盖直接/上层覆盖、父目录移动、detach后路径复用、暂停及移除覆盖后恢复。停止后核对替代挂载和内容保留。
 
 实现依据：[Linux 6.12 namespace.c](https://raw.githubusercontent.com/torvalds/linux/v6.12/fs/namespace.c)中的statmount/ksys_umount，以及[libfuse 3.16.2 mount.c](https://raw.githubusercontent.com/libfuse/libfuse/fuse-3.16.2/lib/mount.c)的路径卸载行为。本轮开发还以独立临时tmpfs复现了FD路径和cwd并不阻止跟随覆盖挂载；实验脚本只在/tmp验收目录，未修改真实系统挂载配置。
+
+
+## 挂载路径信任补充（2026-10-28）
+
+特权提供程序现在要求挂载点所有祖先为root所有、不可由组/其他用户写入；root所有的sticky共享祖先（例如/tmp）可用，但下一层仍须归root所有。普通用户独立运行时允许自己的安全祖先目录。符号链接与非规范分量拒绝。仅检查最终目录所有权不足以防止普通用户重命名其上层目录；root模式不再接受位于普通用户可控制祖先下的挂载点。
+
+root模式还通过内核statmount的superblock类型拒绝FUSE祖先，不把用户态文件系统报告的UID/模式当作路径信任证明。检查在realpath及后续分量解析之前逐层进行；已验证暂停FUSE祖先时快速拒绝，不进入它的后续lookup。标准root所有/tmp临时子目录及/run部署继续工作。该约束只影响提供程序的挂载位置，不禁止原有BPF/fanotify监控FUSE目标。
+
+这收敛了非特权祖先替换风险；并发CAP_SYS_ADMIN挂载/卸载的原子性限制仍保留。检查结果与挂载可见性都不能替代同一管理员串行管理的合同。
