@@ -4,13 +4,14 @@
 #include "content_digest.h"
 #include "analysis/protocol.h"
 #include "decoy/mount_identity.h"
+#include "fanotify/reader_error.h"
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 10;
+constexpr std::uint16_t version = 11;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 // 这些 code 描述管理操作结果，不能拿来代替 fanotify 的 Result 或内核钩子返回的负 errno。
 enum class Code : std::uint32_t {
@@ -20,7 +21,7 @@ enum class Code : std::uint32_t {
 enum class Backend : std::uint32_t { bpf = 1, fanotify = 2, combined = 3 };
 enum class ProviderError : std::uint32_t { none = 0, disconnected = 1, protocol = 2, transport = 3, sequence = 4 };
 enum class ProviderState : std::uint32_t { none = 0, responsive = 1, unresponsive = 2, offline = 3 };
-enum class ReaderState : std::uint32_t { none = 0, responsive = 1, unresponsive = 2 };
+enum class ReaderState : std::uint32_t { none = 0, responsive = 1, unresponsive = 2, offline = 3 };
 constexpr std::uint64_t reader_stall_ms = 2000;
 enum Flag : std::uint32_t { configured = 1, self_protected = 2, analyzer = 4, analyzer_online = 8, permission_audit = 16, requester_pidfd = 32 };
 // 只描述服务内存中的活动状态，查询不读取磁盘配置、不执行到期处理、不重启分析器。
@@ -107,9 +108,12 @@ struct Reply {
     decoy::MountState decoy_mount_state = decoy::MountState::none;
     std::int32_t decoy_mount_errno = 0;
     std::uint64_t decoy_mount_sample_age_ms = 0;
+    ReaderFailure reader_failure = ReaderFailure::none;
+    std::uint32_t reader_reserved = 0;
+    std::uint64_t reader_failures = 0, reader_error_requests = 0, reader_unconfirmed_requests = 0;
 };
 // 只约束当前完整结构的布局；调整字段时同步修改本包两端与测试，不保留历史前缀。
-static_assert(sizeof(Reply) == 496);
+static_assert(sizeof(Reply) == 528);
 class Error : public std::runtime_error {
     Code code_;
 public:

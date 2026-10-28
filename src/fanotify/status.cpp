@@ -10,7 +10,10 @@ void fill_fanotify_status(management::Reply &reply, const FanotifyOptions &optio
     reply.fanotify_targets = gate.target_count();
     reply.reader_pid = gate.reader_pid();
     reply.reader_progress_age_ms = gate.reader_progress_age_ms();
-    reply.reader_state = reply.reader_progress_age_ms < management::reader_stall_ms ?
+    reply.reader_failure = gate.reader_failure();
+    reply.reader_failures = stats.reader_failures; reply.reader_error_requests = stats.reader_error_requests;
+    reply.reader_unconfirmed_requests = stats.reader_unconfirmed_requests;
+    reply.reader_state = !gate.reader_online() ? management::ReaderState::offline : reply.reader_progress_age_ms < management::reader_stall_ms ?
         management::ReaderState::responsive : management::ReaderState::unresponsive;
     reply.allowed = stats.allowed;
     reply.denied = stats.denied;

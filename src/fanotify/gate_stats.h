@@ -25,4 +25,5 @@ struct GateStats {
     int last_scan_errno = 0;
     std::size_t peak_pending = 0;
     std::uint64_t target_updates = 0;
+    std::uint64_t reader_failures = 0, reader_error_requests = 0, reader_unconfirmed_requests = 0;
 };

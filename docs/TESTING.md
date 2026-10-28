@@ -37,6 +37,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 | virtual-service-notify | `service_notify.py` | 私有通知端、真实联合FUSE/分析器初始化、主进程凭证、停止及失败回滚；不启动系统单元 |
 | virtual-managed | `managed_decoy.py` | 托管启动/就绪、默认访问及64文件边界、暂停/死亡/协议错误、保留策略及退出清理 |
 | helper-protection | `helper_protection.py` | 主/新读取者自保护、父服务清理、降权边界、PID namespace与实际拒绝审计 |
+| reader-recovery | `fanotify_reader_recovery.py` | legacy/pidfd断连隔离、已交付拒绝/未知等待、BPF/selfguard保留、显式代际恢复、拒绝门限制及写回EIO |
 | reader-health | `fanotify_reader_health.py` | 空闲心跳、停止/恢复、未交付请求与审计边界、停止读取者期间退出、死亡报告 |
 | virtual-analysis-reader | `fanotify_analysis_reader.py` | 分析FD直接传递、FUSE读取/扫描/畸形回复暂停、独立/联合服务与legacy/pidfd |
 | virtual-reader | `fanotify_reader_pause.py` | FUSE事件FD隔离、旧本地期限、legacy/pidfd身份、恢复、暂停期间停止 |

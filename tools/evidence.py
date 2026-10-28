@@ -141,8 +141,10 @@ def observation(record, line_number, subscriptions=None):
         integer(record, 'instance_ns', minimum=1)
         integer(record, 'pid_namespace_inode', minimum=1)
         integer(record, 'revision', minimum=1)
-        if record.get('reason') not in ('policy', 'timeout', 'capacity', 'shutdown', 'analysis', 'analyzer_error'):
+        if record.get('reason') not in ('policy', 'timeout', 'capacity', 'shutdown', 'analysis', 'analyzer_error', 'reader_error'):
             raise ValueError('invalid permission reason')
+        if record.get('reason') == 'reader_error' and record['decision'] != 'deny':
+            raise ValueError('reader failure cannot authorize a permission')
         received = integer(record, 'received_ns')
         integer(record, 'responded_ns', minimum=received)
         target = (integer(record, 'major', 32), integer(record, 'minor', 32), integer(record, 'inode', minimum=1))

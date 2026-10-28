@@ -758,3 +758,9 @@ fanotify 用于受支持的打开、执行打开及读取权限事件，不作�
 新增可选Unix通知：启动资源完成后READY、停止前尽力STOPPING；启动线程/辅助前清除NOTIFY_SOCKET，不链接libsystemd。CMake仅生成并随文档交付Type=notify模板，不安装/启用系统单元。现有socket管理停止、自保护与D状态限制保持，未增加watchdog或notify-reload。见[部署合同](docs/SYSTEMD.md)。
 
 38项CTest、路径/抽象套接字及真实联合FUSE/分析器启动停止、通知端消失和启动失败回滚专题通过；本机systemd-analyze verify通过。测试没有启动真实systemd单元。生产通知文件静态分析零诊断。一次外部root读取受保护辅助environ被自保护拒绝，改用内核凭证核对消息来源，没有放开保护；队列压力夹具改用同一发送者验证其实际背压边界。
+
+## 读取者离线隔离（2026-10-28）
+
+指定读取者通信/格式/资源失败现在保留主服务、BPF和原group，拒绝有效队列、写回不确定则仅计未确认，不补造裁决。原即时allow且空闲时可通过原有显式代际恢复；离线拒绝/延迟/分析门不能先改成allow再绕过安全条件。普通同订阅重载可更新独立BPF，已验证离线期间关闭vault。管理布局更新为同包v11/528，见[合同](docs/READER_RECOVERY.md)。自动重挂载、完整故障和端到端期限仍未解决。
+
+legacy/pidfd十种故障/恢复场景、拒绝写回EIO及独立vault关闭通过；原生相关13个专题/模式通过，未进行长重复负载。静态分析gate/event_reader/monitor最终零诊断；初次分析缺少eBPF include目录的调用不计入通过。首次恢复夹具把旧group允许误作最终syscall必然成功，实际新deny门可拦截同一在途请求，已按内核/原合同修正夹具。

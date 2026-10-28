@@ -26,7 +26,7 @@ fanotify-rebind-epoch 1
 
 路径缺失、符号链接、提供进程暂停、mark失败或BPF安装拒绝均保留旧活动策略。失败不消耗重新绑定代际或订阅代际，恢复后可重试相同候选值。引用固定的是准备时对象，不认证提交后路径一直未变。
 
-成功替换group继续发出`fanotify_target_handover`，添加from_rebind_epoch/to_rebind_epoch；显式重新绑定时retained_targets为0。subscription_generation、请求序列和累计统计沿用原合同；同路径更新也计入一次target_updates。活动revision/原始配置摘要及切换审计可核对请求是否已发布，管理线格式仍为同包v9/472字节。
+成功替换group继续发出`fanotify_target_handover`，添加from_rebind_epoch/to_rebind_epoch；显式重新绑定时retained_targets为0。subscription_generation、请求序列和累计统计沿用原合同；同路径更新也计入一次target_updates。活动revision/原始配置摘要及切换审计可核对请求是否已发布，管理线格式仍为同包v11/528字节。
 
 关闭旧group可能按先前allow语义释放未交付内核事件，因此不能用于旧deny/分析门的无损恢复。D状态可能延迟旧最后引用释放，准备/提交也不是跨内核钩子的全局原子操作；这些既有边界不变。
 
@@ -35,3 +35,6 @@ fanotify-rebind-epoch 1
 实测在旧FUSE视图被管理员显式detach、提供进程死亡、相同路径挂上新视图后，普通重载仍保留旧fanotify对象；提高代际后，BPF canary与fanotify可同时固定到新对象。canary-response epoch仍独立控制旧进程响应的解除，不由本字段自动推进。
 
 本字段不会重启、接管或重新认定提供进程身份，也不改变托管提供进程已观测的offline状态。外部重挂载的进程不会因此自动进入托管自保护；挂载归属检查、自动清理/重启及拒绝/分析模式的安全恢复仍待推进。
+
+
+读取者离线后也可在旧门即时allow且有效队列空闲时显式重绑定；普通重载保留离线，禁止先修改拒绝合同再释放group。见[离线恢复](READER_RECOVERY.md)。

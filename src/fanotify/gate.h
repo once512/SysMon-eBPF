@@ -34,6 +34,9 @@ class PermissionGate {
     PendingDecisions pending_;
     void respond(int fd, const PermissionRequest &request, Verdict verdict);
     void service_analysis();
+    ReaderFailure reader_failure_ = ReaderFailure::none;
+    bool poll_active(int timeout_ms);
+    void quarantine_reader(const ReaderError &error);
 public:
     PermissionGate(const std::vector<std::string> &paths, DecisionConfig config,
                    PermissionEvent event = PermissionEvent::open,
@@ -65,6 +68,8 @@ public:
     const std::vector<int> &target_fds() const { return target_fds_; }
     std::size_t target_count() const { return targets_.size(); }
     std::uint64_t pid_namespace_inode() const { return audit_identity_.pid_namespace_inode; }
+    ReaderFailure reader_failure() const { return reader_failure_; }
+    bool reader_online() const { return reader_failure_ == ReaderFailure::none; }
     pid_t reader_pid() const { return reader_->pid(); }
     std::uint64_t reader_progress_age_ms() const { return reader_->progress_age_ms(); }
     pid_t analyzer_pid() const { return analyzer_ ? analyzer_->pid() : -1; }

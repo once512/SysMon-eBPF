@@ -19,9 +19,9 @@ int main()
                     "\"scan_error\":\"none\",\"scan_errno\":0,\"received_ns\":1000000,\"responded_ns\":3500000,\"latency_us\":2500}\n",
             "stable permission reply identity, timestamps and reason fields");
     const DecisionReason reasons[] = {DecisionReason::timeout, DecisionReason::capacity, DecisionReason::shutdown,
-                                      DecisionReason::analysis, DecisionReason::analyzer_error};
-    const char *names[] = {"timeout", "capacity", "shutdown", "analysis", "analyzer_error"};
-    for (unsigned i = 0; i < 5; ++i) {
+                                      DecisionReason::analysis, DecisionReason::analyzer_error, DecisionReason::reader_error};
+    const char *names[] = {"timeout", "capacity", "shutdown", "analysis", "analyzer_error", "reader_error"};
+    for (unsigned i = 0; i < 6; ++i) {
         const auto line = format_permission_decision(identity, request, {false, reasons[i]}, responded);
         require(line.find(std::string("\"reason\":\"") + names[i] + '"') != std::string::npos,
                 "every completion reason has stable encoding");
@@ -55,6 +55,7 @@ int main()
     reject([](auto &r) { r.received = PendingDecisions::Clock::time_point(4ms); }, {false, DecisionReason::policy});
     reject([](auto &r) { r.received = PendingDecisions::Clock::time_point(-1ns); }, {false, DecisionReason::policy});
     reject([](auto &) {}, {false, static_cast<DecisionReason>(99)});
+    reject([](auto &) {}, {true, DecisionReason::reader_error});
     reject([](auto &) {}, {false, DecisionReason::policy, analysis::ScanError::read_failed, EIO});
     reject([](auto &) {}, {false, DecisionReason::analyzer_error, analysis::ScanError::read_failed, -1});
     reject([](auto &r) { r.process.state = static_cast<ProcessReferenceState>(99); }, {true, DecisionReason::policy});

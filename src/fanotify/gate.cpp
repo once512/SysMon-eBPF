@@ -6,6 +6,7 @@
 #include "writer_identity.h"
 #include "metadata.h"
 #include <array>
+#include <iostream>
 #include "audit_sink.h"
 #include "management/protocol.h"
 #include <algorithm>
@@ -114,6 +115,41 @@ PermissionGate::PermissionGate(const std::vector<std::string> &paths, DecisionCo
 
 bool PermissionGate::poll_once(int timeout_ms)
 {
+    if (!reader_online()) {
+        if (analyzer_) analyzer_->receive(); // Reap only; quarantine has stopped it.
+        if (timeout_ms > 0) poll(nullptr, 0, timeout_ms);
+        return false;
+    }
+    try { return poll_active(timeout_ms); }
+    catch (const ReaderError &error) { quarantine_reader(error); return false; }
+}
+void PermissionGate::quarantine_reader(const ReaderError &error)
+{
+    // Preserve original tokens until every known permission has been denied.
+    // The held group keeps unpublished permissions waiting instead of releasing
+    // them by destroying the entire service and its independent BPF policy.
+    reader_failure_ = error.failure(); ++stats_.reader_failures;
+    try { pending_.fail_reader(); }
+    catch (const std::exception &response_error) {
+        stats_.reader_unconfirmed_requests += pending_.abandon();
+        std::cerr << "Cannot confirm all reader-fault denials; group retained: " << response_error.what() << '\n';
+    }
+    if (analyzer_) analyzer_->stop();
+    reader_->stop();
+    std::cerr << "Fanotify reader offline; group retained: " << error.what() << '\n';
+    if (audit_) {
+        try {
+            audit_->enqueue("{\"event\":\"fanotify_reader_failure\",\"listener_pid\":"+std::to_string(getpid())+
+                ",\"instance_ns\":"+std::to_string(audit_identity_.instance_ns)+
+                ",\"subscription_generation\":"+std::to_string(audit_identity_.subscription_generation)+
+                ",\"revision\":"+std::to_string(revision_)+",\"reason\":\""+reader_failure_name(reader_failure_)+
+                "\",\"unconfirmed_delivered\":"+std::to_string(stats_.reader_unconfirmed_requests)+
+                ",\"group_held\":true,\"individual_audit_complete\":false}\n");
+        } catch (...) { audit_->note_drop(); }
+    }
+}
+bool PermissionGate::poll_active(int timeout_ms)
+{
     service_analysis();
     reader_->flush();
     // 同时等待内核事件与分析结果，不能在这里同步读取大文件，否则整个权限服务会被一个分析拖住。
@@ -130,9 +166,9 @@ bool PermissionGate::poll_once(int timeout_ms)
         service_analysis();
         return false;
     }
-    service_analysis();
     if (ready[0].revents & (POLLERR | POLLHUP | POLLNVAL))
-        throw std::runtime_error("fanotify poll reported an unusable group");
+        throw ReaderError(ReaderFailure::disconnected,"Fanotify reader channel disconnected");
+    service_analysis();
     if (!(ready[0].revents & POLLIN)) return false;
     const auto received = PendingDecisions::Clock::now();
     PermissionMetadata event;
@@ -153,13 +189,13 @@ bool PermissionGate::poll_once(int timeout_ms)
         ++stats_.overflow;
         throw std::runtime_error("fanotify queue overflow; closing group releases pending requests");
     }
-    if (event.file.get() < 0 || event.mask != mask_)
-        throw std::runtime_error("Unexpected fanotify permission event");
+    if (event.file.get() < 0) throw ReaderError(ReaderFailure::resource,"Fanotify reader could not allocate an event file");
+    if (event.mask != mask_) throw ReaderError(ReaderFailure::protocol,"Unexpected fanotify permission event");
     const auto event_object = object;
     const auto found = std::find_if(objects_.begin(), objects_.end(), [&](const auto &object) {
         return object.major == event_object.major && object.minor == event_object.minor && object.inode == event_object.inode;
     });
-    if (found == objects_.end()) throw std::runtime_error("Unmarked permission event target");
+    if (found == objects_.end()) throw ReaderError(ReaderFailure::protocol,"Unmarked permission event target");
     pending_.submit(std::move(event.file), received, event.pid, revision_, std::move(event.requester), *found);
     stats_.peak_pending = std::max(stats_.peak_pending, pending_.size());
     service_analysis();
@@ -196,6 +232,7 @@ void PermissionGate::respond(int fd, const PermissionRequest &request, Verdict v
     case DecisionReason::capacity: ++stats_.overloaded; break;
     case DecisionReason::shutdown: ++stats_.shutdown_denied; break;
     case DecisionReason::policy: break;
+    case DecisionReason::reader_error: ++stats_.reader_error_requests; break;
     case DecisionReason::analysis:
         ++stats_.analyzed;
         if (!verdict.allow) ++stats_.analysis_denied;

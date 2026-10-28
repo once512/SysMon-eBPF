@@ -49,6 +49,10 @@ def main():
         assert groups[0]['denial_operations'] == {name: 1} and not summary['invalid']
     groups, summary = run([denial(operation=21), denial(operation=11)])
     assert not groups and summary['ignored'] == 2 and not summary['invalid']
+    groups, summary = run([permission(decision='deny', reason='reader_error')])
+    assert len(groups)==1 and not summary['invalid'] and groups[0]['permission_allow']==0
+    _, summary = run([permission(reason='reader_error')])
+    assert summary['invalid']==1
     # Identical numeric PIDs cannot merge different process lifetimes or different file objects.
     groups,_=run([permission(),denial(cookie=78),denial(inode=100)])
     assert len(groups)==3 and not any(row['allow_and_mutation_denial_observed'] for row in groups)

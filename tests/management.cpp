@@ -39,6 +39,10 @@ int main()
     reject([](Reply &x) { x.reader_pid = 123; });
     reject([](Reply &x) { x.reader_state = static_cast<ReaderState>(99); });
     reject([](Reply &x) { x.reader_progress_age_ms = 1; });
+    reject([](Reply &x) { x.reader_failure = ReaderFailure::transport; });
+    reject([](Reply &x) { x.reader_reserved = 1; });
+    reject([](Reply &x) { x.reader_failures = 1; });
+    reject([](Reply &x) { x.reader_unconfirmed_requests = 1; });
     reject([](Reply &x) { x.magic_value = 0; });
     reject([](Reply &x) { ++x.abi; });
     reject([](Reply &x) { --x.size; });
@@ -124,6 +128,14 @@ int main()
     reject([](Reply &x) { x.reader_progress_age_ms = reader_stall_ms; });
     r.reader_progress_age_ms = reader_stall_ms; r.reader_state = ReaderState::unresponsive;
     require(reply_json(r).find("\"reader_state\":\"unresponsive\"") != std::string::npos);
+    r.reader_pid = -1; r.reader_state = ReaderState::offline; r.reader_failure = ReaderFailure::disconnected; r.reader_failures = 1;
+    require(reply_json(r).find("\"reader_state\":\"offline\"") != std::string::npos);
+    reject([](Reply &x) { x.reader_failure = ReaderFailure::none; });
+    reject([](Reply &x) { x.reader_failures = 0; });
+    reject([](Reply &x) { x.reader_pid = 123; });
+    reject([](Reply &x) { x.reader_failure = static_cast<ReaderFailure>(99); });
+    reject([](Reply &x) { x.reader_error_requests = 1; });
+    r.reader_pid = 123; r.reader_failure = ReaderFailure::none;
     r.reader_progress_age_ms = 0; r.reader_state = ReaderState::responsive;
     r.pending = 1; r.peak_pending = 3; r.max_pending = 4; r.fallbacks = 5;
     require(reply_json(r).find("\"permission_event\":\"access\"") != std::string::npos);

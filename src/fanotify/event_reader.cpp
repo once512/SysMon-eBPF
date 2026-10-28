@@ -10,6 +10,7 @@
 #include <sys/vfs.h>
 #include <poll.h>
 #include <stdexcept>
+#include <system_error>
 #include <sys/eventfd.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
@@ -204,6 +205,13 @@ void EventReader::stop() noexcept
 }
 void EventReader::flush()
 {
+    try { flush_active(); }
+    catch (const ReaderError &) { throw; }
+    catch (const std::system_error &error) { throw ReaderError(ReaderFailure::transport,error.what()); }
+    catch (const std::runtime_error &error) { throw ReaderError(ReaderFailure::protocol,error.what()); }
+}
+void EventReader::flush_active()
+{
     reap();
     if (!probe_pending_ && Clock::now() >= next_probe_ && command_count_ < commands_.size()) {
         if (!++probe_id_) throw std::runtime_error("Fanotify reader probe sequence exhausted");
@@ -219,18 +227,27 @@ void EventReader::flush()
 }
 std::optional<EventReader::Event> EventReader::receive()
 {
+    try { return receive_active(); }
+    catch (const ReaderError &) { throw; }
+    catch (const std::system_error &error) { throw ReaderError(ReaderFailure::transport,error.what()); }
+    catch (const std::runtime_error &error) { throw ReaderError(ReaderFailure::protocol,error.what()); }
+}
+std::optional<EventReader::Event> EventReader::receive_active()
+{
     // Peek only the body of this trusted child channel (its sole optional FD
     // is a pidfd). Heartbeats/errors need no decision FD, including under EMFILE.
     Frame preview{};
     ssize_t size;
     do { size = recv(channel_.get(), &preview, sizeof(preview), MSG_PEEK | MSG_DONTWAIT); } while (size < 0 && errno == EINTR);
     if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return std::nullopt;
-    if (size != sizeof(preview)) throw std::runtime_error("Invalid or disconnected fanotify reader");
+    if (!size) throw ReaderError(ReaderFailure::disconnected,"Disconnected fanotify reader");
+    if (size < 0) throw ReaderError(ReaderFailure::transport,"Cannot receive fanotify reader frame");
+    if (size != sizeof(preview)) throw ReaderError(ReaderFailure::protocol,"Invalid fanotify reader frame");
     // Reserve the decision handle before receiving its optional requester FD.
     OwnedFd handle;
     if (preview.kind == FrameKind::event) {
         handle = OwnedFd(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
-        if (handle.get() < 0) throw std::runtime_error("Cannot allocate permission handle");
+        if (handle.get() < 0) throw ReaderError(ReaderFailure::resource,"Cannot allocate permission handle");
     }
     Frame frame{};
     auto packet = analysis::receive_packet(channel_.get(), &frame, sizeof(frame), true);

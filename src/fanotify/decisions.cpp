@@ -124,3 +124,11 @@ void PendingDecisions::fail_analysis()
         pending_.pop_front();
     }
 }
+
+void PendingDecisions::fail_reader()
+{
+    while (!pending_.empty()) {
+        reply_(pending_.front().fd.get(), pending_.front().context, {false, DecisionReason::reader_error});
+        pending_.pop_front();
+    }
+}

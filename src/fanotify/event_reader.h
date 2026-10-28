@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "metadata.h"
+#include "reader_error.h"
 #include "decisions.h"
 #include "owned_fd.h"
 #include <array>
@@ -24,8 +25,12 @@ class EventReader {
     Clock::time_point last_progress_ = Clock::now(), next_probe_ = last_progress_;
     std::uint64_t probe_id_ = 0;
     bool probe_pending_ = false;
+    void flush_active();
 public:
     struct Event { PermissionMetadata metadata; PermissionObject object; std::uint64_t dispatch_error = 0; bool progress = false; };
+private:
+    std::optional<Event> receive_active();
+public:
     EventReader(int group, bool pidfd_mode, int analyzer_channel = -1);
     ~EventReader();
     EventReader(const EventReader &) = delete;

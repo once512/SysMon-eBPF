@@ -22,7 +22,7 @@ struct DecisionConfig {
     bool external = false;
     bool analyzer_error_allow = false;
 };
-enum class DecisionReason { policy, timeout, capacity, shutdown, analysis, analyzer_error };
+enum class DecisionReason { policy, timeout, capacity, shutdown, analysis, analyzer_error, reader_error };
 struct Verdict {
     bool allow;
     DecisionReason reason;
@@ -84,6 +84,10 @@ public:
     bool complete(std::uint64_t id, bool allow, bool error, Clock::time_point now,
                   analysis::ScanError scan_error = analysis::ScanError::none, int scan_errno = 0);
     void fail_analysis();
+    // An unavailable event transport never grants a delivered permission.
+    void fail_reader();
+    // No verdict is invented when an actual kernel write cannot be confirmed.
+    std::size_t abandon() noexcept { const auto count=pending_.size(); pending_.clear(); return count; }
     void process_due(Clock::time_point now);
     // Reply deny to delivered requests before a graceful group shutdown.
     void shutdown();

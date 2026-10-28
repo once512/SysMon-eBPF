@@ -77,10 +77,12 @@ CTest的vault-policy-edit与vaultctl-cli，加上特权vaultctl、vaultctl-fault
 先用open给实际Vim程序、用户UID及目标授予read-write，再在该用户终端运行：
 
 ```bash
+sudo install -d -m 0755 /etc/secmon-editor
+sudo install -m 0644 /usr/local/share/doc/SecMon/examples/vault-vim.vim /etc/secmon-editor/vault-vim.vim
 vim -u NONE -i NONE -n --noplugin \
-  --cmd 'source /etc/secmon/vault-vim.vim' /srv/private/document.txt
+  --cmd 'source /etc/secmon-editor/vault-vim.vim' /srv/private/document.txt
 ```
 
-管理员应先把示例放到root所有、不可被其他用户写入的位置。不要直接使用任意用户可写的启动脚本或插件作为可信授权依据。授权仍匹配所有相同程序inode/EUID实例；该命令行配置不会让内核认证Vim插件、脚本或所有运行时代码。用户已读进编辑缓冲的内容在锁定后仍存在；关闭会话阻止新的受检I/O，不是抹除缓冲区。
+管理员应先把示例放到root所有、不可被其他用户写入但目标用户可读取/遍历的位置。它不应放进0700的私有策略目录；上例的编辑器配置目录与管理/策略目录分别设置权限。不要直接使用任意用户可写的启动脚本或插件作为可信授权依据。授权仍匹配所有相同程序inode/EUID实例；该命令行配置不会让内核认证Vim插件、脚本或所有运行时代码。用户已读进编辑缓冲的内容在锁定后仍存在；关闭会话阻止新的受检I/O，不是抹除缓冲区。
 
 此专题只证明本机Vim这个明确配置及其普通文件原地保存路径。未验证所有交互命令、GUI编辑器、外部工具、崩溃恢复和真实用户插件环境；不将其表述为透明兼容任意编辑器。保存失败时不要使用替换文件或解除vault保护作为自动回退。

@@ -35,7 +35,9 @@ class Reply(ctypes.Structure):
                 ('decoy_provider_pid', ctypes.c_int32), ('decoy_provider_state', ctypes.c_uint32),
                 ('decoy_provider_progress_age_ms', ctypes.c_uint64), ('decoy_files', ctypes.c_uint32), ('decoy_provider_error', ctypes.c_uint32),
                 ('decoy_mount_id', ctypes.c_uint64), ('decoy_mount_state', ctypes.c_uint32),
-                ('decoy_mount_errno', ctypes.c_int32), ('decoy_mount_sample_age_ms', ctypes.c_uint64)]
+                ('decoy_mount_errno', ctypes.c_int32), ('decoy_mount_sample_age_ms', ctypes.c_uint64),
+                ('reader_failure', ctypes.c_uint32), ('reader_reserved', ctypes.c_uint32),
+                ('reader_failures', ctypes.c_uint64), ('reader_error_requests', ctypes.c_uint64), ('reader_unconfirmed_requests', ctypes.c_uint64)]
 
 
 def main():
@@ -44,7 +46,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('requires root to emulate a root control peer')
-    assert ctypes.sizeof(Reply) == 496
+    assert ctypes.sizeof(Reply) == 528
     binary = Path(args.build_dir).resolve() / 'secmon'
     with tempfile.TemporaryDirectory(prefix='secmon-management-fault-') as temporary:
         path = Path(temporary) / 'fake.sock'
@@ -66,7 +68,7 @@ def main():
                                 connection.settimeout(5)
                                 assert connection.recv(32) == command.encode()
                                 reply = Reply()
-                                reply.magic, reply.abi, reply.size = 0x53434D43, 10, ctypes.sizeof(Reply)
+                                reply.magic, reply.abi, reply.size = 0x53434D43, 11, ctypes.sizeof(Reply)
                                 reply.command, reply.backend, reply.pid, reply.instance_ns = command_id, 1, os.getpid(), 123
                                 reply.worker_pid = reply.reader_pid = reply.decoy_provider_pid = -1
                                 if case in ('magic', 'abi', 'size', 'command', 'code', 'last_code', 'backend', 'flags',

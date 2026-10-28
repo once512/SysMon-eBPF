@@ -9,6 +9,7 @@ void write_gate_stats(std::ostream &out, PermissionEvent event, const GateStats 
         << ",\"analyzed\":" << s.analyzed << ",\"analyzer_error\":" << s.analyzer_error
         << ",\"analyzer_failures\":" << s.analyzer_failures << ",\"peak_pending\":" << s.peak_pending
         << ",\"target_updates\":" << s.target_updates
+        << ",\"reader_failures\":" << s.reader_failures << ",\"reader_error_requests\":" << s.reader_error_requests << ",\"reader_unconfirmed_requests\":" << s.reader_unconfirmed_requests
         << ",\"backend_error_requests\":" << s.backend_error_requests << ",\"last_scan_error\":\""
         << analysis::scan_error_name(s.last_scan_error) << "\",\"last_scan_errno\":" << s.last_scan_errno << ",\"scan_error_counts\":{";
     // none 不属于错误原因，从 1 开始输出；

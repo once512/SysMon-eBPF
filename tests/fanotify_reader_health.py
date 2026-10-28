@@ -98,13 +98,15 @@ def death(build):
         try:
             reader = service.status()['reader_pid']
             os.kill(reader, signal.SIGKILL)
-            service.process.wait(timeout=3)
-            assert service.process.returncode == 1, contents(service.errors)
-            assert 'unusable group' in contents(service.errors) or 'disconnected fanotify reader' in contents(service.errors), contents(service.errors)
+            state = wait_state(service, 'offline')
+            assert state['reader_failures'] == 1 and service.process.poll() is None
+            checked = subprocess.run([str(build / 'secmon-policyctl'), '--socket', str(service.control), '--require-ready'], capture_output=True, text=True, timeout=3)
+            assert checked.returncode == 1 and json.loads(checked.stdout)['code'] == 'reader_offline'
+            service.stop()
             assert not service.control.exists() and request(target)['errno'] == 0
         finally:
             service.close()
-    print('PASS reader death is a reported fatal backend failure; no implicit restart or persistent protection claim')
+    print('PASS reader death retains the group and reports offline until an authorized recovery/stop')
 
 
 def main():

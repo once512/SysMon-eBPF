@@ -51,11 +51,17 @@ void validate_reply(const Reply &r, Command expected)
         (r.canary_paths && !r.response_epoch) ||
         (r.response_epoch ? (r.response_duration_ms < 100 || r.response_duration_ms > 3600000) : r.response_duration_ms != 0) ||
         (r.backend == Backend::fanotify && (r.canary_paths || r.response_epoch || r.response_started || r.response_failed || r.response_denied)) ||
+        r.reader_reserved || static_cast<unsigned>(r.reader_failure) > static_cast<unsigned>(ReaderFailure::resource) ||
+        r.reader_error_requests > r.denied ||
+        ((r.reader_error_requests || r.reader_unconfirmed_requests) && !r.reader_failures) ||
         (r.backend == Backend::bpf ?
-            (r.reader_pid != -1 || r.reader_state != ReaderState::none || r.reader_progress_age_ms) :
-            (r.reader_pid <= 0 ||
-             (r.reader_state != ReaderState::responsive && r.reader_state != ReaderState::unresponsive) ||
-             ((r.reader_state == ReaderState::responsive) != (r.reader_progress_age_ms < reader_stall_ms)))) ||
+            (r.reader_pid != -1 || r.reader_state != ReaderState::none || r.reader_progress_age_ms ||
+             r.reader_failure != ReaderFailure::none || r.reader_failures || r.reader_error_requests || r.reader_unconfirmed_requests) :
+            (r.reader_state == ReaderState::offline ?
+                (r.reader_pid != -1 || r.reader_failure == ReaderFailure::none || !r.reader_failures) :
+                (r.reader_pid <= 0 || r.reader_failure != ReaderFailure::none ||
+                 (r.reader_state != ReaderState::responsive && r.reader_state != ReaderState::unresponsive) ||
+                 ((r.reader_state == ReaderState::responsive) != (r.reader_progress_age_ms < reader_stall_ms))))) ||
         static_cast<unsigned>(r.decoy_provider_error) > static_cast<unsigned>(ProviderError::sequence) ||
         ((r.decoy_provider_state == ProviderState::offline) != (r.decoy_provider_error != ProviderError::none)) ||
         r.decoy_files > 64 ||
@@ -116,6 +122,9 @@ std::string reply_json(const Reply &r)
     const char *provider_errors[] = {"none", "disconnected", "protocol", "transport", "sequence"};
     const char *provider_states[] = {"none", "responsive", "unresponsive", "offline"};
     static const char *mount_states[] = {"none", "attached", "covered", "moved", "detached", "unknown"};
+    out << ",\"reader_failure\":\"" << reader_failure_name(r.reader_failure)
+        << "\",\"reader_failures\":" << r.reader_failures << ",\"reader_error_requests\":" << r.reader_error_requests
+        << ",\"reader_unconfirmed_requests\":" << r.reader_unconfirmed_requests;
     out << ",\"decoy_mount_id\":" << r.decoy_mount_id
         << ",\"decoy_mount_state\":\"" << mount_states[static_cast<unsigned>(r.decoy_mount_state)]
         << "\",\"decoy_mount_errno\":" << r.decoy_mount_errno
@@ -154,7 +163,7 @@ std::string reply_json(const Reply &r)
             << ",\"analyzer_error_allow\":" << ((r.fallbacks & 4) ? "true" : "false")
             << ",\"fanotify_targets\":" << r.fanotify_targets
             << ",\"reader_pid\":" << r.reader_pid
-            << ",\"reader_state\":\"" << (r.reader_state == ReaderState::responsive ? "responsive" : "unresponsive")
+            << ",\"reader_state\":\"" << (r.reader_state == ReaderState::offline ? "offline" : r.reader_state == ReaderState::responsive ? "responsive" : "unresponsive")
             << "\",\"reader_progress_age_ms\":" << r.reader_progress_age_ms
             << ",\"analyzer_online\":" << ((r.flags & analyzer_online) ? "true" : "false")
             << ",\"analyzer_pid\":" << r.worker_pid << ",\"scan_limit_bytes\":" << r.scan_limit

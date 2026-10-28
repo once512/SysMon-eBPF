@@ -48,7 +48,7 @@ int main(int argc, char **argv)
         if (std::string_view(code) == "ok") {
             if (require_decoy && !reply.decoy_files) code = "decoy_missing";
             else if (require_ready && reply.backend != management::Backend::bpf && reply.reader_state != management::ReaderState::responsive)
-                code = "reader_unresponsive";
+                code = reply.reader_state == management::ReaderState::offline ? "reader_offline" : "reader_unresponsive";
             else if (require_ready && (reply.flags & management::analyzer) && !(reply.flags & management::analyzer_online))
                 code = "analyzer_offline";
             else if ((require_ready || require_decoy) && reply.decoy_files && reply.decoy_provider_state != management::ProviderState::responsive)

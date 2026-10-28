@@ -227,6 +227,16 @@ int main()
             try { first.submit(descriptor(), start); } catch (const std::runtime_error &) { exhausted = true; }
             require(exhausted && sequence == 0, "Request ID exhaustion cannot wrap into reused identities");
         }
+        replies.clear();
+        {
+            auto external = config; external.external = true; external.analyzer_error_allow = true;
+            PendingDecisions queue(external, reply);
+            queue.submit(descriptor(), start); queue.fail_reader();
+            require(queue.size()==0 && replies.size()==1 && !replies.back().verdict.allow &&
+                    replies.back().verdict.reason==DecisionReason::reader_error,"Reader fault denies independently of analyzer fallback");
+            queue.submit(descriptor(), start); const auto count=replies.size();
+            require(queue.abandon()==1 && queue.size()==0 && replies.size()==count,"Unconfirmed request abandonment fabricates no reply");
+        }
         config.max_pending = 0;
         bool rejected = false;
         try { PendingDecisions queue(config, reply); }

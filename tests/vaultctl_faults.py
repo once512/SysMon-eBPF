@@ -25,7 +25,7 @@ class Peer:
         self.thread=threading.Thread(target=self.run);self.thread.start()
 
     def reply(self,command,code=0):
-        reply=Reply();reply.magic=0x53434D43;reply.abi=10;reply.size=ctypes.sizeof(Reply)
+        reply=Reply();reply.magic=0x53434D43;reply.abi=11;reply.size=ctypes.sizeof(Reply)
         reply.command={'status':3,'reload':2}[command];reply.code=code
         reply.backend=1;reply.flags=1;reply.pid=os.getpid();reply.instance_ns=self.instance
         reply.worker_pid=reply.reader_pid=reply.decoy_provider_pid=-1

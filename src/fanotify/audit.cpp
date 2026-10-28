@@ -12,6 +12,7 @@ const char *reason_name(DecisionReason reason)
     case DecisionReason::shutdown: return "shutdown";
     case DecisionReason::analysis: return "analysis";
     case DecisionReason::analyzer_error: return "analyzer_error";
+    case DecisionReason::reader_error: return "reader_error";
     }
     throw std::invalid_argument("Invalid permission decision reason");
 }
@@ -20,7 +21,7 @@ std::string format_permission_decision(const PermissionAuditIdentity &identity, 
                                        Verdict verdict, PendingDecisions::Clock::time_point responded)
 {
     using namespace std::chrono;
-    if (!identity.subscription_generation || !identity.pid_namespace_inode || !request.id || !identity.instance_ns || identity.listener_pid <= 0 || responded < request.received ||
+    if ((verdict.reason == DecisionReason::reader_error && verdict.allow) || !identity.subscription_generation || !identity.pid_namespace_inode || !request.id || !identity.instance_ns || identity.listener_pid <= 0 || responded < request.received ||
         request.received.time_since_epoch() < PendingDecisions::Clock::duration::zero() ||
         !analysis::valid_scan_error(verdict.scan_error, verdict.scan_errno) ||
         (verdict.scan_error != analysis::ScanError::none && verdict.reason != DecisionReason::analyzer_error))

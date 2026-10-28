@@ -9,5 +9,5 @@ def call(binary, command, control, code='ok'):
                             text=True, timeout=5)
     assert (result.returncode == 0) == (code == 'ok'), (result.returncode, result.stdout, result.stderr)
     reply = json.loads(result.stdout)
-    assert reply['protocol_version'] == 10 and reply['command'] == command and reply['code'] == code, reply
+    assert reply['protocol_version'] == 11 and reply['command'] == command and reply['code'] == code, reply
     return reply

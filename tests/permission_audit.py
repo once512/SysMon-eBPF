@@ -54,7 +54,7 @@ def request(path, event='open'):
 
 
 class AuditedService:
-    def __init__(self, build, root, target, fields, combined=False, requester_pidfd=False):
+    def __init__(self, build, root, target, fields, combined=False, requester_pidfd=False, environment=None):
         self.build, self.root, self.target = build, root, target
         self.binary = build / 'secmon'
         self.policy, self.control = root / 'policy', root / 'control'
@@ -66,7 +66,7 @@ class AuditedService:
         self.output, self.errors = tempfile.TemporaryFile(), tempfile.TemporaryFile()
         self.process = subprocess.Popen([str(self.binary), *([] if combined else ['--fanotify-only']),
                                          '--policy', str(self.policy), '--control', str(self.control),
-                                         '--audit-permissions', *(['--requester-pidfd'] if requester_pidfd else []), '--run-for', '60'], stdout=self.output, stderr=self.errors)
+                                         '--audit-permissions', *(['--requester-pidfd'] if requester_pidfd else []), '--run-for', '60'], stdout=self.output, stderr=self.errors, env=environment)
         try:
             deadline = time.monotonic() + 10
             while 'Service active;' not in contents(self.errors):

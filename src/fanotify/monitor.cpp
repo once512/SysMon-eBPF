@@ -35,6 +35,9 @@ void accumulate(GateStats &total, const GateStats &part) noexcept
     }
     total.peak_pending = std::max(total.peak_pending, part.peak_pending);
     total.target_updates += part.target_updates;
+    total.reader_failures += part.reader_failures;
+    total.reader_error_requests += part.reader_error_requests;
+    total.reader_unconfirmed_requests += part.reader_unconfirmed_requests;
 }
 }
 FanotifyMonitor::FanotifyMonitor(FanotifyOptions options, const std::string &policy_path, AuditSink *audit,
@@ -57,6 +60,13 @@ FanotifyOptions FanotifyMonitor::checked_options(const PolicyConfig &candidate) 
         throw management::Error(management::Code::restart_required, "Changing fanotify event or analyzer requires restart");
     if (next.rebind_epoch < options_.rebind_epoch)
         throw management::Error(management::Code::invalid_policy, "Fanotify rebind epoch cannot decrease or be omitted after activation");
+    const bool replacement = next.paths != options_.paths || next.rebind_epoch > options_.rebind_epoch;
+    const auto &a = options_.decision; const auto &b = next.decision;
+    const bool same_decision = a.allow==b.allow && a.delay==b.delay && a.timeout==b.timeout &&
+        a.max_pending==b.max_pending && a.timeout_allow==b.timeout_allow && a.overload_allow==b.overload_allow &&
+        a.external==b.external && a.analyzer_error_allow==b.analyzer_error_allow;
+    if (!gate_->reader_online() && !replacement && !same_decision)
+        throw management::Error(management::Code::restart_required,"Offline reader forbids changing the held group's decision; use an eligible explicit rebind or restart");
     gate_->validate_reconfigure(next.decision);
     if (next.paths != options_.paths || next.rebind_epoch > options_.rebind_epoch) {
         // Group closure releases kernel-unread permissions under prior allow.
