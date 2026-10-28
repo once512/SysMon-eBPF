@@ -45,3 +45,5 @@ DESTDIR="$PWD/build/stage" cmake --install build --prefix /usr/local
 新增secmon-vaultctl后，运行安装集合为完整6个/核心5个；此前5/4集合描述2026-10-26验收。操作合同见[保险箱管理](VAULT_ADMIN.md)。
 
 现还随文档交付配置时生成的secmon.service及Vim配置示例；服务单元不写入systemd目录、不自动启用，见[部署说明](SYSTEMD.md)。
+
+完整安装布局可显式运行`sudo python3 -B tests/installed_runtime.py --prefix /绝对/暂存前缀`，从/工作目录验证托管视图、降权分析、BPF响应及通知/退出；它不注册系统服务。核心安装的真实Vim流程可用`tests/vault_editor.py --build-dir /绝对/前缀/bin`验证。

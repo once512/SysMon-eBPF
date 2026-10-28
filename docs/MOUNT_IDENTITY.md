@@ -45,3 +45,13 @@ attached表示原挂载仍在配置路径的可见挂载链上；covered包括�
 root模式还通过内核statmount的superblock类型拒绝FUSE祖先，不把用户态文件系统报告的UID/模式当作路径信任证明。检查在realpath及后续分量解析之前逐层进行；已验证暂停FUSE祖先时快速拒绝，不进入它的后续lookup。标准root所有/tmp临时子目录及/run部署继续工作。该约束只影响提供程序的挂载位置，不禁止原有BPF/fanotify监控FUSE目标。
 
 这收敛了非特权祖先替换风险；并发CAP_SYS_ADMIN挂载/卸载的原子性限制仍保留。检查结果与挂载可见性都不能替代同一管理员串行管理的合同。
+
+## 公开视图的覆盖缺口：已复现、未修复
+
+本轮进一步以UID65534实际调用系统setuid fusermount3，在开启allow-other的视图上成功创建了另一个FUSE覆盖挂载（原视图根目录0777用于让修改尝试到达安全钩子）。因此，特权挂载操作也可能由普通用户借助系统助手发起，不能把“管理员串行管理”当作充分的不可覆盖保证。
+
+归属检测能报告covered，但没有内核挂载拒绝策略阻止覆盖；旧inode上的canary策略不能自动保护新挂载的对象。检查与路径卸载之间的竞争窗口也包含这类助手，并非只限交互root命令。不要把本项称为不可覆盖视图或已完成生产反勒索部署。默认未启用allow-other的合同不因此改成公开视图。
+
+复现仅使用本次独立临时目录和自己创建的额外FUSE挂载，记录在/tmp/secmon-development-20261028/unprivileged-overmount.log（返回0，取得一个FUSE设备FD）；关闭该连接并明确清理自己的额外挂载后，原视图正常停止。没有保留测试挂载，也没有修改/etc/fuse.conf或系统挂载配置。
+
+后续优先设计受保护视图根的挂载/卸载授权，或同样能保持普通用户诱饵触发的部署隔离方案；不能简单把根目录改成不可写/sticky就宣称兼容，因为可能让unlink/rename等尝试在安全钩子之前被DAC拒绝，丢失既有触发覆盖。依据为[libfuse 3.16.2 fusermount检查](https://raw.githubusercontent.com/libfuse/libfuse/fuse-3.16.2/util/fusermount.c)，以及本机实际实验。
