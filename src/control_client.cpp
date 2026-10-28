@@ -46,6 +46,7 @@ void print_result(const management::Reply &reply)
 }
 }
 void request_stop(const std::string &path) { print_result(query(path, management::Command::stop)); }
-void request_reload(const std::string &path) { print_result(query(path, management::Command::reload)); }
+management::Reply reload_policy(const std::string &path) { return query(path, management::Command::reload); }
+void request_reload(const std::string &path) { print_result(reload_policy(path)); }
 management::Reply query_status(const std::string &path) { return query(path, management::Command::status); }
 void request_status(const std::string &path) { print_result(query_status(path)); }

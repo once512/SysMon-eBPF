@@ -88,6 +88,10 @@ if(SECMON_BUILD_DECOYFS)
     target_link_libraries(secmon-decoyfs PRIVATE PkgConfig::FUSE3)
 endif()
 
+add_executable(secmon-vaultctl src/vault/main.cpp src/vault/policy_edit.cpp src/vault/policy_file.cpp)
+target_link_libraries(secmon-vaultctl PRIVATE secmon-policy)
+target_compile_options(secmon-vaultctl PRIVATE -Wall -Wextra -Werror)
+
 add_executable(secmon-vault-session src/vault_session_main.cpp)
 target_link_libraries(secmon-vault-session PRIVATE secmon-policy)
 target_compile_options(secmon-vault-session PRIVATE -Wall -Wextra -Werror)
@@ -208,6 +212,15 @@ if(BUILD_TESTING)
     add_test(NAME fanotify-cli COMMAND ${CMAKE_COMMAND}
         -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
     add_test(NAME fanotify-help COMMAND secmon --help)
+    add_executable(secmon-vault-file-fault-tests tests/vault_file_faults.cpp src/vault/policy_file.cpp)
+    target_include_directories(secmon-vault-file-fault-tests PRIVATE src include)
+    target_compile_options(secmon-vault-file-fault-tests PRIVATE -Wall -Wextra -Werror)
+    target_link_options(secmon-vault-file-fault-tests PRIVATE -Wl,--wrap=fsync)
+    add_executable(secmon-vault-edit-tests tests/vault_policy_edit.cpp src/vault/policy_edit.cpp)
+    target_link_libraries(secmon-vault-edit-tests PRIVATE secmon-policy)
+    target_compile_options(secmon-vault-edit-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME vault-policy-edit COMMAND secmon-vault-edit-tests)
+    add_test(NAME vaultctl-cli COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/vaultctl_cli.py --binary $<TARGET_FILE:secmon-vaultctl>)
     add_executable(secmon-mount-identity-tests tests/mount_identity.cpp src/decoy/mount_identity.cpp)
     target_include_directories(secmon-mount-identity-tests PRIVATE src)
     target_compile_options(secmon-mount-identity-tests PRIVATE -Wall -Wextra -Werror)
@@ -249,7 +262,7 @@ endif()
 # Install one matching runtime set. Internal helpers keep explicit configured
 # paths; tests, generated headers and the private static library stay in build.
 include(GNUInstallDirs)
-install(TARGETS secmon secmon-policyctl secmon-vault-session
+install(TARGETS secmon secmon-policyctl secmon-vault-session secmon-vaultctl
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(TARGETS secmon-analyzer RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/secmon")
 if(TARGET secmon-decoyfs)

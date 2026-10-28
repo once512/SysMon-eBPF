@@ -6,6 +6,8 @@
 
 void request_stop(const std::string &path);
 void request_reload(const std::string &path);
+// Mutating reload with a validated structured result, without printing.
+management::Reply reload_policy(const std::string &path);
 // 供只读核对工具使用，返回已校验响应，不写 stdout、不发送变更命令。
 // 失败会抛异常；
 // 成功值已验证当前 ABI 与服务 PID，但它是采样状态，不锁住之后的后端变化。

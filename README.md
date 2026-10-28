@@ -182,3 +182,5 @@ sudo python3 tests/fanotify_analysis.py --build-dir build
 ```
 
 首版是有界字节标记规则，不是恶意内容检测引擎；分析程序独立运行，超时或崩溃由接收端回退。
+
+保险箱管理员可使用[secmon-vaultctl](docs/VAULT_ADMIN.md)完成限时开启、查询、关闭和同inode别名锁定，继续复用既有root策略和内核会话。它不提供加密或最终用户认证。
