@@ -10,6 +10,7 @@ class ControlServer;
 class BpfMonitor;
 class FanotifyMonitor;
 class DecoyProvider;
+class ServiceNotify;
 class MonitorService {
     DiagnosticOutput &diagnostics_;
     Options options_;
@@ -28,5 +29,5 @@ public:
     ~MonitorService();
     MonitorService(const MonitorService &) = delete;
     MonitorService &operator=(const MonitorService &) = delete;
-    void run();
+    void run(ServiceNotify &notification);
 };

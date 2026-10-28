@@ -2,6 +2,7 @@
 // 唯一监控服务入口：参数/管理动作在前，模块资源由 MonitorService 内的两个对象统一管理。
 #include "options.h"
 #include "service.h"
+#include "service_notify.h"
 #include "diagnostic_output.h"
 #include <bpf/libbpf.h>
 #include <cstdio>
@@ -52,10 +53,11 @@ int main(int argc, char **argv)
         child_status.sa_handler = SIG_DFL;
         if (sigemptyset(&child_status.sa_mask) || sigaction(SIGCHLD, &child_status, nullptr))
             throw std::system_error(errno, std::generic_category(), "reset child status disposition");
+        ServiceNotify notification; // Capture/unset environment before threads and helper spawn.
         diagnostics = std::make_unique<DiagnosticOutput>();
         LibbpfDiagnostics libbpf_diagnostics;
         MonitorService service(std::move(options), *diagnostics);
-        service.run();
+        service.run(notification);
     } catch (const std::exception &error) { std::cerr << "secmon: " << error.what() << '\n'; return 1; }
     return 0;
 }

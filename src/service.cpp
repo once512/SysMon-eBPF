@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 事件处理、管理和重载都在此线程串行执行，不创建第二个监控进程或后台重载线程。
 #include "service.h"
+#include "service_notify.h"
 #include "diagnostic_output.h"
 #include "audit_sink.h"
 #include "events.h"
@@ -146,8 +147,9 @@ management::Reply MonitorService::snapshot() const
     if (decoy_) decoy_->snapshot(reply);
     return reply;
 }
-void MonitorService::run()
+void MonitorService::run(ServiceNotify &notification)
 {
+    notification.ready(); // Constructors have completed all selected backend/control initialization.
     const std::vector<int> no_targets;
     const auto started = std::chrono::steady_clock::now();
     if (options_.run_seconds) run_deadline_ = started + std::chrono::seconds(options_.run_seconds);
@@ -178,6 +180,7 @@ void MonitorService::run()
             next_report = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         }
     }
+    if (!notification.stopping()) std::cerr << "Cannot send service stopping notification\n";
     if (fanotify_) fanotify_->shutdown();
     if (bpf_) bpf_->shutdown();
     if (audit_) audit_->shutdown();

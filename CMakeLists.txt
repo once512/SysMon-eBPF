@@ -52,6 +52,7 @@ target_link_libraries(secmon-policy PUBLIC OpenSSL::Crypto)
 add_executable(secmon
     src/main.cpp
     src/service.cpp
+    src/service_notify.cpp
     src/bpf/monitor.cpp
     src/options.cpp
     src/events.cpp
@@ -221,6 +222,10 @@ if(BUILD_TESTING)
     target_compile_options(secmon-vault-edit-tests PRIVATE -Wall -Wextra -Werror)
     add_test(NAME vault-policy-edit COMMAND secmon-vault-edit-tests)
     add_test(NAME vaultctl-cli COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/vaultctl_cli.py --binary $<TARGET_FILE:secmon-vaultctl>)
+    add_executable(secmon-notify-tests tests/service_notify.cpp src/service_notify.cpp)
+    target_include_directories(secmon-notify-tests PRIVATE src)
+    target_compile_options(secmon-notify-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME service-notify COMMAND secmon-notify-tests)
     add_executable(secmon-mount-identity-tests tests/mount_identity.cpp src/decoy/mount_identity.cpp)
     target_include_directories(secmon-mount-identity-tests PRIVATE src)
     target_compile_options(secmon-mount-identity-tests PRIVATE -Wall -Wextra -Werror)
@@ -271,4 +276,8 @@ endif()
 install(FILES README.md README_en.md DESIGN.md LICENSE LICENSE-MIT LICENSE-GPL
     DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 install(DIRECTORY docs/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/docs" FILES_MATCHING PATTERN "*.md")
-install(DIRECTORY examples/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/examples" FILES_MATCHING PATTERN "*.conf")
+install(DIRECTORY examples/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/examples" FILES_MATCHING PATTERN "*.conf" PATTERN "*.vim")
+
+# Generate an operator-reviewed unit; installing binaries never enables it.
+configure_file(packaging/secmon.service.in "${CMAKE_CURRENT_BINARY_DIR}/secmon.service" @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/secmon.service" DESTINATION "${CMAKE_INSTALL_DOCDIR}/examples")

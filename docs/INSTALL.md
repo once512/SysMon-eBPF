@@ -43,3 +43,5 @@ DESTDIR="$PWD/build/stage" cmake --install build --prefix /usr/local
 默认前缀会落在`build/stage/usr/local`。本轮实际核对了5个运行程序，关闭FUSE后为4个；测试程序和内部静态库不属于运行安装集合。安装产物的帮助入口均从`/`工作目录执行通过；随后用暂存主程序、扫描器和提供进程完成真实FUSE/分析/canary响应及授权停止，核对原文件不变、挂载解除。详见[本轮验收](VALIDATION_RUNTIME_2026_10_26.md)。
 
 新增secmon-vaultctl后，运行安装集合为完整6个/核心5个；此前5/4集合描述2026-10-26验收。操作合同见[保险箱管理](VAULT_ADMIN.md)。
+
+现还随文档交付配置时生成的secmon.service及Vim配置示例；服务单元不写入systemd目录、不自动启用，见[部署说明](SYSTEMD.md)。

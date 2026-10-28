@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# Review policy, install paths and self-protection limits before enabling.
+[Unit]
+Description=SecMon eBPF and fanotify security monitor
+After=local-fs.target
+StartLimitIntervalSec=60s
+StartLimitBurst=3
+Documentation=file:@CMAKE_INSTALL_FULL_DOCDIR@/docs/SYSTEMD.md
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=root
+UMask=0077
+RuntimeDirectory=secmon
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/bin/install -d -m 0700 /run/secmon/management
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/secmon" --policy /etc/secmon/policy.conf --control /run/secmon/management/control.sock
+ExecReload="@CMAKE_INSTALL_FULL_BINDIR@/secmon" --reload /run/secmon/management/control.sock
+ExecStop="@CMAKE_INSTALL_FULL_BINDIR@/secmon" --stop /run/secmon/management/control.sock
+TimeoutStartSec=20s
+TimeoutStopSec=15s
+LimitMEMLOCK=infinity
+LimitNOFILE=8192
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
