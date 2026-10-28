@@ -176,3 +176,12 @@ flowchart LR
 图表示通信及资源分工，不是额外安全策略服务。进度/派发/清理均有固定预算；主队列接收之前的事件不具有端到端期限。正常析构最后停止托管视图，保证原有策略和订阅先释放对象引用。主入口先恢复SIGCHLD可回收状态，再启动辅助进程；`child_startup_cleanup.cpp`只在独立测试中包装系统调用，验证pidfd分配失败仍能清理自有子进程。
 
 建议按[静态读取](STATIC_EVENT_READER.md)→[分析文件直传](ANALYSIS_EVENT_READER.md)→[进度监督](READER_HEALTH.md)→[辅助自保护](HELPER_PROTECTION.md)→[托管视图](MANAGED_DECOYS.md)阅读。`secmon-policyctl --require-ready/--require-decoy`只消费同一份已验证状态，不产生第二份策略或恢复循环。
+
+## 2026-10-28新增入口
+
+- `src/vault/main.cpp`、`policy_edit.cpp`、`policy_file.cpp`：root保险箱操作、共享语法候选和可信来源发布；权限仍由已有Map执行，结果不确定时不回写旧策略。
+- `src/decoy/mount_identity.cpp`：内核唯一ID、拓扑与祖先文件系统检查；覆盖检测不是挂载拒绝策略。
+- `src/service_notify.cpp`及`packaging/secmon.service.in`：可选前台就绪/停止通知和只随文档交付的模板。
+- `src/fanotify/reader_error.h`及gate/monitor：指定读取者失败保留原group与BPF，原即时allow合同下显式换组恢复。
+
+当前管理布局为同包v11/528字节。完整目标、实测缺口和下一步顺序以[当前状态](STATUS_2026_10_28.md)为准。
