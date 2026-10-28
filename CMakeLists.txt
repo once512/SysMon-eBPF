@@ -68,7 +68,7 @@ target_compile_options(secmon PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(secmon PRIVATE PkgConfig::LIBBPF secmon-policy Threads::Threads)
 
 # fanotify 与 BPF 链接进同一个服务；分析器仍是独立降权进程。
-target_sources(secmon PRIVATE src/decoy/provider.cpp src/fanotify/event_reader.cpp src/fanotify/monitor.cpp src/fanotify/gate.cpp
+target_sources(secmon PRIVATE src/decoy/mount_identity.cpp src/decoy/provider.cpp src/fanotify/event_reader.cpp src/fanotify/monitor.cpp src/fanotify/gate.cpp
     src/fanotify/decisions.cpp src/fanotify/options.cpp src/fanotify/event_kind.cpp
     src/fanotify/policy.cpp src/fanotify/requester.cpp src/fanotify/metadata.cpp src/fanotify/audit.cpp src/fanotify/status.cpp src/fanotify/stats.cpp
     src/analysis/client.cpp src/analysis/transport.cpp)
@@ -81,7 +81,8 @@ target_compile_options(secmon-policyctl PRIVATE -Wall -Wextra -Werror)
 option(SECMON_BUILD_DECOYFS "Build immutable FUSE virtual decoy view" ON)
 if(SECMON_BUILD_DECOYFS)
     pkg_check_modules(FUSE3 REQUIRED IMPORTED_TARGET fuse3)
-    add_executable(secmon-decoyfs src/decoy/main.cpp)
+    add_executable(secmon-decoyfs src/decoy/main.cpp src/decoy/mount_identity.cpp)
+    target_include_directories(secmon-decoyfs PRIVATE src)
     target_compile_definitions(secmon-decoyfs PRIVATE _FILE_OFFSET_BITS=64)
     target_compile_options(secmon-decoyfs PRIVATE -Wall -Wextra -Werror)
     target_link_libraries(secmon-decoyfs PRIVATE PkgConfig::FUSE3)
@@ -207,8 +208,12 @@ if(BUILD_TESTING)
     add_test(NAME fanotify-cli COMMAND ${CMAKE_COMMAND}
         -DSECMON=$<TARGET_FILE:secmon> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fanotify_cli.cmake)
     add_test(NAME fanotify-help COMMAND secmon --help)
+    add_executable(secmon-mount-identity-tests tests/mount_identity.cpp src/decoy/mount_identity.cpp)
+    target_include_directories(secmon-mount-identity-tests PRIVATE src)
+    target_compile_options(secmon-mount-identity-tests PRIVATE -Wall -Wextra -Werror)
+    add_test(NAME mount-identity COMMAND secmon-mount-identity-tests)
     add_executable(secmon-child-startup-tests tests/child_startup_cleanup.cpp
-        src/analysis/client.cpp src/analysis/transport.cpp src/decoy/provider.cpp)
+        src/analysis/client.cpp src/analysis/transport.cpp src/decoy/provider.cpp src/decoy/mount_identity.cpp)
     target_include_directories(secmon-child-startup-tests PRIVATE src)
     target_compile_options(secmon-child-startup-tests PRIVATE -Wall -Wextra -Werror)
     target_link_options(secmon-child-startup-tests PRIVATE

@@ -3,13 +3,14 @@
 #pragma once
 #include "content_digest.h"
 #include "analysis/protocol.h"
+#include "decoy/mount_identity.h"
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 
 namespace management {
 constexpr std::uint32_t magic = 0x53434d43;
-constexpr std::uint16_t version = 9;
+constexpr std::uint16_t version = 10;
 enum class Command : std::uint32_t { stop = 1, reload = 2, status = 3 };
 // 这些 code 描述管理操作结果，不能拿来代替 fanotify 的 Result 或内核钩子返回的负 errno。
 enum class Code : std::uint32_t {
@@ -102,9 +103,13 @@ struct Reply {
     std::uint64_t decoy_provider_progress_age_ms = 0;
     std::uint32_t decoy_files = 0;
     ProviderError decoy_provider_error = ProviderError::none;
+    std::uint64_t decoy_mount_id = 0;
+    decoy::MountState decoy_mount_state = decoy::MountState::none;
+    std::int32_t decoy_mount_errno = 0;
+    std::uint64_t decoy_mount_sample_age_ms = 0;
 };
 // 只约束当前完整结构的布局；调整字段时同步修改本包两端与测试，不保留历史前缀。
-static_assert(sizeof(Reply) == 472);
+static_assert(sizeof(Reply) == 496);
 class Error : public std::runtime_error {
     Code code_;
 public:

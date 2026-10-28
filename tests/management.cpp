@@ -3,6 +3,7 @@
 #include "management/protocol.h"
 #include "policy_runtime.h"
 #include <iostream>
+#include <cerrno>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -77,13 +78,30 @@ int main()
     reject([](Reply &x) { x.diagnostic_errno = -1; });
     reject([](Reply &x) { x.diagnostic_errno = 4096; });
     reject([](Reply &x) { x.diagnostic_invalid = 1; });
+    reject([](Reply &x) { x.decoy_mount_state = static_cast<decoy::MountState>(99); });
+    reject([](Reply &x) { x.decoy_mount_id = 123; });
+    reject([](Reply &x) { x.decoy_mount_errno = 1; });
+    reject([](Reply &x) { x.decoy_mount_sample_age_ms = 1; });
+    reject([](Reply &x) { x.decoy_mount_errno = -1; });
+    reject([](Reply &x) { x.decoy_mount_errno = 4096; });
+    r.decoy_mount_id = 123; r.decoy_mount_state = decoy::MountState::attached;
     r.decoy_files = 2; r.decoy_provider_pid = 123; r.decoy_provider_state = ProviderState::responsive;
+    reject([](Reply &x) { x.decoy_mount_id = 0; });
+    reject([](Reply &x) { x.decoy_mount_state = decoy::MountState::none; });
+    reject([](Reply &x) { x.decoy_mount_state = decoy::MountState::unknown; });
+    for (const auto state : {decoy::MountState::covered, decoy::MountState::moved, decoy::MountState::detached}) {
+        auto sample = r; sample.decoy_mount_state = state; validate_reply(sample, Command::status);
+    }
+    auto unknown = r; unknown.decoy_mount_state = decoy::MountState::unknown; unknown.decoy_mount_errno = EIO;
+    validate_reply(unknown, Command::status);
+    unknown.decoy_mount_id = 0; unknown.decoy_mount_errno = ENODATA; validate_reply(unknown, Command::status);
     reject([](Reply &x) { x.decoy_files = 0; });
     reject([](Reply &x) { x.decoy_provider_pid = -1; });
     reject([](Reply &x) { x.decoy_provider_state = ProviderState::unresponsive; });
     reject([](Reply &x) { x.decoy_provider_progress_age_ms = reader_stall_ms; });
     r.decoy_provider_state = ProviderState::offline; r.decoy_provider_pid = -1; r.decoy_provider_error = ProviderError::disconnected;
     require(reply_json(r).find("\"decoy_provider_state\":\"offline\"") != std::string::npos);
+    r.decoy_mount_id = 0; r.decoy_mount_state = decoy::MountState::none;
     r.decoy_files = 0; r.decoy_provider_state = ProviderState::none; r.decoy_provider_error = ProviderError::none;
     r.diagnostic_written = 5;
     r.diagnostic_dropped = 2;

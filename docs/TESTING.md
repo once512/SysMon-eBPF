@@ -9,7 +9,7 @@ ctest --test-dir build --output-on-failure
 ./build/secmon --check
 ```
 
-默认构建的 CTest 有 34 项（含虚拟视图参数边界；关闭 SECMON_BUILD_DECOYFS 时为 33 项）（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界，以及离线归组、行为、重放、评估和多对象检查），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
+默认构建的 CTest 有 35 项（含虚拟视图参数边界；关闭 SECMON_BUILD_DECOYFS 时为 34 项）（含独立审计/诊断输出队列、BPF 事件及 fanotify 裁决格式边界，以及离线归组、行为、重放、评估和多对象检查），覆盖命令行拒绝、确定性裁决时钟与 FD 所有权、基础执行及线程/exec 场景工具，以及分析协议、真实扫描和接收 FD 前的内存分配故障。它们不加载 BPF，也不证明内核策略生效。
 
 ## 一次运行特权回归
 
@@ -29,6 +29,7 @@ BUILD_TESTING 开启时还需要 Python 3 解释器，用于无特权协议验�
 
 | 入口名称 | 脚本 | 验证内容 |
 | --- | --- | --- |
+| virtual-mount-identity | `managed_mount_identity.py` | 唯一挂载身份、直接/祖先覆盖、移动、路径复用、暂停、恢复及替代挂载保留 |
 | virtual-managed | `managed_decoy.py` | 托管启动/就绪、默认访问及64文件边界、暂停/死亡/协议错误、保留策略及退出清理 |
 | helper-protection | `helper_protection.py` | 主/新读取者自保护、父服务清理、降权边界、PID namespace与实际拒绝审计 |
 | reader-health | `fanotify_reader_health.py` | 空闲心跳、停止/恢复、未交付请求与审计边界、停止读取者期间退出、死亡报告 |

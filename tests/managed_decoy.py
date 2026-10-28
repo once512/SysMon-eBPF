@@ -19,9 +19,9 @@ from writer_harness import WriterProcess
 
 
 class ManagedRun:
-    def __init__(self, build, root, combined=True, analysis=False, fault=None, invalid_policy=False, allow_other=True, capacity=False, ignore_sigchld=False):
+    def __init__(self, build, root, combined=True, analysis=False, fault=None, invalid_policy=False, allow_other=True, capacity=False, ignore_sigchld=False, mount_relative="view"):
         self.build, self.root = build, root
-        self.view = root / 'view'; self.view.mkdir(mode=0o755)
+        self.view = root / mount_relative; self.view.mkdir(mode=0o755, parents=True)
         root.chmod(0o755)
         management = root / 'management'; management.mkdir(mode=0o700)
         self.control = management / 'control'; self.policy = root / 'policy'

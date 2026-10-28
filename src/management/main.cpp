@@ -53,6 +53,9 @@ int main(int argc, char **argv)
                 code = "analyzer_offline";
             else if ((require_ready || require_decoy) && reply.decoy_files && reply.decoy_provider_state != management::ProviderState::responsive)
                 code = reply.decoy_provider_state == management::ProviderState::offline ? "decoy_provider_offline" : "decoy_provider_unresponsive";
+            else if ((require_ready || require_decoy) && reply.decoy_files &&
+                     (reply.decoy_mount_state != decoy::MountState::attached || reply.decoy_mount_sample_age_ms >= management::reader_stall_ms))
+                code = "decoy_mount_unavailable";
         }
         std::cout << "{\"code\":\"" << code << "\",\"status\":" << management::reply_json(reply) << "}\n";
         return std::string_view(code) == "ok" ? 0 : 1;

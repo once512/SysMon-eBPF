@@ -14,7 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 extern char **environ;
-DecoyProvider::DecoyProvider(const DecoyConfig &config) : files_(config.files.size())
+DecoyProvider::DecoyProvider(const DecoyConfig &config) : files_(config.files.size()), mountpoint_(config.mountpoint)
 {
     int pair[2];
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, pair))
@@ -53,6 +53,9 @@ DecoyProvider::DecoyProvider(const DecoyConfig &config) : files_(config.files.si
                 if (packet.status != analysis::Io::ready || packet.size != sizeof(ready) ||
                     !decoy::valid(ready, decoy::Kind::ready) || ready.sequence)
                     throw std::runtime_error("Invalid decoy provider readiness");
+                mount_id_ = ready.mount_id;
+                mount_ = decoy::inspect_mount(mount_id_, mountpoint_);
+                mount_sample_ = Clock::now(); next_mount_sample_ = mount_sample_ + std::chrono::milliseconds(250);
                 break;
             }
             const auto now = Clock::now();
@@ -93,6 +96,10 @@ void DecoyProvider::stop() noexcept
 DecoyProvider::~DecoyProvider() { stop(); }
 void DecoyProvider::poll_once() noexcept
 {
+    if (Clock::now() >= next_mount_sample_) {
+        mount_ = decoy::inspect_mount(mount_id_, mountpoint_);
+        mount_sample_ = Clock::now(); next_mount_sample_ = mount_sample_ + std::chrono::milliseconds(250);
+    }
     if (failed_) { reap(); return; }
     try {
         decoy::Frame frame;
@@ -118,6 +125,10 @@ void DecoyProvider::poll_once() noexcept
 }
 void DecoyProvider::snapshot(management::Reply &reply) const
 {
+    reply.decoy_mount_id = mount_id_;
+    reply.decoy_mount_state = mount_.state;
+    reply.decoy_mount_errno = mount_.error;
+    reply.decoy_mount_sample_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - mount_sample_).count();
     reply.decoy_provider_error = error_;
     reply.decoy_provider_pid = pid_; reply.decoy_files = files_;
     reply.decoy_provider_progress_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - progress_).count();

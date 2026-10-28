@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "config.h"
+#include "mount_identity.h"
 #include "owned_fd.h"
 #include "management/protocol.h"
 #include <chrono>
@@ -9,6 +10,10 @@ class DecoyProvider {
     OwnedFd channel_, process_;
     pid_t pid_ = -1;
     std::uint32_t files_ = 0;
+    std::string mountpoint_;
+    std::uint64_t mount_id_ = 0;
+    decoy::MountSnapshot mount_;
+    Clock::time_point mount_sample_ = Clock::now(), next_mount_sample_ = mount_sample_;
     Clock::time_point progress_ = Clock::now(), next_probe_ = progress_;
     std::uint64_t sequence_ = 0;
     management::ProviderError error_ = management::ProviderError::none;

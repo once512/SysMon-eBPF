@@ -59,6 +59,12 @@ void validate_reply(const Reply &r, Command expected)
         static_cast<unsigned>(r.decoy_provider_error) > static_cast<unsigned>(ProviderError::sequence) ||
         ((r.decoy_provider_state == ProviderState::offline) != (r.decoy_provider_error != ProviderError::none)) ||
         r.decoy_files > 64 ||
+        static_cast<unsigned>(r.decoy_mount_state) > static_cast<unsigned>(decoy::MountState::unknown) ||
+        r.decoy_mount_errno < 0 || r.decoy_mount_errno > 4095 ||
+        (r.decoy_mount_state == decoy::MountState::unknown ? !r.decoy_mount_errno : r.decoy_mount_errno != 0) ||
+        (r.decoy_files ? (r.decoy_mount_state == decoy::MountState::none ||
+            (!r.decoy_mount_id && r.decoy_mount_state != decoy::MountState::unknown)) :
+            (r.decoy_mount_id || r.decoy_mount_state != decoy::MountState::none || r.decoy_mount_sample_age_ms)) ||
         (r.decoy_provider_state == ProviderState::none ?
             (r.decoy_files || r.decoy_provider_pid != -1 || r.decoy_provider_progress_age_ms) :
             (!r.decoy_files || r.decoy_provider_pid == 0 || r.decoy_provider_pid < -1 ||
@@ -109,6 +115,11 @@ std::string reply_json(const Reply &r)
         << ",\"diagnostic_errno\":" << r.diagnostic_errno;
     const char *provider_errors[] = {"none", "disconnected", "protocol", "transport", "sequence"};
     const char *provider_states[] = {"none", "responsive", "unresponsive", "offline"};
+    static const char *mount_states[] = {"none", "attached", "covered", "moved", "detached", "unknown"};
+    out << ",\"decoy_mount_id\":" << r.decoy_mount_id
+        << ",\"decoy_mount_state\":\"" << mount_states[static_cast<unsigned>(r.decoy_mount_state)]
+        << "\",\"decoy_mount_errno\":" << r.decoy_mount_errno
+        << ",\"decoy_mount_sample_age_ms\":" << r.decoy_mount_sample_age_ms;
     out << ",\"decoy_provider_pid\":" << r.decoy_provider_pid
         << ",\"decoy_provider_state\":\"" << provider_states[static_cast<unsigned>(r.decoy_provider_state)]
         << "\",\"decoy_provider_progress_age_ms\":" << r.decoy_provider_progress_age_ms

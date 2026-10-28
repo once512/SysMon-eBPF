@@ -25,6 +25,8 @@
 #include <sys/socket.h>
 #include "config.h"
 #include "protocol.h"
+#include "mount_identity.h"
+#include "owned_fd.h"
 
 namespace {
 constexpr size_t max_files = 64, file_size = 4096;
@@ -37,6 +39,7 @@ struct View {
     int managed_fd = -1;
     fuse_session *session = nullptr;
     bool ready = false, management_error = false;
+    std::uint64_t mount_id = 0;
 };
 View &view(fuse_req_t req) { return *static_cast<View *>(fuse_req_userdata(req)); }
 bool exists(View &v, fuse_ino_t ino) { return ino >= 1 && ino <= v.files.size() + 1; }
@@ -157,7 +160,7 @@ void initialized(void *userdata, fuse_conn_info *)
 {
     auto &v = *static_cast<View *>(userdata);
     if (v.managed_fd < 0) return;
-    const decoy::Frame ready;
+    decoy::Frame ready; ready.mount_id = v.mount_id;
     v.ready = send(v.managed_fd, &ready, sizeof(ready), MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof(ready);
     if (!v.ready) { v.management_error = true; fuse_session_exit(v.session); }
 }
@@ -309,10 +312,21 @@ int main(int argc, char **argv)
         }
         int result = fuse_session_mount(session, mountpoint.c_str());
         if (!result) {
+            OwnedFd root(::open(mountpoint.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+            try {
+                if (root.get() < 0) throw std::system_error(errno, std::generic_category(), "open decoy mount root");
+                v.mount_id = decoy::unique_mount_id(root.get());
+            } catch (const std::exception &error) {
+                std::fprintf(stderr, "decoyfs: %s; mount identity unknown, leaving mount for explicit cleanup\n", error.what());
+                fuse_remove_signal_handlers(session); fuse_session_destroy(session); return 1;
+            }
             // No per-request logging and no user-space security decisions: a
             // stalled output consumer cannot stall the view's request loop.
             result = v.managed_fd < 0 ? fuse_session_loop(session) : managed_loop(v);
-            fuse_session_unmount(session);
+            if (decoy::inspect_mount(v.mount_id, mountpoint).state == decoy::MountState::attached)
+                fuse_session_unmount(session);
+            else
+                std::fprintf(stderr, "decoyfs: mount moved, covered, detached or unknown; skipping pathname unmount\n");
         }
         fuse_remove_signal_handlers(session);
         fuse_session_destroy(session);
